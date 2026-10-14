@@ -16,6 +16,9 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
+/** Header the gateway sets with the visitor's IP; the APIs read only this one (CLIENT_IP_HEADER). */
+export const CLIENT_IP_HEADER = 'x-threatready-client-ip';
+const firstIp = (v) => (Array.isArray(v) ? v[0] : v)?.split(',')[0]?.trim() || '';
 const loopback = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '');
 
 /** Streams a request to a local child process; works for SSE (no buffering, no timeout). */
@@ -25,7 +28,16 @@ function proxyTo(port, readiness) {
       res.status(503).set('Retry-After', '5').json({ error: { code: 'STARTING', message: 'ThreatReady is starting up. Try again in a few seconds.', retryable: true } });
       return;
     }
-    const headers = { ...req.headers, 'x-forwarded-host': req.headers.host ?? '', 'x-forwarded-proto': req.headers['x-forwarded-proto'] ?? 'https' };
+    // The visitor's real IP for the APIs' rate limits: set by the gateway (never trusted from the
+    // client), taken from what Render's edge adds, falling back to the socket.
+    const clientIp = firstIp(req.headers['true-client-ip']) || firstIp(req.headers['cf-connecting-ip'])
+      || firstIp(req.headers['x-forwarded-for']) || req.socket.remoteAddress || '';
+    const headers = {
+      ...req.headers,
+      [CLIENT_IP_HEADER]: clientIp,
+      'x-forwarded-host': req.headers.host ?? '',
+      'x-forwarded-proto': req.headers['x-forwarded-proto'] ?? 'https',
+    };
     const upstream = http.request({ host: '127.0.0.1', port, method: req.method, path: req.originalUrl, headers }, (up) => {
       res.writeHead(up.statusCode ?? 502, up.headers);
       up.pipe(res);

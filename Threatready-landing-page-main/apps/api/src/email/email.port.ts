@@ -63,7 +63,15 @@ export class ResendEmailAdapter implements EmailPort {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ from: this.from, to: [m.to], subject: m.subject, text: m.text, html: m.html, tags: [{ name: "kind", value: m.kind }] }),
+      // Resend tag values allow only ASCII letters, digits, "_" and "-" (kinds look like "otp:email-verification").
+      body: JSON.stringify({
+        from: this.from,
+        to: [m.to],
+        subject: m.subject,
+        text: m.text,
+        html: m.html,
+        tags: [{ name: "kind", value: m.kind.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 256) }],
+      }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {

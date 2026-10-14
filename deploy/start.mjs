@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import pg from 'pg';
-import { createGateway } from './gateway.mjs';
+import { CLIENT_IP_HEADER, createGateway } from './gateway.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = Number(process.env.PORT || 10000);
@@ -21,8 +21,17 @@ function need(name) {
   if (!v) { console.error(`[launcher] Missing environment variable ${name} (see render.yaml).`); process.exit(1); }
   return v;
 }
-const ONBOARD_DB = need('ONBOARD_DATABASE_URL');
-const INTERVIEW_DB = need('INTERVIEW_DATABASE_URL');
+/**
+ * Neon strings say sslmode=require, which pg treats as verify-full today (and warns it will change).
+ * State verify-full explicitly: same secure behaviour now and after pg v9.
+ */
+const strictSsl = (url) => {
+  const u = new URL(url);
+  if (['require', 'prefer', 'verify-ca'].includes(u.searchParams.get('sslmode') ?? '')) u.searchParams.set('sslmode', 'verify-full');
+  return u.toString();
+};
+const ONBOARD_DB = strictSsl(need('ONBOARD_DATABASE_URL'));
+const INTERVIEW_DB = strictSsl(need('INTERVIEW_DATABASE_URL'));
 const AUTH_SECRET = need('BETTER_AUTH_SECRET');
 const INTERNAL_TOKEN = need('INTERNAL_API_TOKEN');
 const APP_DB_PASSWORD = need('ONBOARD_APP_DB_PASSWORD');
@@ -130,7 +139,7 @@ const onboardEnv = {
   REASONING_STATUS: 'live',
   EMAIL_DRIVER: process.env.RESEND_API_KEY ? 'resend' : 'log',
   ALLOW_NO_CAPTCHA: process.env.TURNSTILE_SECRET_KEY ? 'false' : 'true',
-  CLIENT_IP_HEADER: 'x-forwarded-for',
+  CLIENT_IP_HEADER,
 };
 const interviewEnv = {
   ...common,
