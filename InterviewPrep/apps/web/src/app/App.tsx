@@ -50,7 +50,7 @@ function Sidebar() {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand">
-        <img className="brand-logo" src="/logo-sm.png" width="28" height="27" alt="" />
+        <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo-sm.png`} width="28" height="27" alt="" />
         <span>
           ThreatReady
           <small>InterviewPrep</small>
@@ -104,7 +104,7 @@ function MobileBar() {
   if (!data) return null;
   return (
     <header className="mobile-bar">
-      <img className="brand-logo" src="/logo-sm.png" width="24" height="23" alt="" />
+      <img className="brand-logo" src={`${import.meta.env.BASE_URL}logo-sm.png`} width="24" height="23" alt="" />
       <strong>InterviewPrep</strong>
       <nav aria-label="Main navigation">
         <NavLink to="/interview-prep" end aria-label="Dashboard"><LayoutDashboard className="icon" /></NavLink>

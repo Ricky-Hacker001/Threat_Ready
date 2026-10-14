@@ -1,0 +1,17 @@
+{
+  "name": "threatready-deploy",
+  "private": true,
+  "type": "module",
+  "description": "Single-origin gateway and launcher: every ThreatReady app behind one URL (Render free tier)",
+  "scripts": {
+    "bundle": "esbuild ../threatready-lab-001/server/app.ts ../threatready-lab-001/server/identity.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/labs --log-level=warning && esbuild ../attack-reasoning/server/app.ts ../attack-reasoning/server/identity.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/ar --log-level=warning && esbuild ../threatready-lab-001/server/store.ts --bundle --platform=node --format=esm --packages=external --outdir=dist/labs --log-level=warning",
+    "start": "node deploy/start.mjs"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

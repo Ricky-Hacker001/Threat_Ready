@@ -79,12 +79,18 @@ const EnvSchema = z
     SENTRY_ENVIRONMENT: z.string().optional(),
     RELEASE: z.string().optional(),
     CONTENT_DIR: z.string().optional(),
+    /**
+     * Demo hosting without S3 or Sentry (e.g. Render free). Uploaded files and PDFs then live on
+     * the instance's disk and are lost on restart. Never for real users.
+     */
+    ALLOW_EPHEMERAL_STORAGE: bool.default(false),
+    ALLOW_NO_SENTRY: bool.default(false),
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
-      if (env.STORAGE_DRIVER !== 's3') ctx.addIssue({ code: 'custom', path: ['STORAGE_DRIVER'], message: 'must be s3 in production' });
+      if (env.STORAGE_DRIVER !== 's3' && !env.ALLOW_EPHEMERAL_STORAGE) ctx.addIssue({ code: 'custom', path: ['STORAGE_DRIVER'], message: 'must be s3 in production (or set ALLOW_EPHEMERAL_STORAGE=true for a demo)' });
       if (env.LLM_DRIVER !== 'anthropic') ctx.addIssue({ code: 'custom', path: ['LLM_DRIVER'], message: 'must be anthropic in production' });
-      if (!env.SENTRY_DSN) ctx.addIssue({ code: 'custom', path: ['SENTRY_DSN'], message: 'required in production' });
+      if (!env.SENTRY_DSN && !env.ALLOW_NO_SENTRY) ctx.addIssue({ code: 'custom', path: ['SENTRY_DSN'], message: 'required in production (or set ALLOW_NO_SENTRY=true for a demo)' });
       if (!env.ONBOARD_URL.startsWith('https://')) ctx.addIssue({ code: 'custom', path: ['ONBOARD_URL'], message: 'must be https in production' });
     }
     if (env.STORAGE_DRIVER === 's3' && !env.S3_BUCKET) ctx.addIssue({ code: 'custom', path: ['S3_BUCKET'], message: 'required for s3 storage' });

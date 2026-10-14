@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, ApiError, newRequestId, onConnection, store, fmt, signOut, onboardLinks } from './api';
+import { api, ApiError, newRequestId, onConnection, store, fmt, signOut, onboardLinks, BASE } from './api';
 import { Catalog } from './catalog';
 import { Ctx, Modal, Badge, Tabs, Note, Field, StatusDot, useLab as useLabCtx } from './ui';
 import { IamConsole, S3Console, Ec2Console, VpcConsole } from './services1';
@@ -28,7 +28,7 @@ const parseHash = () => { const [service = 'home', type = '', id = '', tab = '']
 const toHash = (r: any) => '#/' + [r.service, r.type, r.id, r.tab].map(x => encodeURIComponent(x || '')).join('/').replace(/\/+$/, '');
 
 /**
- * labs.threatready.io. `/` is the lab catalog; `/labs/<id>` is one lab. Sign-in happens on
+ * Lab Simulations, served under /labs/. `/labs/` is the catalog; `/labs/<id>` is one lab. Sign-in happens on
  * onboard.threatready.io: with no session the API answers 401 and the client goes there and back.
  */
 export function App() {
@@ -39,9 +39,9 @@ export function App() {
   const go = (to: string) => { history.pushState(null, '', to); setPath(to); window.scrollTo(0, 0); };
   if (err) return <div className="gate"><div className="gate-card"><h1>Cannot reach ThreatReady Labs</h1><Note tone="bad">{err}</Note><button className="btn primary" onClick={load}>Retry</button></div></div>;
   if (!user) return <div className="gate"><div className="gate-card"><div className="spinner" aria-label="Loading" /><p className="muted">Checking your ThreatReady sign-in…</p></div></div>;
-  const m = /^\/labs\/([\w-]{1,40})\/?$/.exec(path);
-  if (m) return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go('/')} />;
-  return <Catalog user={user} open={(id: string) => go(`/labs/${encodeURIComponent(id)}`)} />;
+  const m = new RegExp(`^${BASE}([\\w-]{1,40})/?$`).exec(path);
+  if (m) return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
+  return <Catalog user={user} open={(id: string) => go(`${BASE}${encodeURIComponent(id)}`)} />;
 }
 
 function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any; logout: () => void; backToCatalog: () => void }) {

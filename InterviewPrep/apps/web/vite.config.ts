@@ -5,6 +5,9 @@ import { defineConfig } from 'vitest/config';
 // is proxied so cookies stay first-party. Sign-in is on onboard (VITE_ONBOARD_URL, :5173 locally);
 // this app runs on :5174 and shares onboard's localhost session cookie.
 export default defineConfig({
+  // Built under /interview-prep/ so its assets never collide with onboard's /assets when every app
+  // shares one origin. The app's routes already all start with /interview-prep.
+  base: '/interview-prep/',
   plugins: [react()],
   server: {
     port: 5174,

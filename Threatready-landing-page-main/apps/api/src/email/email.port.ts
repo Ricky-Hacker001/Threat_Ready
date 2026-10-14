@@ -47,6 +47,34 @@ export class SesEmailAdapter implements EmailPort {
   }
 }
 
+/**
+ * Resend over HTTPS (https://resend.com). For hosts that block outbound SMTP
+ * ports, such as Render's free tier. The from-address domain must be verified in Resend.
+ */
+export class ResendEmailAdapter implements EmailPort {
+  private readonly logger = new Logger("ResendEmail");
+
+  constructor(
+    private readonly apiKey: string,
+    private readonly from: string,
+  ) {}
+
+  async send(m: EmailMessage): Promise<void> {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ from: this.from, to: [m.to], subject: m.subject, text: m.text, html: m.html, tags: [{ name: "kind", value: m.kind }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      // Resend's error body names the problem (unverified domain, bad key); never the message content.
+      const detail = await res.text().catch(() => "");
+      throw new Error(`Resend HTTP ${res.status}: ${detail.slice(0, 200)}`);
+    }
+    this.logger.log(`sent kind=${m.kind}`);
+  }
+}
+
 export interface CapturedEmail extends EmailMessage {
   at: string;
 }

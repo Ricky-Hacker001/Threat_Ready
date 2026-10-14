@@ -9,17 +9,18 @@ export const APP_LABEL: Record<AppKey, string> = {
 };
 
 /** Where each app's own dashboard lives; the overview links there for the full picture. */
+// Paths are relative to each app's base URL (it may include a path, e.g. https://host/labs/).
 const APP_HOME: Record<AppKey, string> = {
-  interview: "/interview-prep",
-  labs: "/",
-  reasoning: "/",
+  interview: "interview-prep",
+  labs: "",
+  reasoning: "",
 };
 
 /** The first thing to do in an app that has no activity yet (empty state with a way forward). */
 const FIRST_STEP: Record<AppKey, { label: string; path: string }> = {
-  interview: { label: "Start your first interview", path: "/interview-prep/new" },
-  labs: { label: "Choose a lab", path: "/" },
-  reasoning: { label: "Browse scenarios", path: "/" },
+  interview: { label: "Start your first interview", path: "interview-prep/new" },
+  labs: { label: "Choose a lab", path: "" },
+  reasoning: { label: "Browse scenarios", path: "" },
 };
 
 /** Scores are 0–100 in every app; always say so, so a score is never mistaken for a level or a count. */

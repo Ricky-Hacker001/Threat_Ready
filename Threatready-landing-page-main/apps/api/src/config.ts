@@ -22,7 +22,14 @@ const envSchema = z
     TURNSTILE_SECRET_KEY: optional,
     /** Test hook: point siteverify at a stub. Never set in production. */
     TURNSTILE_VERIFY_URL: optional,
-    EMAIL_DRIVER: z.enum(["log", "ses"]).default("log"),
+    EMAIL_DRIVER: z.enum(["log", "ses", "resend"]).default("log"),
+    /** Resend API key (EMAIL_DRIVER=resend). */
+    RESEND_API_KEY: optional,
+    /**
+     * Free/demo hosting without Cloudflare Turnstile. Sign-up then relies on rate
+     * limits alone; set Turnstile keys before real launch.
+     */
+    ALLOW_NO_CAPTCHA: z.enum(["true", "false"]).default("false"),
     EMAIL_FROM: z.string().min(3).default("ThreatReady <no-reply@threatready.io>"),
     AWS_REGION: z.string().default("ap-south-1"),
     CLIENT_IP_HEADER: z.string().default("x-forwarded-for"),
@@ -56,12 +63,20 @@ const envSchema = z
   .superRefine((env, ctx) => {
     if (env.NODE_ENV !== "production") return;
     const fail = (message: string) => ctx.addIssue({ code: "custom", message });
-    if (env.EMAIL_DRIVER !== "ses") fail("EMAIL_DRIVER must be 'ses' in production");
-    if (!env.TURNSTILE_SECRET_KEY || !env.TURNSTILE_SITE_KEY) fail("Turnstile keys are required in production");
+    if (env.EMAIL_DRIVER === "log") fail("EMAIL_DRIVER must be 'ses' or 'resend' in production");
+    if (env.EMAIL_DRIVER === "resend" && !env.RESEND_API_KEY) fail("RESEND_API_KEY is required for EMAIL_DRIVER=resend");
+    if ((!env.TURNSTILE_SECRET_KEY || !env.TURNSTILE_SITE_KEY) && env.ALLOW_NO_CAPTCHA !== "true") {
+      fail("Turnstile keys are required in production (or set ALLOW_NO_CAPTCHA=true for a demo deployment)");
+    }
     if (env.TURNSTILE_VERIFY_URL) fail("TURNSTILE_VERIFY_URL must not be set in production");
     if (env.RATE_LIMIT_MULTIPLIER !== 1) fail("RATE_LIMIT_MULTIPLIER must be 1 in production");
     if (!env.BETTER_AUTH_URL.startsWith("https://")) fail("BETTER_AUTH_URL must be https in production");
-    if (!env.COOKIE_DOMAIN) fail("COOKIE_DOMAIN is required in production (e.g. threatready.io)");
+    // Subdomain deployment (onboard., interviewprep., …) needs a shared cookie domain. A single-origin
+    // deployment (every app on one host under its own path) shares the host-only cookie already.
+    const origins = new Set(
+      [env.WEB_ORIGIN, env.INTERVIEW_APP_URL, env.LABS_APP_URL, env.REASONING_APP_URL].map((u) => new URL(u).origin),
+    );
+    if (origins.size > 1 && !env.COOKIE_DOMAIN) fail("COOKIE_DOMAIN is required in production when apps are on different hosts (e.g. threatready.io)");
     for (const k of ["INTERVIEW_APP_URL", "LABS_APP_URL", "REASONING_APP_URL"] as const) {
       if (!env[k].startsWith("https://")) fail(`${k} must be https in production`);
     }
@@ -88,31 +103,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
   const c = parsed.data;
   const origin = (u: string) => new URL(u).origin;
+  // An app URL may include its base path (https://host/labs/). Normalise to a trailing slash so
+  // relative paths resolve inside it; origins alone are used for trust and ?next= checks.
+  const base = (u: string) => (u.endsWith("/") ? u : `${u}/`);
   // Product names as threatready.io uses them; every app's header and card shows these.
   const apps: Record<AppKey, RegisteredApp> = {
     interview: {
       key: "interview",
       title: "InterviewPrep",
-      url: origin(c.INTERVIEW_APP_URL),
+      url: base(c.INTERVIEW_APP_URL),
       status: c.INTERVIEW_STATUS,
       internalUrl: (c.INTERVIEW_INTERNAL_URL ?? c.INTERVIEW_APP_URL).replace(/\/+$/, ""),
     },
     labs: {
       key: "labs",
       title: "Lab Simulations",
-      url: origin(c.LABS_APP_URL),
+      url: base(c.LABS_APP_URL),
       status: c.LABS_STATUS,
       internalUrl: (c.LABS_INTERNAL_URL ?? c.LABS_APP_URL).replace(/\/+$/, ""),
     },
     reasoning: {
       key: "reasoning",
       title: "Attack Reasoning Lab",
-      url: origin(c.REASONING_APP_URL),
+      url: base(c.REASONING_APP_URL),
       status: c.REASONING_STATUS,
       internalUrl: (c.REASONING_INTERNAL_URL ?? c.REASONING_APP_URL).replace(/\/+$/, ""),
     },
   };
-  const appOrigins = [...new Set([origin(c.WEB_ORIGIN), ...APP_KEYS.map((k) => apps[k].url)])];
+  const appOrigins = [...new Set([origin(c.WEB_ORIGIN), ...APP_KEYS.map((k) => origin(apps[k].url))])];
   return {
     ...c,
     apps,

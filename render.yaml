@@ -1,0 +1,48 @@
+# Render Blueprint: the whole ThreatReady platform as ONE free web service.
+# Every app is served from one URL (/, /interview-prep/, /labs/, /ar/) so one login works everywhere
+# without a custom domain. Databases: Neon (free). Email: Resend (free). See deploy/README.md.
+services:
+  - type: web
+    name: threatready
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: bash deploy/build.sh
+    startCommand: node --max-old-space-size=96 --max-semi-space-size=2 deploy/start.mjs
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # --- Neon connection strings (direct, not "-pooler"), one database per app ---
+      - key: ONBOARD_DATABASE_URL
+        sync: false
+      - key: INTERVIEW_DATABASE_URL
+        sync: false
+      # --- Generated once by Render; never shared ---
+      - key: BETTER_AUTH_SECRET
+        generateValue: true
+      - key: INTERNAL_API_TOKEN
+        generateValue: true
+      - key: ONBOARD_APP_DB_PASSWORD
+        generateValue: true
+      # --- Email (Resend): sign-up and password-reset codes ---
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # --- AI interviewer (InterviewPrep) ---
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # --- Optional: social sign-in. Redirect URIs: <service URL>/api/auth/callback/google and /github ---
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      # --- Optional: platform admins (comma-separated verified emails) ---
+      - key: ADMIN_EMAILS
+        sync: false

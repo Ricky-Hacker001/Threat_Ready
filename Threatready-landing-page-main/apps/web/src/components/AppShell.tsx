@@ -4,7 +4,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
-import { clearNext, pendingNext, takeNext } from "../lib/platform";
+import { appForUrl, clearNext, pendingNext, takeNext } from "../lib/platform";
 import { AppSwitcher, BrandLink, PlatformFooter, PlatformHeader, ThemeToggle, type ShellLocation } from "./Platform";
 import { ProfileMenu } from "./ProfileMenu";
 import { Button, Notice } from "./ui";
@@ -16,14 +16,7 @@ interface MeContext {
   apps: AppInfo[];
 }
 
-const appTitleFor = (apps: AppInfo[], url: string) => {
-  try {
-    const origin = new URL(url).origin;
-    return apps.find((a) => a.url === origin)?.title ?? "that app";
-  } catch {
-    return "that app";
-  }
-};
+const appTitleFor = (apps: AppInfo[], url: string) => appForUrl(apps, url)?.title ?? "that app";
 const Ctx = createContext<MeContext | null>(null);
 export function useMe(): MeContext {
   const v = useContext(Ctx);

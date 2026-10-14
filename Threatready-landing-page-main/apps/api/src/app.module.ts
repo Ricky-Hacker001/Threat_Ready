@@ -11,7 +11,7 @@ import { HttpExceptionFilter } from "./common/http-exception.filter.js";
 import { CONFIG, type Config } from "./config.js";
 import { DB, PG_POOL, createDb, createPool, type Db } from "./db/db.js";
 import { DevController } from "./dev/dev.controller.js";
-import { EMAIL_PORT, LogEmailAdapter, SesEmailAdapter, type EmailPort } from "./email/email.port.js";
+import { EMAIL_PORT, LogEmailAdapter, ResendEmailAdapter, SesEmailAdapter, type EmailPort } from "./email/email.port.js";
 import { FeaturesController } from "./features/features.controller.js";
 import { FeaturesService } from "./features/features.service.js";
 import { AppsClient } from "./platform/apps.client.js";
@@ -24,7 +24,11 @@ export class AppModule {
     const pool = createPool(config.DATABASE_URL);
     const db = createDb(pool);
     const email: EmailPort =
-      config.EMAIL_DRIVER === "ses" ? new SesEmailAdapter(config.AWS_REGION, config.EMAIL_FROM) : new LogEmailAdapter();
+      config.EMAIL_DRIVER === "ses"
+        ? new SesEmailAdapter(config.AWS_REGION, config.EMAIL_FROM)
+        : config.EMAIL_DRIVER === "resend"
+          ? new ResendEmailAdapter(config.RESEND_API_KEY!, config.EMAIL_FROM)
+          : new LogEmailAdapter();
     const auth = createAuth(config, db, email);
 
     const devControllers = config.EMAIL_DRIVER === "log" && config.NODE_ENV !== "production" ? [DevController] : [];

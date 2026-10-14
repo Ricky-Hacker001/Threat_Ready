@@ -17,7 +17,7 @@ import { Brand, Button, Field, GitHubLogo, GoogleLogo, Notice, PasswordField } f
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor, OAUTH_MESSAGES } from "../lib/errors";
-import { pendingNext } from "../lib/platform";
+import { appForUrl, pendingNext } from "../lib/platform";
 import { useTurnstile } from "../lib/turnstile";
 
 type Flash = { tone: "ok" | "info" | "error"; text: string } | null;
@@ -125,12 +125,7 @@ export function AuthPage() {
   const returningTo = (() => {
     const next = pendingNext();
     if (!next || !config) return null;
-    try {
-      const origin = new URL(next).origin;
-      return config.apps.find((a) => a.url === origin)?.title ?? null;
-    } catch {
-      return null;
-    }
+    return appForUrl(config.apps, next)?.title ?? null;
   })();
 
   return (

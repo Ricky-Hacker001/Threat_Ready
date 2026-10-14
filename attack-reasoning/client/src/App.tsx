@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, BASE } from './api';
 import { Shell } from './shell';
 import './app.css';
 
@@ -8,7 +8,7 @@ interface Scenario { id: string; title: string; track: string; summary: string; 
 interface Catalog { levels: { level: string; minutes: string; hints: string }[]; dimensions: { code: string; name: string }[]; scenarios: Scenario[] }
 
 /**
- * ar.threatready.io. `/` lists the Attack Reasoning scenarios; `/scenarios/<id>` is one scenario's
+ * Attack Reasoning Lab, served under /ar/. `/ar/` lists the scenarios; `/ar/scenarios/<id>` is one scenario's
  * dedicated page. Sign-in happens on onboard.threatready.io (401 → there and back).
  */
 export function App() {
@@ -20,8 +20,8 @@ export function App() {
 
   if (err) return <div className="tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
   if (!user) return <div className="tr-center"><div className="tr-note"><span className="tr-spinner" aria-hidden="true" />Checking your ThreatReady sign-in…</div></div>;
-  const m = /^\/scenarios\/([\w-]{1,40})\/?$/.exec(path);
-  return <Shell current="reasoning" user={user}>{m ? <ScenarioPage id={m[1]!} back={() => go('/')} /> : <ScenarioList open={(id) => go(`/scenarios/${encodeURIComponent(id)}`)} />}</Shell>;
+  const m = new RegExp(`^${BASE}scenarios/([\\w-]{1,40})/?$`).exec(path);
+  return <Shell current="reasoning" user={user}>{m ? <ScenarioPage id={m[1]!} back={() => go(BASE)} /> : <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />}</Shell>;
 }
 
 function Techniques({ list }: { list: Technique[] }) {
@@ -58,7 +58,7 @@ function ScenarioList({ open }: { open: (id: string) => void }) {
             <span className="tr-eyebrow" style={{ margin: 0 }}>{s.track}</span>
             {s.available ? <span className="tr-tag tr-tag-live">Live</span> : <span className="tr-tag tr-tag-soon">Coming soon</span>}
           </div>
-          <h3 className="tr-h3"><a className="ar-card-link" href={`/scenarios/${s.id}`} onClick={e => { e.preventDefault(); open(s.id); }}>{s.title}</a></h3>
+          <h3 className="tr-h3"><a className="ar-card-link" href={`${BASE}scenarios/${s.id}`} onClick={e => { e.preventDefault(); open(s.id); }}>{s.title}</a></h3>
           <p>{s.summary}</p>
           <Techniques list={s.techniques} />
           <div className="tr-card-foot">
@@ -83,7 +83,7 @@ function ScenarioPage({ id, back }: { id: string; back: () => void }) {
   const s = data?.scenario;
   return <>
     <section className="tr-page-head"><div className="tr-wrap">
-      <nav className="ar-crumbs" aria-label="Breadcrumb"><a href="/" onClick={e => { e.preventDefault(); back(); }}>All scenarios</a><span aria-hidden="true">/</span><span>{s?.title ?? id}</span></nav>
+      <nav className="ar-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={e => { e.preventDefault(); back(); }}>All scenarios</a><span aria-hidden="true">/</span><span>{s?.title ?? id}</span></nav>
       {s && <div className="tr-page-head-in">
         <div>
           <span className="tr-eyebrow">{s.track} · <span className="tr-mono">{s.id}</span></span>

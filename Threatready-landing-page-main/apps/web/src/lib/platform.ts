@@ -55,3 +55,8 @@ export function takeNext(allowedOrigins: readonly string[]): { url: string | nul
   s?.setItem(BOUNCE_KEY, JSON.stringify({ url, at: Date.now() }));
   return { url, bounced: null };
 }
+
+/** The app a URL belongs to: the registered app with the longest matching base URL. */
+export function appForUrl<T extends { url: string }>(apps: T[], url: string): T | undefined {
+  return apps.filter((a) => url.startsWith(a.url) || url === a.url.replace(/\/$/, "")).sort((a, b) => b.url.length - a.url.length)[0];
+}

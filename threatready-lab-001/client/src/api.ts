@@ -3,14 +3,18 @@ export const store = LS;
 
 // Sign-in lives on onboard.threatready.io (the ThreatReady identity provider). The session cookie is
 // shared across *.threatready.io (localhost cookies ignore the port in development).
-export const ONBOARD_URL = ((import.meta as any).env?.VITE_ONBOARD_URL as string | undefined)?.replace(/\/+$/, '') || 'http://localhost:5173';
+/** This app's base path (/labs/). The API is under it: /labs/api. */
+export const BASE = import.meta.env.BASE_URL;
+// Empty VITE_ONBOARD_URL = onboard on the same origin (single-origin deployment).
+const onboardEnv = import.meta.env.VITE_ONBOARD_URL as string | undefined;
+export const ONBOARD_URL = (onboardEnv ?? 'http://localhost:5173').replace(/\/+$/, '');
 const onboard = (path: string, next: string) => `${ONBOARD_URL}${path}?next=${encodeURIComponent(next)}`;
 /** Sign in on onboard, then come back to this exact page. */
 export const signIn = () => location.assign(onboard('/', location.href));
 /** A trial session (no account) can't use labs: create an account on onboard, then come back. */
 export const signUp = () => location.assign(`${onboard('/', location.href)}&mode=signup`);
 /** One sign-out for every ThreatReady app. */
-export const signOut = () => location.assign(onboard('/signout', location.origin + '/'));
+export const signOut = () => location.assign(onboard('/signout', location.origin + BASE));
 export const onboardLinks = { home: `${ONBOARD_URL}/app`, profile: `${ONBOARD_URL}/app/profile` };
 
 let onConn: (ok: boolean) => void = () => {};
@@ -20,7 +24,7 @@ export class ApiError extends Error { constructor(public status: number, message
 export async function api(path: string, body?: any, method?: string): Promise<any> {
   let res: Response;
   try {
-    res = await fetch(`/api${path}`, { method: method || (body !== undefined ? 'POST' : 'GET'), credentials: 'include', headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
+    res = await fetch(`${BASE}api${path}`, { method: method || (body !== undefined ? 'POST' : 'GET'), credentials: 'include', headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch { onConn(false); throw new ApiError(0, 'Cannot reach the lab server. Check your connection and retry.'); }
   onConn(true);
   const json = await res.json().catch(() => ({}));

@@ -57,4 +57,4 @@ for p in 3200 5173 3100 5174 4000 5175 4100 5176; do
   listening "$p" && echo "  :$p up" || echo "  :$p NOT up — see $L/"
 done
 echo
-echo "Open http://localhost:5173  (InterviewPrep :5174 · Labs :5175 · Attack Reasoning :5176)"
+echo "Open http://localhost:5173  (InterviewPrep :5174/interview-prep · Labs :5175/labs/ · Attack Reasoning :5176/ar/)"

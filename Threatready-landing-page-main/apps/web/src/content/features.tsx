@@ -5,7 +5,7 @@ export interface FeatureCopy {
   key: FeatureKey;
   /** The app (subdomain) that hosts this feature */
   app: AppKey;
-  /** Path inside the app the card opens */
+  /** Path inside the app the card opens, relative to the app's base URL (no leading slash) */
   path: string;
   title: string;
   description: string;
@@ -31,7 +31,7 @@ export const FEATURES: FeatureCopy[] = [
   {
     key: "interview",
     app: "interview",
-    path: "/interview-prep",
+    path: "interview-prep",
     title: "InterviewPrep",
     description:
       "Practise technical interview questions for the security role you're aiming at, and strengthen the concepts behind your answers.",
@@ -53,7 +53,7 @@ export const FEATURES: FeatureCopy[] = [
   {
     key: "simulations",
     app: "labs",
-    path: "/",
+    path: "",
     title: "Lab Simulations",
     description:
       "Work through hands-on scenarios in simulated security environments. Follow structured objectives to find and handle security issues. Nothing touches real systems.",
@@ -82,7 +82,7 @@ export const FEATURES: FeatureCopy[] = [
   {
     key: "reasoning",
     app: "reasoning",
-    path: "/",
+    path: "",
     title: "Attack Reasoning Lab",
     description:
       "Examine an attack scenario, analyse the evidence and explain your reasoning. Get structured feedback on how well your explanation holds up.",

@@ -45,7 +45,8 @@ export function BrandLink({ to = "/app", sub }: { to?: string; sub?: string }) {
   );
 }
 
-const APP_PATH: Record<AppKey, string> = { interview: "/interview-prep", labs: "/", reasoning: "/" };
+// Relative to each app's base URL, which may include a path (https://host/labs/) in a single-origin deployment.
+const APP_PATH: Record<AppKey, string> = { interview: "interview-prep", labs: "", reasoning: "" };
 
 /** Where an app's own home page is. */
 export const appHref = (a: Pick<AppInfo, "key" | "url">) => new URL(APP_PATH[a.key], a.url).toString();

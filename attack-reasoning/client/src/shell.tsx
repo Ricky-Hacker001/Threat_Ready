@@ -5,11 +5,12 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/jetbrains-mono';
 import './platform.css';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, onboardLinks, signOut } from './api';
+import { api, BASE, onboardLinks, signOut } from './api';
 
 type AppKey = 'interview' | 'labs' | 'reasoning';
 interface PlatformApp { key: AppKey; title: string; url: string; status: string }
-const APP_PATH: Record<AppKey, string> = { interview: '/interview-prep', labs: '/', reasoning: '/' };
+// Relative to each app's base URL (it may include a path, e.g. https://host/labs/).
+const APP_PATH: Record<AppKey, string> = { interview: 'interview-prep', labs: '', reasoning: '' };
 /** Used until onboard's registry answers; the registry's titles win once loaded. */
 const FALLBACK_TITLE: Record<AppKey, string> = { interview: 'InterviewPrep', labs: 'Lab Simulations', reasoning: 'Attack Reasoning Lab' };
 const href = (a: PlatformApp) => new URL(APP_PATH[a.key], a.url).toString();
@@ -72,7 +73,7 @@ export function PlatformHeader({ current, user }: { current: AppKey; user: any }
   useEffect(() => { api('/platform').then((p: any) => setApps(p.apps ?? []), () => undefined); }, []);
   const title = apps.find(a => a.key === current)?.title ?? FALLBACK_TITLE[current];
   return <header className="tr-nav"><div className="tr-wrap tr-nav-in">
-    <a className="tr-brand" href="/" aria-label={`ThreatReady ${title} home`}><img src="/logo-sm.png" width="26" height="25" alt="" />ThreatReady<small>{title}</small></a>
+    <a className="tr-brand" href={BASE} aria-label={`ThreatReady ${title} home`}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady<small>{title}</small></a>
     <nav aria-label="ThreatReady apps"><ul className="tr-apps">
       <li><a className="tr-app-link" href={onboardLinks.home}>Home</a></li>
       {apps.map(a => <li key={a.key}>{a.status === 'live'
@@ -87,7 +88,7 @@ const SITE = 'https://threatready.io';
 export function PlatformFooter() {
   return <footer className="tr-footer"><div className="tr-wrap">
     <div className="tr-footer-in">
-      <div><a className="tr-brand" href={SITE}><img src="/logo-sm.png" width="26" height="25" alt="" />ThreatReady</a>
+      <div><a className="tr-brand" href={SITE}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady</a>
         <p>Role-based assessment of security reasoning and interview readiness. A product of Aerovant Technologies.</p></div>
       <nav aria-label="Legal and help"><ul>
         {[['How it works', 'how-it-works'], ['Scoring rubric', 'rubric'], ['Security', 'security'], ['Privacy', 'privacy'], ['Terms', 'terms'], ['Contact', 'contact']].map(([l, p]) =>
