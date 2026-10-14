@@ -17,7 +17,7 @@ import {
   SubmitAnswerRequest,
 } from '../interviews.js';
 import { InterviewDashboard, InterviewReport, SignedDownload, SkillProgress } from '../reports.js';
-import { Me } from '../platform.js';
+import { Me, PlatformApps } from '../platform.js';
 import { z } from '../zod.js';
 
 export type Permission =
@@ -78,6 +78,7 @@ export const ROUTES: RouteContract[] = [
   { id: 'getReportPdf', method: 'get', path: '/v1/interviews/{id}/report/pdf', summary: 'Short-lived download link for the report PDF', permission: 'report:read', rateClass: 'general', response: SignedDownload },
   { id: 'getDashboard', method: 'get', path: '/v1/interview-prep/dashboard', summary: 'Dashboard aggregates from persisted data', permission: 'interview:read', rateClass: 'general', response: InterviewDashboard },
   { id: 'getInterviewerModel', method: 'get', path: '/v1/assets/interviewer-model', summary: 'The 3D interviewer model, AES-GCM encrypted per response (key and IV in X-Asset-Key / X-Asset-Iv); never cached. The licence forbids making it publicly downloadable.', permission: 'interview:read', rateClass: 'general', binary: true },
+  { id: 'getPlatform', method: 'get', path: '/v1/platform', summary: 'Every ThreatReady app (names, URLs, status) for the shared header', permission: 'interview:read', rateClass: 'general', response: PlatformApps },
   { id: 'getMe', method: 'get', path: '/v1/me', summary: 'The signed-in ThreatReady user (identity from onboard.threatready.io)', permission: 'interview:read', rateClass: 'general', response: Me },
   { id: 'getMySkills', method: 'get', path: '/v1/skills/me', summary: 'Skill scores from interview evidence', permission: 'skills:read', rateClass: 'general', response: z.array(SkillProgress) },
 ].map((r) => ({ ...r, body: r.body && json(r.body) })) as RouteContract[];

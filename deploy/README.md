@@ -61,7 +61,8 @@ child processes on loopback ports, memory-capped to fit 512 MB. Migrations run o
   sign-up then relies on rate limits.
 - **No Sentry** unless you set `SENTRY_DSN`.
 - **The 3D interviewer model isn't in the repo** (its licence forbids public download). Without it
-  InterviewPrep shows its 2D fallback interviewer. To use it, add it in Render → Environment →
+  InterviewPrep shows Alex in 2D: an illustrated interviewer with lip sync, blinking and listening
+  motion, which works in every browser. To use it, add it in Render → Environment →
   **Secret Files** with the name `interviewer.glb`; the launcher installs it at start. Never commit it.
 
 ## Troubleshooting

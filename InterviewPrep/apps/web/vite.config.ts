@@ -8,7 +8,24 @@ export default defineConfig({
   // Built under /interview-prep/ so its assets never collide with onboard's /assets when every app
   // shares one origin. The app's routes already all start with /interview-prep.
   base: '/interview-prep/',
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      // Dev only: Vite serves the base with a trailing slash; the app and other apps link to /interview-prep.
+      name: 'interview-prep-base-redirect',
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          if (req.url === '/interview-prep' || req.url?.startsWith('/interview-prep?') || req.url === '/') {
+            res.statusCode = 302;
+            res.setHeader('Location', `/interview-prep/${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+            res.end();
+            return;
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     port: 5174,
     strictPort: true,
@@ -17,6 +34,8 @@ export default defineConfig({
     },
   },
   build: {
+    // Cross-browser: Chrome/Edge/Firefox 100+, Safari 15+ (every browser from 2022 on).
+    target: ['es2020', 'chrome100', 'edge100', 'firefox100', 'safari15'],
     sourcemap: true,
     rollupOptions: {
       output: {

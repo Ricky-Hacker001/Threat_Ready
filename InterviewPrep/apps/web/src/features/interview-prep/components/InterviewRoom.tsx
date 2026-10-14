@@ -387,9 +387,9 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
         <section className="stage-col" aria-label="Interviewer">
           <div className="stage-frame">
             {textOnly ? (
-              <AvatarFallback status={stageStatus} speaking={speaking} />
+              <AvatarFallback status={stageStatus} speaking={speaking} candidateTyping={stage.candidateTyping} />
             ) : (
-              <Suspense fallback={<AvatarFallback status={stageStatus} />}>
+              <Suspense fallback={<AvatarFallback status={stageStatus} speaking={speaking} candidateTyping={stage.candidateTyping} />}>
                 <InterviewerStage {...stage} onFallback={() => setTextOnly(true)} />
               </Suspense>
             )}
@@ -578,7 +578,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
                   </span>
                   {!voiceMode && <span className="hint row tight" aria-hidden><span className="kbd">Ctrl</span>+<span className="kbd"><CornerDownLeft style={{ width: 11, height: 11, verticalAlign: -1 }} /></span></span>}
                   {config?.voiceAnswers && !voiceMode && (
-                    <span className="hint row tight"><Keyboard className="icon sm" aria-hidden /> {rec.supported ? 'Typing mode' : 'Voice needs Chrome or Edge'}</span>
+                    <span className="hint row tight"><Keyboard className="icon sm" aria-hidden /> {rec.supported ? 'Typing mode' : 'Voice answers aren’t supported in this browser'}</span>
                   )}
                   <button className="btn primary" type="button" onClick={() => void doSubmit()} disabled={!canAnswer || !answer.trim()}>
                     {phase === 'evaluating' ? <span className="spinner" /> : <><Send className="icon sm" aria-hidden /> Submit answer</>}

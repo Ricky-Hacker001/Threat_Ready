@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { BrainCircuit, ChevronRight, Clock, FileText, History, Plus, Sparkles } from 'lucide-react';
+import { BrainCircuit, ChevronRight, Clock, FileText, History, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../../lib/api';
@@ -29,7 +29,6 @@ export default function HistoryPage() {
           <h1>Interview history</h1>
           <p className="subtle" style={{ marginTop: 8 }}>Every session you started, with its report when it is ready.</p>
         </div>
-        <Link to="/interview-prep/new" className="btn primary"><Plus className="icon sm" aria-hidden /> New interview</Link>
       </div>
       {q.error && <ErrorAlert error={q.error} onRetry={() => void q.refetch()} />}
 

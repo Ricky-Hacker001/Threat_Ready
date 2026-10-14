@@ -79,5 +79,5 @@ export function visemeAt(seq: Viseme[], duration: number, t: number): Viseme | n
     acc += (lens[i]! / total) * duration;
     if (t < acc) return seq[i]!;
   }
-  return seq.at(-1) ?? null;
+  return seq[seq.length - 1] ?? null;
 }

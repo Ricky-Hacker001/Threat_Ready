@@ -33,7 +33,7 @@ export default function DashboardPage() {
   const d = q.data;
   const firstName = me?.name.split(/\s+/)[0] ?? 'there';
   const isNew = d ? d.recent.length === 0 : false;
-  const trend = d && d.scoreHistory.length >= 2 ? d.scoreHistory.at(-1)!.score - d.scoreHistory.at(-2)!.score : null;
+  const trend = d && d.scoreHistory.length >= 2 ? d.scoreHistory[d.scoreHistory.length - 1]!.score - d.scoreHistory[d.scoreHistory.length - 2]!.score : null;
 
   return (
     <div className="page">

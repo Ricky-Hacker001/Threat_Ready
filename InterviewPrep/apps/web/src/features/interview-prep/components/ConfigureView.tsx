@@ -207,7 +207,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
           <div className="field" role="radiogroup" aria-label="Interview style">
             <span>Interview style</span>
             <div className="choices cols-3">
-              <Choice icon={Mic} checked={config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: true })} title="Voice" hint={voiceSupported() ? 'Alex speaks; you answer out loud, like a real interview' : 'Needs Chrome or Edge'} recommended={voiceSupported()} compact />
+              <Choice icon={Mic} checked={config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: true })} title="Voice" hint={voiceSupported() ? 'Alex speaks; you answer out loud, like a real interview' : 'Speaking answers isn’t supported in this browser (try Chrome, Edge or Safari)'} recommended={voiceSupported()} disabled={!voiceSupported()} compact />
               <Choice icon={Volume2} checked={config.speakQuestions && !config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: false })} title="Spoken questions" hint="Alex speaks; you type" compact />
               <Choice icon={Keyboard} checked={!config.speakQuestions && !config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: false, voiceAnswers: false })} title="Text only" hint="Read and type, no audio" compact />
             </div>
@@ -265,9 +265,9 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Choice({ checked, onClick, title, hint, recommended, icon: Icon, compact }: { checked: boolean; onClick: () => void; title: string; hint: string; recommended?: boolean; icon?: LucideIcon; compact?: boolean }) {
+function Choice({ checked, onClick, title, hint, recommended, icon: Icon, compact, disabled }: { checked: boolean; onClick: () => void; title: string; hint: string; recommended?: boolean; icon?: LucideIcon; compact?: boolean; disabled?: boolean }) {
   return (
-    <button type="button" role="radio" aria-checked={checked} className="choice" onClick={onClick} style={compact ? { padding: '12px 12px' } : undefined}>
+    <button type="button" role="radio" aria-checked={checked} aria-disabled={disabled || undefined} className="choice" onClick={disabled ? undefined : onClick} style={compact ? { padding: '12px 12px' } : undefined}>
       {checked ? (
         <span className="tick" aria-hidden><Check className="icon sm" style={{ width: 12, height: 12 }} /></span>
       ) : (

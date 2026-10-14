@@ -10,6 +10,7 @@ import type {
 } from '@threatready/contracts';
 import { TERMINAL_STATES } from '@threatready/contracts';
 import type { Response } from 'express';
+import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import type { AuthedRequest } from '../platform/http/route.guard.js';
 import { Public, Route } from '../platform/http/route.decorator.js';
 import { SseStream } from '../platform/http/sse.js';
@@ -219,8 +220,28 @@ export class ProgressController {
   }
 }
 
+/** onboard's public config, cached: the shared header lists every app with its URL and status. */
+let platformCache: { at: number; apps: unknown[] } | null = null;
+
 @Controller('v1')
 export class MeController {
+  constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {}
+
+  @Get('platform')
+  @Route('getPlatform')
+  async platform() {
+    if (platformCache && Date.now() - platformCache.at < 300_000) return { apps: platformCache.apps };
+    try {
+      const res = await fetch(`${this.cfg.IDENTITY_URL.replace(/\/+$/, '')}/api/public/config`, { signal: AbortSignal.timeout(3000) });
+      const body = (await res.json()) as { apps?: unknown[] };
+      platformCache = { at: Date.now(), apps: Array.isArray(body.apps) ? body.apps : [] };
+    } catch {
+      // onboard unreachable: keep the last good list, or none (the header then shows Home only)
+      platformCache = { at: Date.now() - 240_000, apps: platformCache?.apps ?? [] };
+    }
+    return { apps: platformCache.apps };
+  }
+
   /** The signed-in user. Identity comes from onboard.threatready.io; there is no local sign-in. */
   @Get('me')
   @Route('getMe')

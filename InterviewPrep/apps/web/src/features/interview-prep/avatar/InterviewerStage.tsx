@@ -1,5 +1,6 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AvatarFallback } from './AvatarFallback';
+import { modelKnownUnavailable } from './modelAvailability';
 import { StatusPill } from './StatusPill';
 import { hasWebGL } from './webgl';
 import './avatar.css';
@@ -55,7 +56,9 @@ export default function InterviewerStage({
   className,
   onFallback,
 }: InterviewerStageProps) {
-  const [fallback, setFallback] = useState<FallbackReason | null>(() => (hasWebGL() ? null : 'no-webgl'));
+  const [fallback, setFallback] = useState<FallbackReason | null>(() =>
+    !hasWebGL() ? 'no-webgl' : modelKnownUnavailable() ? 'asset-error' : null,
+  );
   const [ready, setReady] = useState(false);
   const notified = useRef(false);
   const onFallbackRef = useRef(onFallback);
@@ -80,7 +83,7 @@ export default function InterviewerStage({
   const onReady = useCallback(() => setReady(true), []);
 
   if (fallback) {
-    return <AvatarFallback status={status} speaking={speaking} reason={fallback} className={className} />;
+    return <AvatarFallback status={status} speaking={speaking} candidateTyping={candidateTyping} reason={fallback} className={className} />;
   }
 
   return (

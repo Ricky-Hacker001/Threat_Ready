@@ -8,6 +8,7 @@ import type {
   InterviewReport,
   Me,
   PlanInterviewRequest,
+  PlatformApps,
   SessionList,
   SessionView,
   SignedDownload,
@@ -136,6 +137,7 @@ export async function streamTurn(path: string, body: unknown, onEvent: (e: TurnS
 
 export const api = {
   me: () => request<Me>('GET', '/v1/me'),
+  platform: () => request<PlatformApps>('GET', '/v1/platform'),
   dashboard: () => request<InterviewDashboard>('GET', '/v1/interview-prep/dashboard'),
   mySkills: () => request<SkillProgress[]>('GET', '/v1/skills/me'),
   listSessions: (cursor?: string) => request<SessionList>('GET', `/v1/interviews${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),

@@ -139,7 +139,7 @@ describe('voice interview', () => {
     delete (window as unknown as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition;
     renderRoom(session(true));
     expect(screen.queryByText('Voice interview')).not.toBeInTheDocument();
-    expect(screen.getByText('Voice needs Chrome or Edge')).toBeInTheDocument();
+    expect(screen.getByText('Voice answers aren’t supported in this browser')).toBeInTheDocument();
     expect(screen.getByLabelText('Your answer')).toBeEnabled();
   });
 });

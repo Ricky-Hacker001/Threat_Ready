@@ -9,14 +9,15 @@ describe('InterviewerStage without WebGL', () => {
     expect(hasWebGL()).toBe(false);
   });
 
-  it('renders the accessible 2D fallback and reports no-webgl once', () => {
+  it('renders the 2D interviewer and reports no-webgl once', () => {
     const onFallback = vi.fn();
     const { rerender } = render(<InterviewerStage status="preparing" speaking={false} onFallback={onFallback} />);
 
     const live = screen.getByRole('status');
     expect(live).toHaveTextContent('Preparing');
     expect(live).toHaveAttribute('aria-live', 'polite');
-    expect(screen.getByText(/works fully in text mode/i)).toBeInTheDocument();
+    // The 2D interviewer (Alex) stands in, with lip sync; no error copy for a normal 2D session.
+    expect(screen.getByRole('img', { name: /alex, your interviewer/i })).toBeInTheDocument();
     expect(onFallback).toHaveBeenCalledTimes(1);
     expect(onFallback).toHaveBeenCalledWith('no-webgl');
 

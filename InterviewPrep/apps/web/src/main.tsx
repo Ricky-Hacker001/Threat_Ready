@@ -4,6 +4,8 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './app/App';
 import { ApiError } from './lib/api';
+// Shared ThreatReady shell first; InterviewPrep's component styles build on its tokens.
+import './ui/platform.css';
 import './ui/theme.css';
 
 const queryClient = new QueryClient({

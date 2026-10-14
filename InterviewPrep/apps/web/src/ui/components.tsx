@@ -194,7 +194,7 @@ export function Sparkline({ values, width = 220, height = 48 }: { values: number
       </defs>
       <polygon points={area} fill="url(#spark)" />
       <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      <circle cx={xy.at(-1)![0]} cy={xy.at(-1)![1]} r="3.5" fill="var(--accent-strong)" />
+      <circle cx={xy[xy.length - 1]![0]} cy={xy[xy.length - 1]![1]} r="3.5" fill="var(--accent-strong)" />
     </svg>
   );
 }

@@ -1,5 +1,6 @@
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MODEL_URL } from './avatarContract';
+import { clearModelUnavailable, markModelUnavailable } from './modelAvailability';
 
 const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -14,7 +15,6 @@ const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
  */
 let pending: Promise<GLTF> | undefined;
 export const RETRY_AFTER_MS = 30_000;
-
 class ModelUnavailableError extends Error {
   constructor(readonly status: number) {
     super(`Could not load the interviewer model: ${status}`);
@@ -40,13 +40,15 @@ export function loadInterviewerModel(): Promise<GLTF> {
   const attempt = pending;
   attempt.catch((err: unknown) => {
     const permanent = err instanceof ModelUnavailableError && err.status >= 400 && err.status < 500;
+    if (permanent && err.status !== 401) markModelUnavailable();
     // Keep the rejected promise cached: every caller gets the same failure without a new request.
     if (!permanent) setTimeout(() => { if (pending === attempt) pending = undefined; }, RETRY_AFTER_MS);
   });
   return attempt;
 }
 
-/** Test helper: forget the cached model. */
+/** Test helper: forget the cached model and the session's "unavailable" note. */
 export function resetInterviewerModel() {
   pending = undefined;
+  clearModelUnavailable();
 }

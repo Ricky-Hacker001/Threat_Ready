@@ -42,3 +42,11 @@ export interface AppAiUsage {
   byModel: (AiUsageTotals & { model: string })[];
   byFeature: (AiUsageTotals & { feature: string })[];
 }
+
+/** Every ThreatReady app for the shared header (from onboard's public config, cached by the API). */
+export const PlatformApps = z
+  .object({
+    apps: z.array(z.object({ key: z.enum(['interview', 'labs', 'reasoning']), title: z.string(), url: z.string(), status: z.string() })),
+  })
+  .openapi('PlatformApps');
+export type PlatformApps = z.infer<typeof PlatformApps>;

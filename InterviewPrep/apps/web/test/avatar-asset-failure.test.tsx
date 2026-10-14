@@ -23,8 +23,7 @@ describe('InterviewerStage asset failure', () => {
 
     render(<InterviewerStage status="asking" speaking onFallback={onFallback} />);
 
-    expect(await screen.findByText(/works fully in text mode/i)).toBeInTheDocument();
-    expect(screen.getByText(/couldn’t be loaded/i)).toBeInTheDocument();
+    expect(await screen.findByRole('img', { name: /alex, your interviewer/i })).toBeInTheDocument();
     expect(screen.getByRole('status')).toHaveTextContent('Asking');
     expect(onFallback).toHaveBeenCalledTimes(1);
     expect(onFallback).toHaveBeenCalledWith('asset-error');
