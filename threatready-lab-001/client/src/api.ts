@@ -24,10 +24,18 @@ export class ApiError extends Error { constructor(public status: number, message
 export async function api(path: string, body?: any, method?: string): Promise<any> {
   let res: Response;
   try {
-    res = await fetch(`${BASE}api${path}`, { method: method || (body !== undefined ? 'POST' : 'GET'), credentials: 'include', headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
+    res = await fetch(`${BASE}api${path}`, { method: method || (body !== undefined ? 'POST' : 'GET'), credentials: 'include', cache: 'no-store', headers: body !== undefined ? { 'Content-Type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined });
   } catch { onConn(false); throw new ApiError(0, 'Cannot reach the lab server. Check your connection and retry.'); }
   onConn(true);
-  const json = await res.json().catch(() => ({}));
+  // A success that isn't JSON (a proxy page, a dev-server restart) is an error, not data.
+  const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  // A body that fails to parse (cut off when the page navigates away mid-response) is an error too;
+  // returning {} would hand callers an object without the fields they expect.
+  let json: any = {};
+  if (isJson) {
+    try { json = await res.json(); } catch { if (res.ok) throw new ApiError(0, 'The response was interrupted. Retry in a moment.', 'BAD_RESPONSE'); }
+  }
+  if (res.ok && !isJson) throw new ApiError(res.status, 'Unexpected response from the server. Retry in a moment.', 'BAD_RESPONSE');
   if (res.status === 401) { signIn(); throw new ApiError(401, 'Signing you in…', 'AUTH_REQUIRED'); }
   if (res.status === 403 && json.code === 'AUTH_ACCOUNT_REQUIRED') { signUp(); throw new ApiError(403, json.error, json.code); }
   if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.code);

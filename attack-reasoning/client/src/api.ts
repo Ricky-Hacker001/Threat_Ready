@@ -15,9 +15,17 @@ export class ApiError extends Error { constructor(public status: number, message
 
 export async function api<T = any>(path: string): Promise<T> {
   let res: Response;
-  try { res = await fetch(`${BASE}api${path}`, { credentials: 'include' }); }
+  try { res = await fetch(`${BASE}api${path}`, { credentials: 'include', cache: 'no-store' }); }
   catch { throw new ApiError(0, 'Cannot reach ThreatReady. Check your connection and retry.'); }
-  const json = await res.json().catch(() => ({}));
+  // A success that isn't JSON (a proxy page, a dev-server restart) is an error, not data.
+  const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
+  // A body that fails to parse (cut off when the page navigates away mid-response) is an error too;
+  // returning {} would hand callers an object without the fields they expect.
+  let json: any = {};
+  if (isJson) {
+    try { json = await res.json(); } catch { if (res.ok) throw new ApiError(0, 'The response was interrupted. Retry in a moment.', 'BAD_RESPONSE'); }
+  }
+  if (res.ok && !isJson) throw new ApiError(res.status, 'Unexpected response from the server. Retry in a moment.', 'BAD_RESPONSE');
   if (res.status === 401) { signIn(); throw new ApiError(401, 'Signing you in…', 'AUTH_REQUIRED'); }
   if (res.status === 403 && json.code === 'AUTH_ACCOUNT_REQUIRED') { signUp(); throw new ApiError(403, json.error, json.code); }
   if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.code);

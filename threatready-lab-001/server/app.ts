@@ -27,6 +27,9 @@ const runStatus = (s: Session, st: any) => (st.complete ? 'Completed' : s.status
 export function createApp(store: Store, staticDir: string | undefined, opts: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
+  // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
+  // and a cached 304 must not stand in for a fresh list).
+  app.set('etag', false);
   app.use(express.json({ limit: '64kb' }));
 
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
@@ -71,6 +74,7 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
 
   /* ---------------- Browser API ---------------- */
   const api = express.Router();
+  api.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
   // State-changing requests must come from this app's own pages (the session cookie is SameSite=Lax).
   api.use((req, res, next) => {

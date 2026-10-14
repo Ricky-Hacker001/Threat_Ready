@@ -11,7 +11,7 @@ const hours = (m: number) => `${Math.round((m / 60) * 10) / 10} h`;
 /** labs.threatready.io: every ThreatReady lab, with this learner's progress in each. */
 export function Catalog({ user, open }: { user: any; open: (id: string) => void }) {
   const [labs, setLabs] = useState<Entry[] | null>(null); const [err, setErr] = useState('');
-  const load = () => { setErr(''); api('/labs').then(setLabs, (e: any) => { if (e.status !== 401) setErr(e.message); }); };
+  const load = () => { setErr(''); api('/labs').then((r) => (Array.isArray(r) ? setLabs(r) : setErr('Unexpected response from the server. Retry in a moment.')), (e: any) => { if (e.status !== 401) setErr(e.message); }); };
   useEffect(load, []);
   const live = labs?.filter(l => l.available) ?? []; const soon = labs?.filter(l => !l.available) ?? [];
   const inProgress = live.filter(l => l.progress && !l.progress.complete).length;

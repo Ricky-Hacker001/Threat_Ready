@@ -1,0 +1,12 @@
+{
+  "name": "threatready-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Cross-browser journeys across every ThreatReady app (Chromium, Firefox, WebKit)",
+  "scripts": {
+    "test": "node cross-browser.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.64.0"
+  }
+}

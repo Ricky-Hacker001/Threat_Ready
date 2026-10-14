@@ -56,6 +56,8 @@ export async function createApiApp(cfg: AppConfig): Promise<NestExpressApplicati
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRole('api', cfg), { bodyParser: false, logger: ['error', 'warn'] });
   const http = app.getHttpAdapter().getInstance() as express.Express;
   http.disable('x-powered-by');
+  // Per-user API data: never cached or revalidated (privacy on shared machines; no stale 304s).
+  http.set('etag', false);
   http.set('trust proxy', 1);
 
   http.use((req: Request, res: Response, next: NextFunction) => {
@@ -65,6 +67,7 @@ export async function createApiApp(cfg: AppConfig): Promise<NestExpressApplicati
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+    if (!res.hasHeader('Cache-Control')) res.setHeader('Cache-Control', 'no-store');
     requestContext.run({ requestId }, next);
   });
   app.enableCors({ origin: cfg.APP_ORIGIN, credentials: true, exposedHeaders: ['X-Request-Id', 'Retry-After', 'X-Asset-Key', 'X-Asset-Iv'] });

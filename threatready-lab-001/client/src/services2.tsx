@@ -15,7 +15,7 @@ export function CloudTrailConsole() {
 function EventHistory() {
   const { session, cloud, act, busy, status } = useLab(); const [q, setQ] = useState(''); const [page, setPage] = useState(1); const [data, setData] = useState<any>(null); const [err, setErr] = useState(''); const [sel, setSel] = useState<any>(null);
   useInspect('cloudtrail/events/all#list');
-  const load = () => { let live = true; api(`/sessions/${session.id}/cloudtrail?page=${page}&size=12&q=${encodeURIComponent(q)}`).then(d => { if (live) { setData(d); setErr(''); } }).catch(e => live && setErr(e.message)); return () => { live = false; }; };
+  const load = () => { let live = true; api(`/sessions/${session.id}/cloudtrail?page=${page}&size=12&q=${encodeURIComponent(q)}`).then(d => { if (live && Array.isArray(d?.rows)) { setData(d); setErr(''); } }).catch(e => live && setErr(e.message)); return () => { live = false; }; };
   useEffect(load, [page, q, cloud.cloudtrail.eventCount, session.id]);
   const pages = data ? Math.max(1, Math.ceil(data.total / 12)) : 1; const inLocker = sel && status.evidence.some((e: any) => e.id === sel.id);
   return <div className={sel ? 'split' : ''}><Panel pad={false}>

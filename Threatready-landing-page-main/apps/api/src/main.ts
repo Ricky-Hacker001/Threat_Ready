@@ -22,6 +22,13 @@ async function bootstrap() {
   });
   const http = app.getHttpAdapter().getInstance() as express.Express;
   http.disable("x-powered-by");
+  // API responses are per-user (or auth state): never cached or revalidated by browsers or proxies.
+  // The public config is the same for everyone and may be cached briefly.
+  http.set("etag", false);
+  http.use("/api", (req, res, next) => {
+    res.setHeader("Cache-Control", req.path === "/public/config" ? "public, max-age=60" : "no-store");
+    next();
+  });
 
   if (config.WEB_ORIGIN !== new URL(config.BETTER_AUTH_URL).origin) {
     // Split-host deployment (app.* and api.*): credentialed CORS for the SPA only.

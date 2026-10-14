@@ -1,6 +1,16 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
+function baseRedirect(req: { url?: string }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: () => void }, next: () => void) {
+  if (req.url === '/interview-prep' || req.url?.startsWith('/interview-prep?') || req.url === '/') {
+    res.statusCode = 302;
+    res.setHeader('Location', `/interview-prep/${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+    res.end();
+    return;
+  }
+  next();
+}
+
 // Static SPA for Cloudflare (L2/L3), served at interviewprep.threatready.io. In development the API
 // is proxied so cookies stay first-party. Sign-in is on onboard (VITE_ONBOARD_URL, :5173 locally);
 // this app runs on :5174 and shares onboard's localhost session cookie.
@@ -11,18 +21,14 @@ export default defineConfig({
   plugins: [
     react(),
     {
-      // Dev only: Vite serves the base with a trailing slash; the app and other apps link to /interview-prep.
+      // Vite's dev and preview servers serve the base with a trailing slash; the app and the other apps
+      // link to /interview-prep (production's gateway accepts both).
       name: 'interview-prep-base-redirect',
+      configurePreviewServer(server) {
+        server.middlewares.use(baseRedirect);
+      },
       configureServer(server) {
-        server.middlewares.use((req, res, next) => {
-          if (req.url === '/interview-prep' || req.url?.startsWith('/interview-prep?') || req.url === '/') {
-            res.statusCode = 302;
-            res.setHeader('Location', `/interview-prep/${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
-            res.end();
-            return;
-          }
-          next();
-        });
+        server.middlewares.use(baseRedirect);
       },
     },
   ],

@@ -14,17 +14,20 @@ import {
   Repeat2,
   Send,
   Settings2,
+  ShieldAlert,
   SkipForward,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router';
 import { formatClock } from '../../../lib/format';
 import { ErrorAlert, useToast } from '../../../ui/components';
 import { AvatarFallback } from '../avatar/AvatarFallback';
 import { hasWebGL } from '../avatar/webgl';
 import { useInterviewSession } from '../hooks/useInterviewSession';
+import { useTabGuard } from '../hooks/useTabGuard';
 import { chime, SPEECH_LANGS, useSpeech, useSpeechRecognition } from '../hooks/useVoice';
 import { appendPhrase, SECURITY_PHRASES } from '../lib/transcript';
 import '../room.css';
@@ -92,6 +95,32 @@ function Waveform({ active }: { active: boolean }) {
 
 type Capture = 'answer' | 'clarify';
 
+/** Shown when the candidate comes back after switching away from the interview tab. */
+function TabSwitchWarning({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+  const btn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    btn.current?.focus();
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onDismiss(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onDismiss]);
+  // On <body>: the room's entrance animation would otherwise trap position: fixed inside it.
+  return createPortal(
+    <div className="tab-guard" role="presentation">
+      <div className="tab-guard-box card fade-in" role="alertdialog" aria-modal="true" aria-labelledby="tab-guard-title" aria-describedby="tab-guard-body">
+        <span className="icon-tile warn"><ShieldAlert className="icon lg" aria-hidden /></span>
+        <h2 id="tab-guard-title">You’re not allowed to switch tabs</h2>
+        <p id="tab-guard-body" className="subtle">
+          Stay on this tab until the interview ends, as you would in a real interview. The timer kept running while you were away.
+          {count > 1 ? ` You have left the interview ${count} times.` : ''}
+        </p>
+        <button ref={btn} className="btn primary" type="button" onClick={onDismiss}>Return to the interview</button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function InterviewRoom({ initial }: { initial: SessionView }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -119,6 +148,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
   const typingTimer = useRef<number | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(session);
+  const tabGuard = useTabGuard(session.id, ['asking', 'awaiting_answer', 'evaluating'].includes(session.state));
   const turn = session.currentTurn;
   const draftKey = turn ? `tr:draft:${turn.turnId}` : null;
   const canAnswer = session.state === 'awaiting_answer' && phase === 'idle' && !!turn;
@@ -370,6 +400,8 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
           )}
         </div>
       </header>
+
+      {tabGuard.warning && <TabSwitchWarning count={tabGuard.count} onDismiss={tabGuard.dismiss} />}
 
       {confirmEnd && (
         <div className="alert warn fade-in" style={{ marginBottom: 16 }} role="alertdialog" aria-label="End interview">

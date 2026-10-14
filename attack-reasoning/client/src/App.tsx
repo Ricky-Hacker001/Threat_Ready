@@ -30,7 +30,7 @@ function Techniques({ list }: { list: Technique[] }) {
 
 function ScenarioList({ open }: { open: (id: string) => void }) {
   const [data, setData] = useState<Catalog | null>(null); const [err, setErr] = useState(''); const [track, setTrack] = useState('All');
-  useEffect(() => { api<Catalog>('/scenarios').then(setData, (e: ApiError) => { if (e.status !== 401) setErr(e.message); }); }, []);
+  useEffect(() => { api<Catalog>('/scenarios').then((d) => (Array.isArray(d?.scenarios) ? setData(d) : setErr('Unexpected response from the server. Retry in a moment.')), (e: ApiError) => { if (e.status !== 401) setErr(e.message); }); }, []);
   const tracks = data ? ['All', ...new Set(data.scenarios.map(s => s.track))] : [];
   const shown = data?.scenarios.filter(s => track === 'All' || s.track === track) ?? [];
   const live = data?.scenarios.filter(s => s.available).length ?? 0;

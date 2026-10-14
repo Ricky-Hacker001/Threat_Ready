@@ -25,6 +25,9 @@ export interface AppOptions {
 export function createApp(staticDir: string | undefined, opts: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
+  // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
+  // and a cached 304 must not stand in for a fresh list).
+  app.set('etag', false);
   app.use(express.json({ limit: '16kb' }));
 
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
@@ -51,6 +54,7 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
 
   /* ---------------- Browser API ---------------- */
   const api = express.Router();
+  api.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   api.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) return res.status(403).json({ error: 'Cross-origin request refused.' });
     next();

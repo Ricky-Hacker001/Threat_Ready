@@ -250,7 +250,7 @@ export function describeTest(t: any) {
 
 function Dock({ open, setOpen }: { open: boolean; setOpen: (b: boolean) => void }) {
   const { status, session } = useLabCtx(); const [tab, setTab] = useState('activity'); const [page, setPage] = useState(1); const [data, setData] = useState<any>({ rows: [], total: 0 }); const [err, setErr] = useState('');
-  useEffect(() => { if (!open || tab !== 'activity') return; let live = true; api(`/sessions/${session.id}/activity?page=${page}`).then(d => { if (live) { setData(d); setErr(''); } }).catch(e => live && setErr(e.message)); return () => { live = false; }; }, [open, tab, page, status.minutes, status.failedActions, session.id]);
+  useEffect(() => { if (!open || tab !== 'activity') return; let live = true; api(`/sessions/${session.id}/activity?page=${page}`).then(d => { if (live && Array.isArray(d?.rows)) { setData(d); setErr(''); } }).catch(e => live && setErr(e.message)); return () => { live = false; }; }, [open, tab, page, status.minutes, status.failedActions, session.id]);
   const bad = status.health.filter((h: any) => !h.ok).length;
   return <section className={`dock ${open ? 'open' : ''}`} aria-label="Activity dock">
     <div className="dock-h"><Tabs value={open ? tab : ''} onChange={t => { setTab(t); setOpen(true); }} tabs={[{ id: 'activity', label: 'Activity' }, { id: 'timeline', label: 'Incident timeline' }, { id: 'health', label: <>App health {bad > 0 ? <Badge tone="red">{bad} failing</Badge> : <Badge tone="green">OK</Badge>}</> }]} /><button className="x" onClick={() => setOpen(!open)} aria-label={open ? 'Collapse dock' : 'Expand dock'}>{open ? '▾' : '▴'}</button></div>
