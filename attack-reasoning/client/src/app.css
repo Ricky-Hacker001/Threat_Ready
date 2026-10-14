@@ -1,0 +1,31 @@
+/* Attack Reasoning page parts. Everything else comes from platform.css (threatready.io's design). */
+body { margin: 0; }
+.tr-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.tr-shell > main { flex: 1; }
+.ar-filters { flex-wrap: wrap; margin-bottom: 12px; }
+/* Phones: one scrollable row instead of four rows of chips above the content. */
+@media (max-width: 640px) { .ar-filters { flex-wrap: nowrap; margin-right: calc(-1 * var(--gutter)); padding-right: var(--gutter); } }
+.ar-count { margin: 0 0 16px; }
+.ar-filter { height: 40px; padding: 0 12px; border-radius: var(--r1); border: 1px solid var(--border); background: transparent; color: var(--text-2); font: 500 14px/1 var(--font); cursor: pointer; }
+.ar-filter:hover { color: var(--text); background: var(--surface); }
+.ar-filter[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
+.ar-card { position: relative; transition: border-color 0.15s; }
+.ar-card:hover { border-color: var(--border-strong); }
+.ar-card-link { color: var(--text); text-decoration: none; }
+.ar-card-link::after { content: ""; position: absolute; inset: 0; border-radius: var(--r2); }
+.ar-card-link:hover { text-decoration: none; }
+.ar-more { font-size: 14px; font-weight: 600; color: var(--accent-text); }
+.ar-facts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.ar-facts .tr-eyebrow { margin-bottom: 4px; }
+.ar-crumbs { display: flex; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--text-3); margin-bottom: 16px; }
+.ar-crumbs a { color: var(--text-2); text-decoration: none; }
+.ar-crumbs a:hover { color: var(--text); text-decoration: underline; }
+.ar-start { display: grid; gap: 8px; justify-items: start; max-width: 260px; }
+.ar-detail { display: grid; gap: 16px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: start; }
+.ar-main, .ar-side { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 900px) { .ar-detail { grid-template-columns: minmax(0, 1fr); } }
+.ar-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--text-2); font-size: 15px; }
+.ar-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.ar-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 6px 8px 6px 0; }
+.ar-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); color: var(--text-2); vertical-align: middle; }
+.ar-link { font-size: 14px; font-weight: 600; color: var(--accent-text); }

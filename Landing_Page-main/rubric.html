@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="ThreatReady's public scoring rubric. The five anchored dimensions used by our 3-Pass AI engine — Threat Identification, Containment & Response, Architecture & Blast Radius, Communication Quality, Framework Application — with concrete score-band definitions for each.">
+<meta name="robots" content="index, follow">
+<title>Scoring Rubric — ThreatReady</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
+<script>var t='dark';try{if(localStorage.getItem('tr-theme')==='light')t='light'}catch(e){}document.documentElement.setAttribute('data-theme',t)</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="assets/css/site.css">
+<link rel="stylesheet" href="assets/css/doc.css">
+<style>
+.rdim{margin:24px 0 32px;padding:20px 22px;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+.rdim h3{margin:0 0 6px;font-size:1.0625rem;letter-spacing:-.005em}
+.rdim-desc{margin:0 0 12px;color:var(--text-2);font-size:.9rem;line-height:1.55}
+.rband{display:grid;grid-template-columns:90px 1fr;gap:12px;padding:8px 0;border-top:1px solid var(--border-2);font-size:.875rem;line-height:1.5}
+.rband:first-of-type{border-top:none;padding-top:6px}
+.rband-l{font-family:var(--mono);font-weight:700;font-size:.75rem;color:var(--primary);letter-spacing:.02em;padding-top:1px}
+.rband-t{color:var(--text-2)}
+@media (max-width:520px){.rband{grid-template-columns:1fr;gap:2px}.rband-l{font-size:.7rem}}
+.qband{display:grid;grid-template-columns:120px 130px 1fr;gap:14px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;align-items:center}
+.qband-r{font-family:var(--mono);font-weight:600;font-size:.8125rem;color:var(--text-2)}
+.qband-l{font-weight:700;font-size:.8125rem;letter-spacing:.06em;color:var(--primary);text-transform:uppercase}
+.qband-d{font-size:.875rem;color:var(--text-2)}
+@media (max-width:600px){.qband{grid-template-columns:1fr;gap:4px}.qband-l{order:1}.qband-r{order:2;color:var(--text-3)}.qband-d{order:3}}
+.cflag{display:grid;grid-template-columns:90px 1fr;gap:14px;padding:12px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:.875rem;line-height:1.55}
+.cflag-h{font-weight:700;font-size:.75rem;letter-spacing:.08em;color:var(--primary);text-transform:uppercase;padding-top:2px}
+.cflag-d{color:var(--text-2)}
+</style>
+</head>
+<body data-nav="scoring">
+
+<!-- @nav -->
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav" id="top">
+  <div class="wrap nav-in">
+    <a class="brand" href="index.html" aria-label="ThreatReady home"><img src="logo-sm.png" width="26" height="25" alt="">ThreatReady</a>
+    <nav aria-label="Primary">
+      <ul class="nav-links">
+        <li>
+          <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-product">Product <svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg></button>
+          <ul class="menu" id="menu-product">
+            <li><a href="attack-reasoning-lab.html"><span class="dot dot-lab"></span><span><span class="mi-t">Attack Reasoning Lab</span><span class="mi-d">Reason through a live attack chain</span></span></a></li>
+            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Role-based daily work · in development</span></span></a></li>
+            <li><a href="interviewprep.html"><span class="dot dot-int"></span><span><span class="mi-t">InterviewPrep</span><span class="mi-d">An interview built from a real job description</span></span></a></li>
+          </ul>
+        </li>
+        <li><a class="nav-link" href="pilot.html">For Teams</a></li>
+        <li><a class="nav-link" href="transparent-scoring.html" aria-current="page">Scoring</a></li>
+        <li>
+          <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-resources">Resources <svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg></button>
+          <ul class="menu" id="menu-resources">
+            <li><a href="resources.html"><span><span class="mi-t">All resources</span><span class="mi-d">Reports, rubric, workflow and trust documents</span></span></a></li>
+            <li><a href="sample-report.html"><span><span class="mi-t">Sample report</span><span class="mi-d">A fictional candidate, the real format</span></span></a></li>
+            <li><a href="rubric.html"><span><span class="mi-t">Scoring rubric</span><span class="mi-d">Five dimensions and score bands</span></span></a></li>
+            <li><a href="how-it-works.html"><span><span class="mi-t">How it works</span><span class="mi-d">From role selection to report</span></span></a></li>
+            <li><a href="security.html"><span><span class="mi-t">Security</span><span class="mi-d">How we protect your data</span></span></a></li>
+            <li><a href="contact.html"><span><span class="mi-t">Contact</span><span class="mi-d">Sales, support, privacy and security</span></span></a></li>
+          </ul>
+        </li>
+        <li><a class="nav-link" href="pricing.html">Pricing</a></li>
+      </ul>
+    </nav>
+    <div class="nav-cta">
+      <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch to light theme">
+        <svg class="icon i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+        <svg class="icon i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <a class="nav-link nav-signin" href="https://threatready.io/app/">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
+      <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Open menu">
+        <svg class="icon i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        <svg class="icon i-close" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="drawer" id="drawer">
+    <h3>Product</h3>
+    <ul>
+      <li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li>
+      <li><a href="lab-simulations.html">Lab Simulations <span class="tag tag-soon" style="margin-left:8px">In development</span></a></li>
+      <li><a href="interviewprep.html">InterviewPrep</a></li>
+    </ul>
+    <h3>Company</h3>
+    <ul>
+      <li><a href="pilot.html">For Teams</a></li>
+      <li><a href="transparent-scoring.html">Scoring</a></li>
+      <li><a href="pricing.html">Pricing</a></li>
+      <li><a href="contact.html">Contact</a></li>
+    </ul>
+    <h3>Resources</h3>
+    <ul>
+      <li><a href="resources.html">All resources</a></li>
+      <li><a href="sample-report.html">Sample report</a></li>
+      <li><a href="rubric.html">Scoring rubric</a></li>
+      <li><a href="how-it-works.html">How it works</a></li>
+      <li><a href="security.html">Security</a></li>
+    </ul>
+    <div class="drawer-cta">
+      <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
+      <a class="btn btn-secondary" href="https://threatready.io/app/">Sign in</a>
+    </div>
+  </div>
+</header>
+<!-- /@nav -->
+
+<header class="lhero" id="main">
+<div class="lhero-c">
+<div class="lhero-l">
+<span class="lhero-eyebrow">
+<svg viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-8M14 7h7v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+Transparent evaluation
+</span>
+<h1>The ThreatReady <span class="accent">Scoring Rubric</span></h1>
+<p class="meta">Version 1.0 · Published 22 April 2026</p>
+<p class="intro">We publish our scoring rubric because transparency is how we earn the trust of hiring managers and candidates alike. Read it. Challenge it. Calibrate against it. If we cannot defend how we arrived at a score, we do not deserve to give it.</p>
+<div class="lhero-badges">
+<span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M9 12l2 2 4-4" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/></svg>5 dimensions, 5 levels each</span>
+<span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Concrete examples at every level</span>
+<span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>14-day score dispute window</span>
+<span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M12 2L4 7v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V7l-8-5z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>Public &amp; auditable</span>
+</div>
+</div>
+
+</div>
+</header>
+
+<main class="lbody">
+
+<div class="ltoc">
+<h4>On this page</h4>
+<ol>
+<li><a href="#how">How scoring works</a></li>
+<li><a href="#dim">The five anchored dimensions</a></li>
+<li><a href="#bands">Qualitative bands</a></li>
+<li><a href="#confidence">Confidence levels &amp; dual score</a></li>
+<li><a href="#weights">Question-specific weighting</a></li>
+<li><a href="#example">Worked example</a></li>
+<li><a href="#adaptive">Adaptive questioning</a></li>
+<li><a href="#not">What we don't score</a></li>
+<li><a href="#calib">Consistency &amp; calibration</a></li>
+<li><a href="#challenge">Score challenges</a></li>
+<li><a href="#versions">Version history</a></li>
+</ol>
+</div>
+
+<h2 id="how">1. How scoring works</h2>
+<p>A ThreatReady assessment consists of a single scenario — a real architecture with an active attack chain — followed by five adaptive questions. Each answer is evaluated by our <strong>3-Pass AI engine</strong> (Evaluator → Challenger → Reconciler) against five anchored dimensions, each on a 1–10 integer scale. Every score band has a concrete written definition — a 7 in Threat Identification means something specific and verifiable, not arbitrary AI judgment.</p>
+<p>This page is the canonical reference. We publish it because we want our scores to be auditable. If you ever question a result, every score traces back to one of these bands.</p>
+<div class="callout">
+<strong>The 3-Pass scoring engine</strong>
+<p>Every answer passes through three independent AI evaluations:</p>
+<p><strong>Pass 1 — Evaluator</strong> · Scores generously against the anchored rubric, citing specific evidence from the answer. Tends to over-credit verbose responses (intentional — Pass 2 corrects).</p>
+<p><strong>Pass 2 — Challenger</strong> · Adversarially reviews. Catches technical errors, hallucinated CVEs, non-existent MITRE techniques, fabricated tools, inflated scores, and missing critical elements.</p>
+<p><strong>Pass 3 — Reconciler</strong> · Reviews both passes, resolves disagreements, applies question-specific dimension weighting, generates the model answer, and assigns a confidence level (HIGH / MEDIUM / LOW) based on inter-pass agreement.</p>
+</div>
+<p>A score below 5 means the candidate has gaps that would concern a hiring manager. A score of 5–7 means they are competent but not yet senior. A score of 7–8.5 means strong senior-ready performance. A score above 8.5 indicates expert-level reasoning — rare and worth noting. These are guidelines, not promises; final hiring decisions are always yours.</p>
+
+<h2 id="dim">2. The five anchored dimensions</h2>
+
+<div class="rdim">
+<h3>Dimension 1 · Threat Identification</h3>
+<p class="rdim-desc">Measures whether the candidate correctly identifies attack vectors, techniques, and threat actor behavior.</p>
+<div class="rband"><span class="rband-l">Score 1–2</span><span class="rband-t">Cannot identify the primary attack vector. Names incorrect or irrelevant techniques.</span></div>
+<div class="rband"><span class="rband-l">Score 3–4</span><span class="rband-t">Identifies general attack category but cannot specify technique, tooling, or path. No MITRE mapping.</span></div>
+<div class="rband"><span class="rband-l">Score 5–6</span><span class="rband-t">Correctly identifies primary vector with reasonable MITRE mapping. May miss secondary vectors.</span></div>
+<div class="rband"><span class="rband-l">Score 7–8</span><span class="rband-t">Identifies primary and secondary vectors. Accurate MITRE mapping. Explains attacker decision logic.</span></div>
+<div class="rband"><span class="rband-l">Score 9–10</span><span class="rband-t">Identifies all vectors including non-obvious. Precise MITRE technique IDs. References real-world parallels. Rules out false positives.</span></div>
+</div>
+
+<div class="rdim">
+<h3>Dimension 2 · Containment &amp; Response Logic</h3>
+<p class="rdim-desc">Measures whether the candidate can design an effective containment strategy that minimizes blast radius while preserving evidence.</p>
+<div class="rband"><span class="rband-l">Score 1–2</span><span class="rband-t">No containment strategy or actions that worsen the situation.</span></div>
+<div class="rband"><span class="rband-l">Score 3–4</span><span class="rband-t">Strategy exists but too aggressive (nuclear option) or too passive. No evidence preservation.</span></div>
+<div class="rband"><span class="rband-l">Score 5–6</span><span class="rband-t">Reasonable containment. Considers evidence OR business continuity but not both.</span></div>
+<div class="rband"><span class="rband-l">Score 7–8</span><span class="rband-t">Proportional containment. Balances evidence and business. Correct order of operations.</span></div>
+<div class="rband"><span class="rband-l">Score 9–10</span><span class="rband-t">Operational depth. Second-order effects. Communication protocols. Compliance timelines (CERT-In, GDPR, DPDPA).</span></div>
+</div>
+
+<div class="rdim">
+<h3>Dimension 3 · Architecture &amp; Blast Radius Analysis</h3>
+<p class="rdim-desc">Measures understanding of architectural interconnections and accurate impact assessment.</p>
+<div class="rband"><span class="rband-l">Score 1–2</span><span class="rband-t">No understanding of how architecture components connect.</span></div>
+<div class="rband"><span class="rband-l">Score 3–4</span><span class="rband-t">Identifies compromised component but misses dependencies. Treats components as isolated.</span></div>
+<div class="rband"><span class="rband-l">Score 5–6</span><span class="rband-t">Identifies 1–2 downstream dependencies. Basic blast radius.</span></div>
+<div class="rband"><span class="rband-l">Score 7–8</span><span class="rband-t">Maps full blast radius. Traces data flows, credential reuse, trust relationships. Indirect paths.</span></div>
+<div class="rband"><span class="rband-l">Score 9–10</span><span class="rband-t">Complete analysis including third-party impact. Identifies architectural weaknesses. Proposes segmentation improvements.</span></div>
+</div>
+
+<div class="rdim">
+<h3>Dimension 4 · Communication Quality</h3>
+<p class="rdim-desc">Measures clarity of reasoning, structural organization, and audience-appropriateness.</p>
+<div class="rband"><span class="rband-l">Score 1–2</span><span class="rband-t">Incoherent or incomprehensible response.</span></div>
+<div class="rband"><span class="rband-l">Score 3–4</span><span class="rband-t">Ideas present but poorly organized. Excessive jargon without explanation.</span></div>
+<div class="rband"><span class="rband-l">Score 5–6</span><span class="rband-t">Reasonably clear. Technical peer would understand; manager might struggle.</span></div>
+<div class="rband"><span class="rband-l">Score 7–8</span><span class="rband-t">Well-structured. Clear logical flow. Both peer and manager would understand key points.</span></div>
+<div class="rband"><span class="rband-l">Score 9–10</span><span class="rband-t">Exceptionally clear. Adapts language to audience. Effective in board briefing or technical deep-dive.</span></div>
+</div>
+
+<div class="rdim">
+<h3>Dimension 5 · Framework &amp; Best Practice Application</h3>
+<p class="rdim-desc">Measures correct reference to and application of security frameworks (MITRE ATT&amp;CK, NIST, CIS, ISO 27001).</p>
+<div class="rband"><span class="rband-l">Score 1–2</span><span class="rband-t">No reference to any framework, standard, or established methodology.</span></div>
+<div class="rband"><span class="rband-l">Score 3–4</span><span class="rband-t">Name-drops frameworks without applying them. References superficial or incorrect.</span></div>
+<div class="rband"><span class="rband-l">Score 5–6</span><span class="rband-t">Correctly references 1–2 frameworks. Applies them at surface level.</span></div>
+<div class="rband"><span class="rband-l">Score 7–8</span><span class="rband-t">Applies multiple frameworks correctly and specifically. Accurate technique IDs and control references.</span></div>
+<div class="rband"><span class="rband-l">Score 9–10</span><span class="rband-t">Seamlessly integrates multiple frameworks. Knows when frameworks apply and when they don't. Working vocabulary.</span></div>
+</div>
+
+<h2 id="bands">3. Qualitative bands</h2>
+<p>Every score also maps to a qualitative band that's visible from day one — even before the platform has enough cohort data for percentile rankings. Bands describe what a score means in plain language, so candidates and hiring managers don't need to interpret a 7.2 in isolation.</p>
+<div class="qband"><span class="qband-l">Developing</span><span class="qband-r">1.0 – 3.9</span><span class="qband-d">Early-stage security reasoning. Foundational gaps to close.</span></div>
+<div class="qband"><span class="qband-l">Foundation</span><span class="qband-r">4.0 – 5.9</span><span class="qband-d">Developing security reasoning. Building toward independent judgment.</span></div>
+<div class="qband"><span class="qband-l">Proficient</span><span class="qband-r">6.0 – 7.4</span><span class="qband-d">Mid-level security reasoning. Capable of handling routine incidents.</span></div>
+<div class="qband"><span class="qband-l">Advanced</span><span class="qband-r">7.5 – 8.9</span><span class="qband-d">Senior-level security reasoning. Interview-grade decision quality.</span></div>
+<div class="qband"><span class="qband-l">Expert</span><span class="qband-r">9.0 – 10.0</span><span class="qband-d">Principal-level security reasoning. Leads incident response or architecture.</span></div>
+
+<h2 id="confidence">4. Confidence levels &amp; dual score display</h2>
+<p>Not every score is equally certain. When the Evaluator (Pass 1) and Challenger (Pass 2) disagree significantly, the final score carries that uncertainty forward as a confidence flag. Pretending every AI score is equally reliable destroys trust the moment a buyer catches a bad one — so we publish it.</p>
+<div class="cflag"><span class="cflag-h">High</span><span class="cflag-d">All five dimensions agreed within 1 point between Pass 1 and Pass 2. No critical errors flagged.</span></div>
+<div class="cflag"><span class="cflag-h">Medium</span><span class="cflag-d">1–2 dimensions disagreed by 2 points; remaining dimensions within 1 point. No critical errors.</span></div>
+<div class="cflag"><span class="cflag-h">Low</span><span class="cflag-d">Any dimension disagreed by 3+ points, or Pass 2 flagged critical technical errors that Pass 1 missed. The hiring manager dashboard shows a "Review Recommended" tag and the score is added to the internal QA queue.</span></div>
+<p style="margin-top:14px"><strong>Dual score display.</strong> Every result also shows two scores side by side: <em>Scenario Score</em> (raw, on the question's own scale) and <em>Readiness Score</em> (difficulty-adjusted with caps — Beginner 6.0, Intermediate 8.0, Advanced 9.0, Expert 10.0). Both numbers are honest. The candidate's effort is recognized; the hiring manager's signal is preserved.</p>
+
+<h2 id="weights">5. Question-specific dimension weighting</h2>
+<p>Not every question tests all five dimensions equally. A "map this attack to MITRE" question should weight Threat Identification at 40%. A "write an executive brief" question should weight Communication at 50%. Without per-question weighting, scoring would feel wrong even when the engine works correctly.</p>
+<table>
+<thead><tr><th>Question category</th><th>TI</th><th>CR</th><th>AB</th><th>CQ</th><th>FA</th></tr></thead>
+<tbody>
+<tr><td>Threat Identification</td><td><strong>40%</strong></td><td>10%</td><td>15%</td><td>10%</td><td>25%</td></tr>
+<tr><td>Containment &amp; Response</td><td>10%</td><td><strong>40%</strong></td><td>20%</td><td>15%</td><td>15%</td></tr>
+<tr><td>Architecture Analysis</td><td>15%</td><td>10%</td><td><strong>40%</strong></td><td>10%</td><td>25%</td></tr>
+<tr><td>Executive Communication</td><td>10%</td><td>10%</td><td>5%</td><td><strong>50%</strong></td><td>25%</td></tr>
+<tr><td>Incident Response</td><td>15%</td><td><strong>35%</strong></td><td>15%</td><td>20%</td><td>15%</td></tr>
+<tr><td>Default (balanced)</td><td>20%</td><td>20%</td><td>20%</td><td>20%</td><td>20%</td></tr>
+</tbody>
+</table>
+<p class="muted" style="font-size:.875rem;margin-top:8px"><em>TI = Threat Identification · CR = Containment &amp; Response · AB = Architecture &amp; Blast Radius · CQ = Communication Quality · FA = Framework Application</em></p>
+
+<h2 id="example">6. A worked example</h2>
+<p>Scenario: A Lambda function has unusual outbound traffic. The IAM role attached has <code>s3:*</code> and <code>secrets:*</code>. The S3 bucket contains customer PII.</p>
+<p>Question: <em>What is your first containment step, and why does sequence matter here?</em></p>
+
+<div class="example">
+<div class="example-label">Candidate A<span class="example-score weak">3.8 / 10</span></div>
+<p>"I would look at CloudTrail to see what happened and then maybe change the IAM role."</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 4 — recognises something is wrong but no specific attack path. Containment &amp; Response 3 — investigation-first during active exfiltration. Communication Quality 5 — readable but unstructured. Architecture &amp; Blast Radius 3 — no awareness of dependencies. Framework Application 2 — no MITRE or NIST reference.</p>
+</div>
+
+<div class="example">
+<div class="example-label">Candidate B<span class="example-score mid">6.5 / 10</span></div>
+<p>"First, I'd scope down the IAM role by removing secrets:* and narrowing s3:* to only the specific bucket. Then I'd check CloudTrail for what was accessed and rotate any credentials the Lambda could have read."</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 7 — names the IAM over-permission path. Containment &amp; Response 6 — specific, correct mitigations but doesn't justify sequence. Architecture &amp; Blast Radius 6 — names what the role can reach. Communication Quality 7 — clear structure. Framework Application 5 — implicit least-privilege but no explicit standard cited.</p>
+</div>
+
+<div class="example">
+<div class="example-label">Candidate C<span class="example-score strong">8.9 / 10</span></div>
+<p>"Disable the Lambda function first — remove its trigger or set concurrency to zero. That stops active exfiltration without destroying forensic state, which matters because wiping the role before preserving evidence loses the CloudTrail correlation we'll need later. After that: scope the role (remove secrets:*, narrow s3:* to the specific bucket), rotate credentials the role could have accessed, snapshot the Lambda environment for forensics, and review CloudTrail for scope of what was already taken. Sequence matters because investigation before containment lets the attacker keep reading PII the whole time we're triaging."</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 9 — names primary and secondary vectors. Containment &amp; Response 9 — proportional, evidence-preserving, sequenced. Architecture &amp; Blast Radius 9 — full credential reuse map. Communication Quality 9 — explicit sequencing and rationale. Framework Application 8 — implicit MITRE alignment, NIST 800-61 sequencing visible.</p>
+</div>
+
+<h2 id="adaptive">7. Adaptive questioning logic</h2>
+<p>After each answer, the AI generates a follow-up question based on what the candidate actually said. This serves two purposes:</p>
+<ul>
+<li><strong>Prevents pre-prepared answers.</strong> Generic responses trigger probing follow-ups that can't be anticipated.</li>
+<li><strong>Explores depth.</strong> Strong answers earn harder follow-ups; shallow answers trigger clarifying ones.</li>
+</ul>
+<p>Adaptive questions are bounded by the scenario's MITRE ATT&amp;CK tactics and the role's competency map — the AI cannot wander off-topic into unrelated domains.</p>
+
+<h2 id="not">8. What we deliberately do not score</h2>
+<ul>
+<li><strong>Grammar or spelling</strong>, beyond the threshold where clarity suffers</li>
+<li><strong>Typing speed</strong> or answer length for its own sake</li>
+<li><strong>Regional English or accent</strong> when voice mode is used</li>
+<li><strong>Specific tool preferences</strong> (AWS vs Azure terminology, Splunk vs Elastic) — we score on the reasoning, not the brand</li>
+<li><strong>"Correct" answers that depend on organizational context we haven't given</strong> — we score the reasoning, not the guess</li>
+<li><strong>Agreeing with our model answer</strong> — a well-reasoned alternative can score as well as the model answer if defensible</li>
+</ul>
+
+<h2 id="calib">9. Consistency &amp; calibration</h2>
+<p>We take rubric consistency seriously. Concrete measures:</p>
+<ul>
+<li>All scoring prompts include the full anchored rubric (not a summary)</li>
+<li>Each question includes a role-specific and difficulty-specific rubric anchor</li>
+<li><strong>Nightly regression at 02:00 IST:</strong> 50+ golden answers across 7 categories — Clearly Excellent, Clearly Poor, Fluent But Wrong, Correct But Poorly Communicated, Overconfident Hallucination, Partial But Well-Prioritized, Technically Strong But Business-Blind — run through the live engine. If pass-rate drops below 80%, we freeze prompt changes until investigated.</li>
+<li>Pass 1, 2, 3 raw outputs are stored for 90 days for auditability. Hiring managers can request explanation of any score; the system regenerates the full Pass 1 / Pass 2 / Pass 3 trace.</li>
+<li>Every month, the founder and 2 core engineers manually review 20–30 flagged evaluations to track AI-vs-human agreement.</li>
+</ul>
+
+<h2 id="challenge">10. Score challenges</h2>
+<p>If you believe your score is wrong, you can challenge it. Here's how:</p>
+<ol>
+<li>Within 14 days of receiving the score, email <a href="mailto:admin@aerovanttech.com">admin@aerovanttech.com</a> with your session ID and a specific explanation of what you believe was mis-scored and why</li>
+<li>A security engineer reviews the full transcript and rubric application within 7 business days</li>
+<li>We respond with either a confirmed score (with a rubric-grounded explanation) or a revised score</li>
+<li>All challenges and outcomes are logged. Patterns are fed back into rubric refinement</li>
+</ol>
+
+<h2 id="versions">11. Version history</h2>
+<table>
+<thead><tr><th>Version</th><th>Date</th><th>Summary of changes</th></tr></thead>
+<tbody>
+<tr><td>1.0</td><td>22 April 2026</td><td>Initial publication.</td></tr>
+<tr><td>2.0</td><td>May 2026</td><td>Updated to v4 spec — five anchored dimensions, 3-Pass scoring engine, qualitative bands, confidence levels, dual score display, question-specific weighting, golden-answer regression. Replaces the v1 three-dimension model.</td></tr>
+</tbody>
+</table>
+
+</main>
+
+<!-- @footer -->
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="footer-about">
+        <a class="brand" href="index.html"><img src="logo-sm.png" width="26" height="25" alt="">ThreatReady</a>
+        <p>Role-based assessment of security reasoning and interview readiness. A product of Aerovant Technologies.</p>
+        <div class="social"><a href="https://www.linkedin.com/in/aerovant-technologies/" target="_blank" rel="noopener noreferrer" aria-label="Aerovant Technologies on LinkedIn (opens in a new tab)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9v9M6 6v.01M10 18v-5a3 3 0 016 0v5M10 10v8"/><rect x="2" y="2" width="20" height="20" rx="4"/></svg></a><a href="https://x.com/aerovant_tech" target="_blank" rel="noopener noreferrer" aria-label="Aerovant Technologies on X (opens in a new tab)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M20 4L4 20"/></svg></a><a href="https://www.youtube.com/@aerovanttechnologies" target="_blank" rel="noopener noreferrer" aria-label="Aerovant Technologies on YouTube (opens in a new tab)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="4"/><path d="M10 9l5 3-5 3z"/></svg></a><a href="https://www.instagram.com/aerovant_technologies" target="_blank" rel="noopener noreferrer" aria-label="Aerovant Technologies on Instagram (opens in a new tab)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/></svg></a><a href="https://www.facebook.com/people/Aerovant-Technologies/61587139213075/" target="_blank" rel="noopener noreferrer" aria-label="Aerovant Technologies on Facebook (opens in a new tab)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h-2a4 4 0 00-4 4v3H7v4h2v7h4v-7h3l1-4h-4V7a1 1 0 011-1h2z"/></svg></a></div>
+      </div>
+      <nav aria-labelledby="f-product"><h2 id="f-product">Product</h2><ul><li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li><li><a href="lab-simulations.html">Lab Simulations</a></li><li><a href="interviewprep.html">InterviewPrep</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="pilot.html">For teams</a></li></ul></nav>
+      <nav aria-labelledby="f-resources"><h2 id="f-resources">Resources</h2><ul><li><a href="resources.html" target="_blank" rel="noopener noreferrer">All resources<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="sample-report.html" target="_blank" rel="noopener noreferrer">Sample report<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="rubric.html" target="_blank" rel="noopener noreferrer">Scoring rubric<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="transparent-scoring.html" target="_blank" rel="noopener noreferrer">How scoring works<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="how-it-works.html" target="_blank" rel="noopener noreferrer">How it works<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html" target="_blank" rel="noopener noreferrer">Contact<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+      <nav aria-labelledby="f-legal"><h2 id="f-legal">Legal</h2><ul><li><a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="terms.html" target="_blank" rel="noopener noreferrer">Terms of service<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="dpa.html" target="_blank" rel="noopener noreferrer">Data processing agreement<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="security.html" target="_blank" rel="noopener noreferrer">Security<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+    </div>
+    <div class="footer-bottom">
+      <span>&copy; <span data-year>2026</span> Aerovant Technologies Pvt. Ltd.</span>
+    </div>
+  </div>
+</footer>
+<!-- /@footer -->
+
+
+<script src="assets/js/site.js" defer></script>
+<script src="back-to-top.js" defer></script>
+</body>
+</html>

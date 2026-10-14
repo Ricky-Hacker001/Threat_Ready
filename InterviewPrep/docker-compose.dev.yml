@@ -1,0 +1,9 @@
+# Local PostgreSQL only. Everything else runs from npm scripts (no Redis, no extra services).
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: threatready
+      POSTGRES_PASSWORD: threatready
+      POSTGRES_DB: threatready
+    ports: ['55432:5432']

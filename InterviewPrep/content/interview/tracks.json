@@ -1,0 +1,55 @@
+{
+  "version": "2026-10-12.1",
+  "note": "Scenario seeds are starting points the question writer personalises with the candidate's resume and the JD. They are not a fixed question bank.",
+  "tracks": {
+    "soc_analyst": {
+      "label": "SOC Analyst",
+      "scenarios": [
+        { "id": "soc.suspicious_auth", "skillId": "soc.authentication_attacks", "seed": "A SIEM alert shows 40 failed logins across 25 accounts from one IP, followed by one success and an MFA push approval at 02:13 local time." },
+        { "id": "soc.triage_escalation", "skillId": "soc.alert_triage", "seed": "Twelve alerts arrive within five minutes during a shift: decide what to triage first, what to close and when to escalate to L2/IR." },
+        { "id": "soc.log_evidence", "skillId": "soc.siem_querying", "seed": "An endpoint made periodic HTTPS connections every 60 seconds to a newly registered domain; the candidate must say which logs and queries they would use to confirm or dismiss beaconing." },
+        { "id": "soc.ransomware_precursor", "skillId": "soc.incident_response", "seed": "EDR flags vssadmin delete shadows on a file server followed by unusual SMB writes across several shares." }
+      ]
+    },
+    "cloud_security": {
+      "label": "Cloud Security",
+      "scenarios": [
+        { "id": "cloud.exposed_bucket", "skillId": "cloudsec.storage_exposure", "seed": "A researcher reports that an S3 bucket containing customer invoices is publicly listable." },
+        { "id": "cloud.least_privilege", "skillId": "cloudsec.iam", "seed": "A deployment role has AdministratorAccess because 'it was quicker'; design a least-privilege replacement without breaking deployments." },
+        { "id": "cloud.suspicious_api", "skillId": "cloudsec.incident_response", "seed": "CloudTrail shows an access key for a CI user calling ListBuckets, GetObject and CreateAccessKey from an unfamiliar ASN at 03:00." }
+      ]
+    },
+    "application_security": {
+      "label": "Application Security",
+      "scenarios": [
+        { "id": "appsec.ssrf_webhook", "skillId": "appsec.ssrf", "seed": "A webhook feature fetches any URL the customer supplies and the app runs on a cloud VM with an instance metadata endpoint." },
+        { "id": "appsec.idor_invoices", "skillId": "appsec.authz", "seed": "GET /api/invoices/{id} returns other customers' invoices when the id is changed." },
+        { "id": "appsec.search_sqli", "skillId": "appsec.injection", "seed": "A search endpoint builds a SQL ORDER BY clause from a query parameter." },
+        { "id": "appsec.api_testing", "skillId": "appsec.api_security", "seed": "Plan security testing for a new mobile-backend REST API before launch, including authentication and rate limiting." }
+      ]
+    },
+    "network_security": {
+      "label": "Network Security",
+      "scenarios": [
+        { "id": "net.suspicious_traffic", "skillId": "netsec.traffic_analysis", "seed": "Flow logs show large outbound DNS TXT queries from a database server to a single external resolver." },
+        { "id": "net.segmentation_design", "skillId": "netsec.segmentation", "seed": "A flat office network hosts staff laptops, payment terminals and the build server on one VLAN." },
+        { "id": "net.unusual_connections", "skillId": "netsec.firewalls_ids", "seed": "An IDS alerts on SMB connections from a web server in the DMZ to internal hosts." }
+      ]
+    },
+    "devsecops": {
+      "label": "DevSecOps",
+      "scenarios": [
+        { "id": "devsecops.secrets_ci", "skillId": "devsecops.secrets_management", "seed": "A long-lived cloud access key is stored as a CI variable shared by every repository, and one was printed in a build log." },
+        { "id": "devsecops.image_vulns", "skillId": "devsecops.container_security", "seed": "The production image scan shows 180 vulnerabilities, 9 critical, most from the base image." },
+        { "id": "devsecops.pipeline_checks", "skillId": "devsecops.pipeline_security", "seed": "Design the security checks for a pipeline that deploys to production on every merge to main." }
+      ]
+    },
+    "general": {
+      "label": "General",
+      "scenarios": [
+        { "id": "gen.production_incident", "skillId": "beh.problem_solving", "seed": "Production latency doubled after a release and the dashboards disagree about the cause." },
+        { "id": "gen.design_tradeoff", "skillId": "swe.system_design", "seed": "A feature must work offline on mobile and sync later; two teams disagree on the data model." }
+      ]
+    }
+  }
+}

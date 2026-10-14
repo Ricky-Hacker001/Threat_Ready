@@ -1,0 +1,137 @@
+/* Interviewer stage (3D + fallback). Uses only theme tokens from src/ui/theme.css. */
+.ivw-stage {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 240px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(120% 90% at 50% 20%, rgba(255, 255, 255, 0.035), transparent 60%),
+    linear-gradient(180deg, var(--bg-raised), var(--bg));
+  box-shadow: var(--shadow);
+}
+.ivw-canvas { position: absolute !important; inset: 0; }
+.ivw-canvas canvas { display: block; }
+
+/* Loading veil */
+.ivw-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--text-3);
+  font-size: 13px;
+  background: linear-gradient(180deg, var(--bg-raised), var(--bg));
+  transition: opacity 0.5s var(--ease);
+  z-index: 1;
+}
+.ivw-stage[data-ready='true'] .ivw-loading { opacity: 0; pointer-events: none; }
+.ivw-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  animation: ivw-spin 0.9s linear infinite;
+}
+@keyframes ivw-spin { to { transform: rotate(360deg); } }
+
+/* HUD */
+.ivw-hud {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.ivw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(13, 15, 18, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ivw-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-3);
+  box-shadow: 0 0 0 3px rgba(128, 136, 150, 0.16);
+  transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+.ivw-pill[data-status='asking'] .ivw-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.ivw-pill[data-status='listening'] .ivw-dot { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.ivw-pill[data-status='evaluating'] .ivw-dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+.ivw-pill[data-status='finished'] .ivw-dot { background: var(--info); box-shadow: 0 0 0 3px var(--info-soft); }
+.ivw-pill[data-status='asking'] .ivw-dot,
+.ivw-pill[data-status='listening'] .ivw-dot { animation: ivw-pulse 1.8s var(--ease) infinite; }
+@keyframes ivw-pulse { 50% { box-shadow: 0 0 0 5px transparent; } }
+
+.ivw-wave { display: inline-flex; align-items: center; gap: 2px; height: 12px; margin-left: 2px; }
+.ivw-wave i {
+  display: block;
+  width: 2px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent-strong);
+  transform-origin: center;
+  animation: ivw-wave 0.9s ease-in-out infinite;
+}
+.ivw-wave i:nth-child(2) { animation-delay: -0.3s; }
+.ivw-wave i:nth-child(3) { animation-delay: -0.6s; }
+.ivw-wave i:nth-child(4) { animation-delay: -0.15s; }
+@keyframes ivw-wave { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+
+/* 2D fallback */
+.ivw-fallback {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.ivw-fallback-art {
+  display: grid;
+  place-items: end center;
+  min-height: 0;
+  padding: 18px 18px 0;
+}
+.ivw-fallback-art svg { width: min(100%, 600px); height: 100%; max-height: 100%; display: block; }
+.ivw-figure { transform-origin: 160px 220px; animation: ivw-breathe 5.5s ease-in-out infinite; }
+.ivw-fallback[data-speaking] .ivw-figure { animation-duration: 3.2s; }
+@keyframes ivw-breathe { 50% { transform: translateY(-1.2px) scale(1.004); } }
+.ivw-fallback-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--border);
+  background: rgba(13, 15, 18, 0.55);
+}
+.ivw-fallback-title { font-size: 13px; font-weight: 650; color: var(--text); }
+.ivw-fallback-note { flex-basis: 100%; font-size: 13px; color: var(--text-2); line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ivw-figure, .ivw-wave i, .ivw-dot { animation: none !important; }
+  .ivw-spinner { animation-duration: 2.4s; }
+  .ivw-loading { transition: none; }
+}
+@media (max-width: 760px) {
+  .ivw-stage { aspect-ratio: 4 / 3.4; }
+  .ivw-hud { left: 10px; bottom: 10px; }
+}

@@ -1,0 +1,23 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Secrets: never commit real environment files (templates are .env.example)
+.env
+.env.*
+!.env.example
+
+# Licensed asset: Renderpeople model, must not be publicly downloadable (see
+# InterviewPrep/apps/web/src/features/interview-prep/avatar/ASSET_LICENSE.md). Deploy it out of band.
+InterviewPrep/apps/api/assets/interviewer.glb
+
+# Local data: uploaded resumes/reports, bundled PostgreSQL, lab progress, logs
+InterviewPrep/apps/api/var/
+Threatready-landing-page-main/.local/
+threatready-lab-001/data/*.json
+.logs/
+test-results/
+.claude/
+.DS_Store

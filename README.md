@@ -1,0 +1,80 @@
+# ThreatReady platform
+
+One sign-in, separate apps. Each app keeps its own overview, management, reports and status. The ThreatReady profile on onboard shows all of them together, and the admin console shows every user's activity, tokens and AI cost.
+
+| Domain | Project | What it is |
+|---|---|---|
+| `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
+| `interviewprep.threatready.io` | `InterviewPrep/` | AI mock interviews: its own dashboard, history and reports |
+| `labs.threatready.io` | `threatready-lab-001/` | Lab **catalog** at `/`. Each lab has its own page at `/labs/<id>` (`TR-CLOUD-001` is live; the rest are listed as coming soon) |
+| `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning **scenario list** at `/`, each scenario's own page at `/scenarios/<id>`. Behind sign-in; the scenarios are "coming soon" until the reasoning engine ships (V1.0) |
+| `threatready.io` | `Landing_Page-main/` | Public marketing site and the **source of the design system** every app follows |
+
+## One design across every app
+
+All apps follow threatready.io's design (`Landing_Page-main/assets/css/site.css`): navy surfaces, the violet `#6D5DFC` accent, Inter and JetBrains Mono, the ThreatReady logo, and a product marker per app (InterviewPrep amber, Labs teal, Attack Reasoning violet).
+
+- `platform.css` is the shared shell: dark and light tokens, header with app switcher and theme toggle, footer, buttons, tags, cards. Identical copies live in onboard (`apps/web/src/styles/`), Labs (`client/src/`) and Attack Reasoning (`client/src/`); edit one, copy to the others.
+- `theme-init.js` applies the theme before first paint and stores it in a `tr-theme` cookie on `threatready.io`, so dark/light follows the user across every subdomain.
+- Onboard maps its own component tokens onto the platform tokens. InterviewPrep keeps its own sidebar layout with the brand palette and logo. The lab console deliberately keeps its AWS-console look; the Labs catalog uses the platform shell.
+
+## How it fits together
+
+```
+browser ──► onboard.threatready.io ── Better Auth ──► session cookie, Domain=threatready.io
+   │                                                     (shared by every subdomain)
+   ├──► interviewprep.threatready.io/v1/*  ─┐
+   └──► labs.threatready.io/api/*          ─┤ forward the Cookie header to
+                                            ▼
+               onboard  GET /api/internal/identity/session   (Bearer INTERNAL_API_TOKEN)
+                        → { user: { id, name, email, isTrial, isAdmin, … } }
+
+onboard /api/overview, /api/admin/*  ──►  each app  GET /internal/v1/users/:id/summary
+                                                  GET /internal/v1/ai-usage?from&to[&userId]
+```
+
+- **Only a successful sign-in gets in.** A request without a session gets 401 and the SPA sends the browser to `onboard/?next=<this page>`. After sign-in (password, OTP verification or OAuth), onboard sends it straight back. `next` must be one of the registered app origins, and a bounce-back loop is detected and stopped. A no-account **trial** session stays on onboard: the apps answer `AUTH_ACCOUNT_REQUIRED` and the user is sent to create an account.
+- **Sign-out** is one place: `onboard/signout?next=…` ends the shared session for every app.
+- **Users are mirrored, not duplicated.** InterviewPrep upserts the onboard user (same id) into its own `users` table on first sight, because its data references `users(id)`. Labs records the id and name in its store. Onboard stays the authority.
+- **Each app owns its data.** Onboard never reads another app's database. It calls the internal API, which returns the app's own summary (the same figures as the app's dashboard) and its own LLM ledger (`llm_call_log` in InterviewPrep, the ledger the AI budget is enforced on). If an app is down, its card shows "Unavailable" and the rest of the page still works.
+- **Internal API**: token-checked in constant time, never routed through Cloudflare (onboard reaches the apps in-VPC). A browser session cannot call it.
+- **Admin**: `users.role = 'admin'` (grant with `pnpm --filter @threatready/api admin:grant <email>`, revoke with `--revoke`) or a verified email in `ADMIN_EMAILS`. The admin console shows users, sign-ups, 7-day actives, and for any date range AI calls, input/output/cache tokens and cost per user, per app, per model and per feature. Each user's page shows their summary from every app and their active sessions. The console is read-only in this release.
+
+The contract (shapes of identity, summary and AI usage) lives in `Threatready-landing-page-main/packages/contracts/src/platform.ts`; InterviewPrep (`packages/contracts/src/platform.ts`) and Labs (`server/identity.ts`, `server/app.ts`) mirror it.
+
+## Run everything locally
+
+| Service | Port | Command (from the project folder) |
+|---|---|---|
+| onboard API | 3200* | `apps/api`: `pnpm build && node --env-file=.env dist/main.js` |
+| onboard web | 5173 | `apps/web`: `API_PROXY_TARGET=http://localhost:3200 pnpm dev` |
+| InterviewPrep API + worker | 3100 | `npm run dev:api`, `npm run dev:worker` (with `.env` loaded) |
+| InterviewPrep web | 5174 | `npm run dev:web` |
+| Labs API | 4000 | `npx tsx server/index.ts` |
+| Labs web | 5175 | `npx vite` |
+| Attack Reasoning API | 4100 | `attack-reasoning/`: `npx tsx server/index.ts` |
+| Attack Reasoning web | 5176 | `npx vite` |
+
+\* onboard's default is 3000. This machine runs open-webui on 3000, so `apps/api/.env` sets `PORT=3200`, and InterviewPrep and Labs use `IDENTITY_URL=http://localhost:3200`.
+
+1. `node Threatready-landing-page-main/scripts/init-env.mjs` creates onboard's `.env` with `BETTER_AUTH_SECRET` and `INTERNAL_API_TOKEN`. Copy the **same** `INTERNAL_API_TOKEN` into `InterviewPrep/.env`, `threatready-lab-001/.env` and `attack-reasoning/.env` (templates: `.env.example`).
+2. Migrate onboard (`pnpm db:migrate`; adds `users.role`) and InterviewPrep (`node packages/db/dist/migrate.js` with `.env` loaded; adds migration 0005).
+3. Open http://localhost:5173. Locally no `COOKIE_DOMAIN` is needed because localhost cookies ignore the port, so all three apps share the session.
+
+## Production checklist
+
+- Onboard: `COOKIE_DOMAIN=threatready.io`, `BETTER_AUTH_URL`/`WEB_ORIGIN=https://onboard.threatready.io`, `INTERVIEW_APP_URL`, `LABS_APP_URL`, `REASONING_APP_URL` (https), `*_INTERNAL_URL` pointing at the in-VPC services, `INTERNAL_API_TOKEN` from Parameter Store, OAuth redirect URIs on the onboard host.
+- InterviewPrep: `APP_ORIGIN=https://interviewprep.threatready.io`, `ONBOARD_URL=https://onboard.threatready.io`, `IDENTITY_URL` = onboard in-VPC, same token. Web build: `VITE_ONBOARD_URL`.
+- Labs: `APP_ORIGIN=https://labs.threatready.io`, `ONBOARD_URL`, `IDENTITY_URL`, same token. Web build: `VITE_ONBOARD_URL`.
+- Attack Reasoning: `APP_ORIGIN=https://ar.threatready.io`, `ONBOARD_URL`, `IDENTITY_URL`, same token. Web build: `VITE_ONBOARD_URL`. Onboard: `REASONING_STATUS=live`, `REASONING_INTERNAL_URL`.
+- Cloudflare: route `/api/*` (onboard, labs, ar) and `/v1/*` (interviewprep) to their services; **do not route `/internal/*`**.
+- CSP `connect-src` stays `'self'` everywhere: the browser only ever talks to its own app's origin.
+
+## Known follow-ups
+
+- Identity is cached for `IDENTITY_CACHE_SECONDS` (30 s) per app, on top of Better Auth's 5-minute cookie cache, so a revoked session can keep working for up to about 5½ minutes.
+- InterviewPrep's old local accounts (from before this change) keep their data, but their ids don't match onboard users, so that usage appears in admin totals and not under any onboard user.
+- InterviewPrep still lists `better-auth` in its `package.json` files although nothing imports it, and its `sessions`, `accounts` and `verifications` tables are no longer written. Remove both in a cleanup.
+- Labs still store progress in a JSON file (`data/store.json`). Moving it to PostgreSQL is the next step for multi-instance deploys.
+- The ADD's staff TOTP requirement now applies to the admin console. Add the Better Auth 2FA plugin and require it for `admin:read`.
+- The Playwright browser test for Labs is updated but was not run here (no Chromium installed): `npx playwright install chromium && npm run build && npm run test:e2e`.

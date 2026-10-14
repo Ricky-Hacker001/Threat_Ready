@@ -1,0 +1,47 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      NODE_ENV: test
+      PORT: "3000"
+      DATABASE_URL: postgres://threatready_app:app_dev_password@127.0.0.1:5432/threatready
+      DATABASE_MIGRATION_URL: postgres://threatready_owner:owner_dev_password@127.0.0.1:5432/threatready
+      BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      BETTER_AUTH_URL: http://localhost:5173
+      WEB_ORIGIN: http://localhost:5173
+      EMAIL_DRIVER: log
+      RATE_LIMIT_MULTIPLIER: "10"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f infra/db/init.sql
+      - run: pnpm --filter @threatready/contracts build
+      - run: pnpm typecheck
+      - run: pnpm build
+      - name: Every route declares a permission (ADD L7)
+        run: pnpm --filter @threatready/api test:routes
+      - run: pnpm db:migrate
+      - name: End-to-end against a live API
+        run: |
+          node apps/api/dist/main.js > api.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          pnpm test:e2e
+      - if: failure()
+        run: cat api.log

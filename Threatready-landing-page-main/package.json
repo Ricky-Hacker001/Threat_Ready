@@ -1,0 +1,23 @@
+{
+  "name": "threatready",
+  "private": true,
+  "packageManager": "pnpm@10.28.0",
+  "engines": {
+    "node": ">=22.9"
+  },
+  "scripts": {
+    "dev": "node scripts/doctor.mjs && pnpm --filter @threatready/contracts build && pnpm -r --parallel --filter \"./apps/**\" dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "db:migrate": "pnpm --filter @threatready/api db:migrate",
+    "test:e2e": "pnpm --filter @threatready/api test:e2e",
+    "bootstrap": "node scripts/verify-files.mjs && pnpm install && node scripts/init-env.mjs && pnpm --filter @threatready/contracts build && pnpm --filter @threatready/api build",
+    "doctor": "node scripts/doctor.mjs",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:local": "node scripts/local-db.mjs"
+  },
+  "devDependencies": {
+    "embedded-postgres": "16.14.0-beta.17",
+    "typescript": "5.9.3"
+  }
+}

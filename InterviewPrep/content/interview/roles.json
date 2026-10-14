@@ -1,0 +1,65 @@
+{
+  "version": "2026-10-12.1",
+  "roles": [
+    {
+      "id": "soc_analyst", "label": "SOC Analyst", "track": "soc_analyst", "defaultType": "cybersecurity_scenario",
+      "skills": { "soc.alert_triage": 3, "soc.siem_querying": 3, "soc.incident_response": 3, "soc.authentication_attacks": 2, "soc.threat_detection": 2, "soc.endpoint_forensics": 2, "soc.threat_intel": 1, "netsec.protocols": 1, "sec.fundamentals": 1, "beh.pressure": 1, "beh.communication": 1 }
+    },
+    {
+      "id": "cloud_security_engineer", "label": "Cloud Security Engineer", "track": "cloud_security", "defaultType": "cybersecurity_scenario",
+      "skills": { "cloudsec.iam": 3, "cloudsec.storage_exposure": 2, "cloudsec.logging_monitoring": 2, "cloudsec.network_controls": 2, "cloudsec.incident_response": 2, "cloudsec.posture_management": 2, "devsecops.iac_security": 1, "cloud.aws_core": 2, "k8s.security": 1, "beh.communication": 1 }
+    },
+    {
+      "id": "application_security_engineer", "label": "Application Security Engineer", "track": "application_security", "defaultType": "cybersecurity_scenario",
+      "skills": { "appsec.injection": 3, "appsec.authz": 3, "appsec.ssrf": 2, "appsec.xss_web": 2, "appsec.api_security": 3, "appsec.secure_sdlc": 2, "sec.offensive_testing": 1, "swe.backend_apis": 1, "beh.communication": 1 }
+    },
+    {
+      "id": "network_security_engineer", "label": "Network Security Engineer", "track": "network_security", "defaultType": "cybersecurity_scenario",
+      "skills": { "netsec.traffic_analysis": 3, "netsec.segmentation": 3, "netsec.firewalls_ids": 3, "netsec.protocols": 2, "soc.incident_response": 1, "sec.fundamentals": 1, "beh.problem_solving": 1 }
+    },
+    {
+      "id": "devsecops_engineer", "label": "DevSecOps Engineer", "track": "devsecops", "defaultType": "mixed",
+      "skills": { "devsecops.secrets_management": 3, "devsecops.container_security": 3, "devsecops.pipeline_security": 3, "devsecops.iac_security": 2, "devsecops.supply_chain": 2, "devops.ci_cd": 2, "k8s.security": 2, "k8s.workloads": 1, "cloud.aws_core": 1, "beh.collaboration": 1 }
+    },
+    {
+      "id": "penetration_tester", "label": "Penetration Tester", "track": "application_security", "defaultType": "cybersecurity_scenario",
+      "skills": { "sec.offensive_testing": 3, "appsec.injection": 2, "appsec.authz": 2, "appsec.ssrf": 2, "appsec.xss_web": 2, "netsec.protocols": 2, "devops.linux": 1, "beh.communication": 2 }
+    },
+    {
+      "id": "security_analyst_grc", "label": "GRC / Security Analyst", "track": "general", "defaultType": "mixed",
+      "skills": { "grc.risk_compliance": 3, "sec.vulnerability_management": 2, "sec.fundamentals": 2, "cloudsec.posture_management": 1, "beh.communication": 2, "beh.collaboration": 1 }
+    },
+    {
+      "id": "backend_engineer", "label": "Backend Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "swe.backend_apis": 3, "swe.databases": 3, "swe.system_design": 2, "swe.microservices": 2, "swe.testing": 2, "swe.code_quality": 1, "cloud.aws_core": 1, "k8s.workloads": 1, "beh.collaboration": 1, "beh.ownership": 1 }
+    },
+    {
+      "id": "frontend_engineer", "label": "Frontend Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "swe.frontend": 3, "swe.testing": 2, "swe.code_quality": 2, "swe.backend_apis": 1, "appsec.xss_web": 1, "swe.system_design": 1, "beh.collaboration": 1, "beh.communication": 1 }
+    },
+    {
+      "id": "fullstack_engineer", "label": "Full-stack Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "swe.frontend": 2, "swe.backend_apis": 3, "swe.databases": 2, "swe.system_design": 2, "swe.testing": 2, "devops.ci_cd": 1, "beh.ownership": 1 }
+    },
+    {
+      "id": "devops_sre", "label": "DevOps / SRE Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "devops.ci_cd": 3, "devops.observability": 3, "k8s.workloads": 3, "cloud.aws_core": 2, "devops.linux": 2, "devsecops.iac_security": 1, "k8s.security": 1, "beh.pressure": 1 }
+    },
+    {
+      "id": "data_engineer", "label": "Data Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "data.pipelines": 3, "swe.databases": 3, "swe.python": 2, "swe.system_design": 1, "cloud.aws_core": 1, "beh.collaboration": 1 }
+    },
+    {
+      "id": "ml_engineer", "label": "Machine Learning Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "ml.applied": 3, "swe.python": 3, "data.pipelines": 2, "swe.system_design": 1, "swe.testing": 1, "beh.communication": 1 }
+    },
+    {
+      "id": "software_engineer", "label": "Software Engineer", "track": "general", "defaultType": "technical",
+      "skills": { "swe.data_structures": 2, "swe.backend_apis": 2, "swe.databases": 2, "swe.system_design": 2, "swe.testing": 2, "swe.code_quality": 2, "beh.problem_solving": 1, "beh.collaboration": 1 }
+    },
+    {
+      "id": "general_technical", "label": "Technical role", "track": "general", "defaultType": "mixed",
+      "skills": { "beh.problem_solving": 2, "beh.communication": 2, "beh.collaboration": 1, "beh.learning": 1, "sec.fundamentals": 1 }
+    }
+  ]
+}

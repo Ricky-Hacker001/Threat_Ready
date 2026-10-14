@@ -1,0 +1,14 @@
+{
+  "name": "@threatready/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "openapi": "npm run build && node dist/openapi/generate.js > openapi.json",
+    "test": "vitest run"
+  },
+  "dependencies": { "@threatready/shared": "0.1.0", "zod": "^4.1.0", "@asteasolutions/zod-to-openapi": "^8.4.0" }
+}

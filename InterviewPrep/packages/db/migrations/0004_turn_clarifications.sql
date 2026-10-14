@@ -1,0 +1,1 @@
+ALTER TABLE "interview_turns" ADD COLUMN "clarifications" jsonb DEFAULT '[]'::jsonb NOT NULL;

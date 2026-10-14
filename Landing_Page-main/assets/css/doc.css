@@ -1,0 +1,134 @@
+/* ThreatReady — long-form document pages (rubric, sample report, security, privacy, terms, DPA).
+   Load after site.css. Replaces the retired legal.css. Body text in these pages is unchanged. */
+
+/* Legacy variable names still referenced by page-level <style> blocks */
+:root,:root[data-theme]{
+  --primary:var(--accent);
+  --primary-hover:var(--accent-hover);
+  --primary-light:var(--accent-text);
+  --primary-lighter:var(--accent-text);
+  --primary-subtle:var(--accent-soft);
+  --primary-whisper:var(--accent-soft);
+  --bg-subtle:var(--surface);
+  --bg-alt:var(--surface);
+  --bg-dark:var(--bg);
+  --surface-2:var(--raised);
+  --border-2:var(--border);
+  --success:var(--ok);
+  --warning:var(--warn);
+  --danger:var(--bad);
+  --shadow-sm:none;
+  --shadow-md:var(--shadow);
+  --shadow-lg:var(--shadow);
+  --glow:0 0 0 3px var(--accent-soft);
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-full:999px;
+}
+
+/* ---------- Page header ---------- */
+.lhero{padding:var(--s8) 0 var(--s6);border-bottom:1px solid var(--border)}
+.lhero-c{max-width:var(--wrap);margin:0 auto;padding:0 var(--gutter)}
+.lhero-l{display:grid;grid-template-columns:minmax(0,7fr) minmax(0,5fr);column-gap:var(--s7);align-items:end}
+.lhero-l > *{grid-column:1}
+.lhero-l > .intro,.lhero-l > .lhero-badges{grid-column:2}
+.lhero-l > .intro{grid-row:1 / span 3;align-self:end;max-width:56ch}
+.lhero-l > .lhero-badges{grid-row:4}
+@media (max-width:900px){.lhero-l{display:block}}
+.lhero-eyebrow{display:block;font-size:12px;line-height:16px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin-bottom:var(--s3)}
+.lhero-eyebrow svg{display:none}
+.lhero h1{font-size:44px;line-height:50px;letter-spacing:-.03em;margin-bottom:var(--s3)}
+.lhero h1 .accent{color:inherit}
+.lhero .meta{font-size:14px;color:var(--text-3);margin-bottom:var(--s4)}
+.lhero .intro{font-size:18px;line-height:29px;color:var(--text-2);max-width:720px}
+.lhero-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:var(--s5)}
+.lhero-badge{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 10px;border:1px solid var(--border);border-radius:var(--r1);background:var(--surface);font-size:13px;color:var(--text-2)}
+.lhero-badge svg{width:14px;height:14px;color:var(--ok);flex-shrink:0}
+@media (max-width:640px){.lhero{padding:var(--s7) 0 var(--s5)}.lhero h1{font-size:32px;line-height:38px}.lhero .intro{font-size:16px;line-height:26px}}
+
+/* ---------- Body ---------- */
+.lbody{max-width:var(--wrap);margin:0 auto;padding:var(--s7) var(--gutter) var(--s8);font-size:16px;line-height:1.7;color:var(--text-2)}
+/* Pages with an "On this page" block: TOC becomes a sticky left rail, content fills the remaining width.
+   Prose keeps a readable measure; tables, callouts and examples use the full column. */
+.lbody:has(> .ltoc){display:grid;grid-template-columns:240px minmax(0,1fr);column-gap:56px;align-items:start}
+.lbody:has(> .ltoc) > *{grid-column:2}
+.lbody:has(> .ltoc) > .ltoc{grid-column:1;grid-row:1 / span 400;position:sticky;top:calc(var(--nav-h) + 16px);margin:0;max-height:calc(100vh - var(--nav-h) - 32px);overflow:auto}
+.lbody:has(> .ltoc) > .ltoc ol{columns:1}
+.lbody:has(> .ltoc) > h2:first-of-type{margin-top:0}
+.lbody p,.lbody li{max-width:88ch}
+@media (max-width:900px){.lbody:has(> .ltoc){display:block}.lbody:has(> .ltoc) > .ltoc{position:static;max-height:none}}
+.lbody h2{font-size:24px;line-height:32px;color:var(--text);margin:var(--s7) 0 var(--s3);scroll-margin-top:calc(var(--nav-h) + 16px)}
+.lbody h3{font-size:18px;line-height:26px;color:var(--text);margin:var(--s5) 0 var(--s2)}
+.lbody h4{font-size:15px;color:var(--text);margin:var(--s4) 0 var(--s2)}
+.lbody p{margin:0 0 var(--s3)}
+.lbody ul,.lbody ol{margin:0 0 var(--s4);padding-left:22px}
+.lbody li{margin:6px 0}
+.lbody li::marker{color:var(--text-3)}
+.lbody strong{color:var(--text);font-weight:600}
+.lbody a{color:var(--accent-text);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.lbody code{font-family:var(--mono);font-size:.875em;background:var(--surface);border:1px solid var(--border);padding:1px 5px;border-radius:4px;color:var(--text)}
+.lbody hr{border:0;border-top:1px solid var(--border);margin:var(--s6) 0}
+.lbody table{width:100%;border-collapse:collapse;margin:var(--s3) 0 var(--s5);font-size:14px;line-height:1.55;display:block;overflow-x:auto}
+.lbody th,.lbody td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+.lbody thead th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);font-weight:600;background:var(--surface)}
+.lbody td{color:var(--text-2)}
+.muted{color:var(--text-3)}
+
+.callout{margin:var(--s4) 0;padding:var(--s4) var(--s5);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r1);background:var(--surface);color:var(--text-2)}
+.callout > strong:first-child{display:block;color:var(--text);margin-bottom:4px}
+.callout p:last-child{margin-bottom:0}
+.callout-success{border-left-color:var(--ok)}
+.callout-warning{border-left-color:var(--warn)}
+
+/* Table of contents */
+.ltoc,.ltoc-sticky{border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);padding:var(--s4) var(--s5);margin-bottom:var(--s5)}
+.ltoc h4,.ltoc-sticky h4{margin:0 0 var(--s2);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.ltoc ol{columns:2;column-gap:var(--s6);margin:0;padding-left:20px;font-size:15px}
+.ltoc li{break-inside:avoid;margin:4px 0}
+.ltoc a,.ltoc-sticky a{text-decoration:none;color:var(--text-2)}
+.ltoc a:hover,.ltoc-sticky a:hover{color:var(--text)}
+@media (max-width:640px){.ltoc ol{columns:1}}
+
+/* Two-column legal layout (privacy) */
+.lbody-grid{display:grid;grid-template-columns:240px minmax(0,1fr);gap:56px;align-items:start}
+.lbody-content p,.lbody-content li{max-width:88ch}
+.lbody-side{position:sticky;top:calc(var(--nav-h) + 16px)}
+.ltoc-sticky{padding:var(--s3)}
+.toc-list{list-style:none;margin:0;padding:0!important;font-size:14px}
+.toc-list li{margin:0}
+.toc-list a{display:flex;gap:8px;padding:6px 8px;border-radius:var(--r1);line-height:20px}
+.toc-list a.is-active{background:var(--accent-soft);color:var(--text)}
+.toc-num{font:600 12px/20px var(--mono);color:var(--text-3);min-width:18px}
+.num-h2{display:flex;align-items:center;gap:12px}
+.num-badge{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:var(--r1);border:1px solid var(--border);background:var(--surface);font:600 13px/1 var(--mono);color:var(--text-2);flex-shrink:0}
+@media (max-width:900px){.lbody-grid{grid-template-columns:minmax(0,1fr);gap:0}.lbody-side{position:static}}
+
+.company-card{display:flex;gap:var(--s4);align-items:flex-start;padding:var(--s4) var(--s5);border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);margin:var(--s4) 0}
+.company-avatar{width:40px;height:40px;border-radius:var(--r1);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-2);flex-shrink:0}
+.company-avatar svg{width:20px;height:20px}
+.company-name{color:var(--text);font-weight:600}
+.company-meta,.company-contact{font-size:14px;color:var(--text-2)}
+
+/* Definition lists (terms, DPA) */
+.deflist{display:grid;grid-template-columns:200px minmax(0,1fr);border:1px solid var(--border);border-radius:var(--r2);overflow:hidden;margin:var(--s3) 0 var(--s5)}
+.deflist dt,.deflist dd{margin:0;padding:10px 14px;border-top:1px solid var(--border);font-size:15px;line-height:1.55}
+.deflist dt{color:var(--text);font-weight:600;background:var(--surface)}
+.deflist dd{color:var(--text-2)}
+.deflist dt:first-of-type,.deflist dt:first-of-type + dd{border-top:0}
+@media (max-width:560px){.deflist{grid-template-columns:minmax(0,1fr)}.deflist dd{border-top:0;padding-top:0}}
+
+/* Rubric worked examples */
+.example{border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);padding:var(--s4) var(--s5);margin:var(--s3) 0}
+.example-label{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);font-weight:600;color:var(--text);margin-bottom:var(--s2)}
+.example-score{font:600 13px/1 var(--mono);padding:5px 8px;border-radius:4px}
+.example-score.weak{color:var(--bad);background:var(--bad-soft)}
+.example-score.mid{color:var(--warn);background:var(--warn-soft)}
+.example-score.strong{color:var(--ok);background:var(--ok-soft)}
+.example p:last-child{margin-bottom:0}
+
+/* Back-to-top button injected by back-to-top.js */
+.b2t{position:fixed;right:20px;bottom:20px;z-index:40;width:40px;height:40px;border-radius:var(--r1);border:1px solid var(--border);background:var(--raised);color:var(--text);box-shadow:var(--shadow);display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .2s,transform .2s}
+.b2t svg{width:18px;height:18px}
+.b2t.is-visible,.b2t.show,.b2t.visible{opacity:1;transform:none;pointer-events:auto}
+
+/* Sample-report notice strip (overrides the page's own purple banner) */
+html body .rbanner{background:var(--info-soft);color:var(--text-2);border-bottom:1px solid var(--border);background-image:none;box-shadow:none}
+html body .rbanner a{color:var(--accent-text)}

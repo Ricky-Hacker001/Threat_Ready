@@ -1,0 +1,73 @@
+import type { TurnStreamEvent } from '@threatready/contracts';
+import { DomainError, ERROR_CATALOGUE } from '@threatready/shared';
+import type { Response } from 'express';
+import { logger, requestContext } from '../logging/logger.js';
+
+/**
+ * Server-Sent Events writer. Heartbeat comments every 20 s keep the stream under the ALB idle
+ * timeout and Cloudflare's 125 s (ADD §3 coupling check). Every stream ends with done or error.
+ */
+export class SseStream {
+  private heartbeat: NodeJS.Timeout | null = null;
+  private seq = 0;
+  private closed = false;
+  private opened = false;
+
+  /**
+   * Headers are sent with the first event, so a request rejected before any work starts
+   * (wrong state, turn in progress) still gets a normal HTTP status and error envelope.
+   */
+  constructor(private readonly res: Response) {
+    res.on('close', () => {
+      this.closed = true;
+      if (this.heartbeat) clearInterval(this.heartbeat);
+    });
+  }
+
+  get isClosed(): boolean {
+    return this.closed;
+  }
+
+  get started(): boolean {
+    return this.opened;
+  }
+
+  open(): void {
+    if (this.opened) return;
+    this.opened = true;
+    this.res.status(200);
+    this.res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    this.res.setHeader('Cache-Control', 'no-cache, no-transform');
+    this.res.setHeader('Connection', 'keep-alive');
+    this.res.setHeader('X-Accel-Buffering', 'no');
+    this.res.flushHeaders();
+    this.heartbeat = setInterval(() => this.write(': heartbeat\n\n'), 20_000);
+  }
+
+  send(event: TurnStreamEvent | { type: string; [k: string]: unknown }): void {
+    this.seq += 1;
+    this.write(`id: ${this.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  }
+
+  error(err: unknown): void {
+    const requestId = requestContext.getStore()?.requestId ?? 'req_unknown';
+    if (err instanceof DomainError) {
+      this.send({ type: 'error', code: err.code, message: err.message, retryable: err.retryable, request_id: requestId });
+    } else {
+      logger.error({ err: { name: (err as Error)?.name, message: (err as Error)?.message, stack: (err as Error)?.stack } }, 'stream failed');
+      this.send({ type: 'error', code: 'INTERNAL_ERROR', message: ERROR_CATALOGUE.INTERNAL_ERROR.message, retryable: true, request_id: requestId });
+    }
+  }
+
+  end(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    if (!this.closed) this.res.end();
+    this.closed = true;
+  }
+
+  private write(chunk: string): void {
+    if (this.closed) return;
+    this.open();
+    this.res.write(chunk);
+  }
+}

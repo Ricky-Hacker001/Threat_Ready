@@ -1,0 +1,18 @@
+{
+  "version": "2026-10-12.2",
+  "note": "Deterministic fallbacks used only when question wording from the model fails or times out, so an interview never stalls. {skill}, {claim} and {scenario} are filled in code.",
+  "templates": {
+    "claim_verification": "Your background mentions {claim}. Walk me through what you did there, the decisions you made, and what you would do differently now.",
+    "jd_technical": "This role relies on {skill}. Explain how you would apply it in practice, and the most common mistakes you would watch for.",
+    "gap_probe": "Let's talk about {skill}. How would you approach it if you had to own it in this role from your first month?",
+    "problem_solving": "Here is a problem: {scenario} How would you approach it, step by step?",
+    "scenario": "Scenario: {scenario} What do you do first, what evidence do you look at, and how do you decide on next steps?",
+    "system_design": "Design a system where {skill} matters. Start with requirements, then the main components, and the trade-offs you would make.",
+    "coding_discussion": "Describe a piece of code you wrote that involved {skill}. How did you structure it, how did you test it, and what would you change now?",
+    "behavioral": "Tell me about a specific time that shows your {skill}. What was the situation, what did you do, and what was the result?",
+    "closing": "We're almost out of time. Before we wrap up, is there anything about your experience we haven't covered that you'd like me to know?",
+    "follow_up_clarify": "Let's slow down on that. Can you explain {focus} more concretely, perhaps with an example from your own work?",
+    "follow_up_deepen": "Good. Going deeper: what trade-offs or failure modes around {focus} would you watch for in production?",
+    "introduction": "To start, could you walk me through your background and the experience that's most relevant to this role?"
+  }
+}

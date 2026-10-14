@@ -1,0 +1,11 @@
+packages:
+  - apps/*
+  - packages/*
+onlyBuiltDependencies:
+  - esbuild
+  # Bundled PostgreSQL 16 for local dev (pnpm db:local); postinstall unpacks the binaries.
+  - "@embedded-postgres/windows-x64"
+  - "@embedded-postgres/darwin-arm64"
+  - "@embedded-postgres/darwin-x64"
+  - "@embedded-postgres/linux-x64"
+  - "@embedded-postgres/linux-arm64"

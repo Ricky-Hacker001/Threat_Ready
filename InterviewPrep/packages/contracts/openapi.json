@@ -1,0 +1,3607 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ThreatReady InterviewPrep API",
+    "version": "1.0.0",
+    "description": "Generated from Zod schemas in packages/contracts. Do not edit openapi.json by hand."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "better-auth.session_token"
+      }
+    },
+    "schemas": {
+      "ErrorEnvelope": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "request_id": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "details": {}
+            },
+            "required": [
+              "code",
+              "message",
+              "request_id",
+              "retryable"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "TurnStreamEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "evaluating"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "feedback"
+                ]
+              },
+              "turnId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "feedback": {
+                "$ref": "#/components/schemas/PracticeFeedback"
+              }
+            },
+            "required": [
+              "type",
+              "turnId",
+              "feedback"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "question.start"
+                ]
+              },
+              "turnId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "kind": {
+                "$ref": "#/components/schemas/TurnKind"
+              },
+              "questionNumber": {
+                "type": "integer"
+              },
+              "topic": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "turnId",
+              "kind",
+              "questionNumber",
+              "topic"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "question.delta"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "question.reset"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reply.delta"
+                ]
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "text"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "done"
+                ]
+              },
+              "session": {
+                "$ref": "#/components/schemas/SessionView"
+              }
+            },
+            "required": [
+              "type",
+              "session"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "error"
+                ]
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "request_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "code",
+              "message",
+              "retryable",
+              "request_id"
+            ]
+          }
+        ]
+      },
+      "PracticeFeedback": {
+        "type": "object",
+        "properties": {
+          "demonstrated": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5
+          },
+          "tip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "demonstrated",
+          "missing",
+          "tip"
+        ]
+      },
+      "TurnKind": {
+        "type": "string",
+        "enum": [
+          "question",
+          "follow_up"
+        ]
+      },
+      "SessionView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionState"
+          },
+          "interviewerStatus": {
+            "$ref": "#/components/schemas/InterviewerStatus"
+          },
+          "roleTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "config": {
+            "$ref": "#/components/schemas/InterviewConfig"
+          },
+          "progress": {
+            "type": "object",
+            "properties": {
+              "questionNumber": {
+                "type": "integer"
+              },
+              "plannedQuestions": {
+                "type": "integer"
+              },
+              "turnsUsed": {
+                "type": "integer"
+              },
+              "maxTurns": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "questionNumber",
+              "plannedQuestions",
+              "turnsUsed",
+              "maxTurns"
+            ]
+          },
+          "timing": {
+            "type": "object",
+            "properties": {
+              "durationSec": {
+                "type": "integer"
+              },
+              "activeElapsedSec": {
+                "type": "integer"
+              },
+              "remainingSec": {
+                "type": "integer"
+              },
+              "serverNow": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "runningSince": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "durationSec",
+              "activeElapsedSec",
+              "remainingSec",
+              "serverNow",
+              "runningSince"
+            ]
+          },
+          "currentTurn": {
+            "$ref": "#/components/schemas/TranscriptEntry"
+          },
+          "transcript": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TranscriptEntry"
+            }
+          },
+          "report": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "pending",
+                  "ready",
+                  "failed"
+                ]
+              },
+              "overallScore": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "overallScore"
+            ]
+          },
+          "failure": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "stage": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "stage"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "endReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "interviewerStatus",
+          "roleTitle",
+          "config",
+          "progress",
+          "timing",
+          "currentTurn",
+          "transcript",
+          "report",
+          "failure",
+          "createdAt",
+          "startedAt",
+          "completedAt",
+          "endReason"
+        ]
+      },
+      "SessionState": {
+        "type": "string",
+        "enum": [
+          "parsing",
+          "profiled",
+          "planned",
+          "asking",
+          "awaiting_answer",
+          "evaluating",
+          "paused",
+          "completed",
+          "scoring",
+          "report_ready",
+          "failed",
+          "expired",
+          "cancelled"
+        ]
+      },
+      "InterviewerStatus": {
+        "type": "string",
+        "enum": [
+          "preparing",
+          "asking",
+          "listening",
+          "evaluating",
+          "paused",
+          "finished"
+        ]
+      },
+      "InterviewConfig": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "interviewType": {
+            "$ref": "#/components/schemas/InterviewType"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/Difficulty"
+          },
+          "durationMin": {
+            "$ref": "#/components/schemas/DurationMin"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/InterviewMode"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "focusSkillIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "maxItems": 5,
+            "default": []
+          },
+          "speakQuestions": {
+            "type": "boolean",
+            "default": false
+          },
+          "voiceAnswers": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "interviewType",
+          "difficulty",
+          "durationMin",
+          "mode",
+          "track"
+        ]
+      },
+      "InterviewType": {
+        "type": "string",
+        "enum": [
+          "technical",
+          "behavioral",
+          "system_design",
+          "coding_discussion",
+          "cybersecurity_scenario",
+          "mixed"
+        ]
+      },
+      "Difficulty": {
+        "type": "string",
+        "enum": [
+          "beginner",
+          "intermediate",
+          "advanced"
+        ]
+      },
+      "DurationMin": {
+        "anyOf": [
+          {
+            "type": "number",
+            "enum": [
+              15
+            ]
+          },
+          {
+            "type": "number",
+            "enum": [
+              30
+            ]
+          },
+          {
+            "type": "number",
+            "enum": [
+              45
+            ]
+          }
+        ]
+      },
+      "InterviewMode": {
+        "type": "string",
+        "enum": [
+          "realistic",
+          "practice"
+        ]
+      },
+      "Track": {
+        "type": "string",
+        "enum": [
+          "soc_analyst",
+          "cloud_security",
+          "application_security",
+          "network_security",
+          "devsecops",
+          "general"
+        ]
+      },
+      "TranscriptEntry": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "turnId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TurnKind"
+          },
+          "questionNumber": {
+            "type": "integer"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "askedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "answeredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "practiceFeedback": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PracticeFeedback"
+              },
+              {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            ]
+          },
+          "clarifications": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "question": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "question",
+                "answer",
+                "at"
+              ]
+            }
+          }
+        },
+        "required": [
+          "turnId",
+          "seq",
+          "kind",
+          "questionNumber",
+          "topic",
+          "question",
+          "answer",
+          "askedAt",
+          "answeredAt",
+          "practiceFeedback",
+          "clarifications"
+        ]
+      },
+      "CreateUploadResponse": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/DocumentView"
+          },
+          "upload": {
+            "$ref": "#/components/schemas/SignedUpload"
+          }
+        },
+        "required": [
+          "document",
+          "upload"
+        ]
+      },
+      "DocumentView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "pasted"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pageCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "extractedText": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "editedByUser": {
+            "type": "boolean"
+          },
+          "redactions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "failureCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "source",
+          "contentType",
+          "sizeBytes",
+          "pageCount",
+          "extractedText",
+          "editedByUser",
+          "redactions",
+          "warnings",
+          "failureCode",
+          "createdAt"
+        ]
+      },
+      "DocumentKind": {
+        "type": "string",
+        "enum": [
+          "resume",
+          "jd"
+        ]
+      },
+      "DocumentStatus": {
+        "type": "string",
+        "enum": [
+          "awaiting_upload",
+          "extracting",
+          "extracted",
+          "failed"
+        ]
+      },
+      "SignedUpload": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "maxBytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url",
+          "fields",
+          "expiresAt",
+          "maxBytes"
+        ]
+      },
+      "CreateUploadRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "contentType": {
+            "$ref": "#/components/schemas/UploadContentType"
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 5242880
+          }
+        },
+        "required": [
+          "kind",
+          "contentType",
+          "sizeBytes"
+        ]
+      },
+      "UploadContentType": {
+        "type": "string",
+        "enum": [
+          "application/pdf",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ]
+      },
+      "CreateTextDocumentRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "jd"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "minLength": 200,
+            "maxLength": 30000
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
+      },
+      "UpdateDocumentTextRequest": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 50,
+            "maxLength": 30000
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "CreateInterviewRequest": {
+        "type": "object",
+        "properties": {
+          "resumeDocumentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "jdDocumentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aiProcessingConsent": {
+            "type": "object",
+            "properties": {
+              "accepted": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "version": {
+                "type": "string",
+                "enum": [
+                  "ai-processing.v1.2026-10-12"
+                ]
+              }
+            },
+            "required": [
+              "accepted",
+              "version"
+            ]
+          }
+        },
+        "required": [
+          "resumeDocumentId",
+          "jdDocumentId",
+          "aiProcessingConsent"
+        ]
+      },
+      "SessionList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "SessionSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/SessionState"
+          },
+          "roleTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "interviewType": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InterviewType"
+              },
+              {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            ]
+          },
+          "difficulty": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Difficulty"
+              },
+              {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            ]
+          },
+          "durationMin": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "overallScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "questionsAnswered": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "roleTitle",
+          "interviewType",
+          "difficulty",
+          "durationMin",
+          "overallScore",
+          "questionsAnswered",
+          "createdAt",
+          "completedAt"
+        ]
+      },
+      "Briefing": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "candidateProfile": {
+            "$ref": "#/components/schemas/CandidateProfile"
+          },
+          "jobProfile": {
+            "$ref": "#/components/schemas/JobProfile"
+          },
+          "recommendation": {
+            "$ref": "#/components/schemas/Recommendation"
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillRef"
+            }
+          },
+          "focusPreview": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skillId": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "verify_claim",
+                    "probe_gap"
+                  ]
+                }
+              },
+              "required": [
+                "skillId",
+                "label",
+                "reason"
+              ]
+            }
+          },
+          "roleLabel": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "candidateProfile",
+          "jobProfile",
+          "recommendation",
+          "skills",
+          "focusPreview",
+          "roleLabel"
+        ]
+      },
+      "CandidateProfile": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "1"
+            ]
+          },
+          "career_stage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "student",
+              "early_career",
+              "experienced",
+              "senior",
+              null
+            ]
+          },
+          "headline": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 400
+          },
+          "years_experience": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 60
+          },
+          "current_role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "organisation": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "job",
+                    "internship"
+                  ]
+                },
+                "start": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 20
+                },
+                "end": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 20
+                },
+                "highlights": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 400
+                  },
+                  "maxItems": 8
+                }
+              },
+              "required": [
+                "title",
+                "organisation",
+                "kind",
+                "start",
+                "end",
+                "highlights"
+              ]
+            },
+            "maxItems": 15
+          },
+          "education": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "qualification": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "institution": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "year": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "maxLength": 20
+                }
+              },
+              "required": [
+                "qualification",
+                "institution",
+                "year"
+              ]
+            },
+            "maxItems": 8
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "summary": {
+                  "type": "string",
+                  "maxLength": 400
+                },
+                "technologies": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "maxItems": 15
+                }
+              },
+              "required": [
+                "name",
+                "summary",
+                "technologies"
+              ]
+            },
+            "maxItems": 10
+          },
+          "certifications": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 20
+          },
+          "technologies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 60
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill_id": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "claimed_level": {
+                  "$ref": "#/components/schemas/SkillLevel"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "quote": {
+                        "type": "string",
+                        "maxLength": 400
+                      }
+                    },
+                    "required": [
+                      "quote"
+                    ]
+                  },
+                  "maxItems": 3
+                }
+              },
+              "required": [
+                "skill_id",
+                "claimed_level",
+                "evidence"
+              ]
+            },
+            "maxItems": 40
+          },
+          "accomplishments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "maxItems": 12
+          },
+          "unmapped_skills": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 40
+          },
+          "parse_warnings": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "maxItems": 10
+          }
+        },
+        "required": [
+          "schema_version",
+          "headline",
+          "years_experience",
+          "current_role",
+          "roles",
+          "education",
+          "projects",
+          "certifications",
+          "technologies",
+          "skills",
+          "accomplishments",
+          "unmapped_skills",
+          "parse_warnings"
+        ]
+      },
+      "SkillLevel": {
+        "type": "string",
+        "enum": [
+          "aware",
+          "working",
+          "proficient",
+          "expert"
+        ]
+      },
+      "JobProfile": {
+        "type": "object",
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "enum": [
+              "1"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "role_id": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "seniority": {
+            "$ref": "#/components/schemas/Seniority"
+          },
+          "expected_experience": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 160
+          },
+          "required_skills": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skill_id": {
+                  "type": "string",
+                  "maxLength": 80
+                },
+                "level": {
+                  "$ref": "#/components/schemas/SkillLevel"
+                },
+                "weight": {
+                  "$ref": "#/components/schemas/RequirementWeight"
+                }
+              },
+              "required": [
+                "skill_id",
+                "level",
+                "weight"
+              ]
+            },
+            "maxItems": 40
+          },
+          "responsibilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "maxItems": 20
+          },
+          "technical_requirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 400
+            },
+            "maxItems": 20
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 40
+          },
+          "behavioral_competencies": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 12
+          },
+          "unmapped_requirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "maxItems": 30
+          }
+        },
+        "required": [
+          "schema_version",
+          "title",
+          "role_id",
+          "seniority",
+          "expected_experience",
+          "required_skills",
+          "responsibilities",
+          "technical_requirements",
+          "tools",
+          "behavioral_competencies",
+          "unmapped_requirements"
+        ]
+      },
+      "Seniority": {
+        "type": "string",
+        "enum": [
+          "junior",
+          "mid",
+          "senior",
+          "lead"
+        ]
+      },
+      "RequirementWeight": {
+        "type": "string",
+        "enum": [
+          "must",
+          "should",
+          "nice"
+        ]
+      },
+      "Recommendation": {
+        "type": "object",
+        "properties": {
+          "interviewType": {
+            "$ref": "#/components/schemas/InterviewType"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/Difficulty"
+          },
+          "durationMin": {
+            "$ref": "#/components/schemas/DurationMin"
+          },
+          "track": {
+            "$ref": "#/components/schemas/Track"
+          },
+          "rationale": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "interviewType",
+          "difficulty",
+          "durationMin",
+          "track",
+          "rationale"
+        ]
+      },
+      "SkillRef": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "category"
+        ]
+      },
+      "PlanInterviewRequest": {
+        "type": "object",
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/InterviewConfig"
+          },
+          "corrections": {
+            "$ref": "#/components/schemas/ProfileCorrections"
+          }
+        },
+        "required": [
+          "config"
+        ]
+      },
+      "ProfileCorrections": {
+        "type": "object",
+        "properties": {
+          "removeCandidateSkills": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "maxItems": 40,
+            "default": []
+          },
+          "candidateSkillLevels": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SkillLevel"
+            },
+            "default": {}
+          },
+          "removeRequiredSkills": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 80
+            },
+            "maxItems": 40,
+            "default": []
+          }
+        }
+      },
+      "SubmitAnswerRequest": {
+        "type": "object",
+        "properties": {
+          "turnId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "answer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "clientSubmissionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "turnId",
+          "answer",
+          "clientSubmissionId"
+        ]
+      },
+      "ClarifyRequest": {
+        "type": "object",
+        "properties": {
+          "turnId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "turnId",
+          "message"
+        ]
+      },
+      "EndInterviewRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "candidate_ended"
+            ],
+            "default": "candidate_ended"
+          }
+        }
+      },
+      "InterviewReport": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "disclaimer": {
+            "type": "string"
+          },
+          "roleTitle": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object",
+            "properties": {
+              "interviewType": {
+                "$ref": "#/components/schemas/InterviewType"
+              },
+              "difficulty": {
+                "$ref": "#/components/schemas/Difficulty"
+              },
+              "durationMin": {
+                "$ref": "#/components/schemas/DurationMin"
+              },
+              "track": {
+                "$ref": "#/components/schemas/Track"
+              }
+            },
+            "required": [
+              "interviewType",
+              "difficulty",
+              "durationMin",
+              "track"
+            ]
+          },
+          "overall": {
+            "type": "object",
+            "properties": {
+              "score": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "technicalKnowledge": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "problemSolving": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "communication": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "roleSkillCoverage": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "summary": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "score",
+              "technicalKnowledge",
+              "problemSolving",
+              "communication",
+              "roleSkillCoverage",
+              "summary"
+            ]
+          },
+          "scoringMethod": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "weights": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "weights",
+              "notes"
+            ]
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestionReview"
+            }
+          },
+          "skills": {
+            "type": "object",
+            "properties": {
+              "demonstrated": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillOutcome"
+                }
+              },
+              "needsImprovement": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillOutcome"
+                }
+              },
+              "jdGaps": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SkillOutcome"
+                }
+              },
+              "practiceAreas": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "demonstrated",
+              "needsImprovement",
+              "jdGaps",
+              "practiceAreas"
+            ]
+          },
+          "improvementPlan": {
+            "type": "object",
+            "properties": {
+              "highPriority": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "topic",
+                    "why"
+                  ]
+                }
+              },
+              "secondary": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "topic": {
+                      "type": "string"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "topic",
+                    "why"
+                  ]
+                }
+              },
+              "practiceQuestions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "suggestedNextInterview": {
+                "type": "object",
+                "properties": {
+                  "interviewType": {
+                    "$ref": "#/components/schemas/InterviewType"
+                  },
+                  "difficulty": {
+                    "$ref": "#/components/schemas/Difficulty"
+                  },
+                  "durationMin": {
+                    "$ref": "#/components/schemas/DurationMin"
+                  },
+                  "focus": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "interviewType",
+                  "difficulty",
+                  "durationMin",
+                  "focus"
+                ]
+              }
+            },
+            "required": [
+              "highPriority",
+              "secondary",
+              "practiceQuestions",
+              "suggestedNextInterview"
+            ]
+          },
+          "integrityNotes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pdf": {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "available"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "generatedAt",
+          "disclaimer",
+          "roleTitle",
+          "config",
+          "overall",
+          "scoringMethod",
+          "questions",
+          "skills",
+          "improvementPlan",
+          "integrityNotes",
+          "pdf"
+        ]
+      },
+      "QuestionReview": {
+        "type": "object",
+        "properties": {
+          "turnId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "questionNumber": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "question",
+              "follow_up"
+            ]
+          },
+          "topic": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "dimensions": {
+            "$ref": "#/components/schemas/DimensionScores"
+          },
+          "correctConcepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missingConcepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inaccuracies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "improvements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "strongAnswerExample": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "explanation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "turnId",
+          "questionNumber",
+          "kind",
+          "topic",
+          "question",
+          "answer",
+          "score",
+          "dimensions",
+          "correctConcepts",
+          "missingConcepts",
+          "inaccuracies",
+          "improvements",
+          "strongAnswerExample",
+          "explanation"
+        ]
+      },
+      "DimensionScores": {
+        "type": "object",
+        "properties": {
+          "technicalCorrectness": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "completeness": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "reasoning": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "communication": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "skillEvidence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "technicalCorrectness",
+          "completeness",
+          "reasoning",
+          "communication",
+          "skillEvidence"
+        ]
+      },
+      "SkillOutcome": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "score": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "covered": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "skillId",
+          "label",
+          "score",
+          "required",
+          "covered"
+        ]
+      },
+      "SignedDownload": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "url",
+          "expiresAt"
+        ]
+      },
+      "InterviewDashboard": {
+        "type": "object",
+        "properties": {
+          "completedCount": {
+            "type": "integer"
+          },
+          "averageScore": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100
+          },
+          "skillsDemonstrated": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillProgress"
+            }
+          },
+          "skillsToImprove": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SkillProgress"
+            }
+          },
+          "resumable": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "roleTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string"
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "roleTitle",
+                "state",
+                "updatedAt"
+              ]
+            }
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "roleTitle": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string"
+                },
+                "overallScore": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "id",
+                "roleTitle",
+                "state",
+                "overallScore",
+                "createdAt"
+              ]
+            }
+          },
+          "scoreHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sessionId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "score": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100
+                },
+                "completedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "sessionId",
+                "score",
+                "completedAt"
+              ]
+            }
+          },
+          "usage": {
+            "type": "object",
+            "properties": {
+              "interviewsThisMonth": {
+                "type": "integer"
+              },
+              "monthlyQuota": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "interviewsThisMonth",
+              "monthlyQuota"
+            ]
+          }
+        },
+        "required": [
+          "completedCount",
+          "averageScore",
+          "skillsDemonstrated",
+          "skillsToImprove",
+          "resumable",
+          "recent",
+          "scoreHistory",
+          "usage"
+        ]
+      },
+      "SkillProgress": {
+        "type": "object",
+        "properties": {
+          "skillId": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string"
+          },
+          "score": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "evidenceCount": {
+            "type": "integer"
+          },
+          "lastEvidenceAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "skillId",
+          "label",
+          "category",
+          "score",
+          "evidenceCount",
+          "lastEvidenceAt"
+        ]
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "image": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isAdmin": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "image",
+          "isAdmin"
+        ]
+      }
+    },
+    "parameters": {}
+  },
+  "paths": {
+    "/v1/documents": {
+      "post": {
+        "operationId": "createUpload",
+        "summary": "Create a document and a presigned upload into quarantine",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:write",
+        "x-rate-class": "upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUploadResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/documents/text": {
+      "post": {
+        "operationId": "createTextDocument",
+        "summary": "Create a job description from pasted text",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:write",
+        "x-rate-class": "upload",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTextDocumentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/documents/{id}/complete": {
+      "post": {
+        "operationId": "completeUpload",
+        "summary": "Confirm the browser finished uploading; queues extraction",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:write",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/documents/{id}": {
+      "get": {
+        "operationId": "getDocument",
+        "summary": "Document status and redacted extracted text",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteDocument",
+        "summary": "Delete a document and its file",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:write",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/documents/{id}/text": {
+      "patch": {
+        "operationId": "updateDocumentText",
+        "summary": "Correct extraction errors in the text",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:write",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDocumentTextRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews": {
+      "post": {
+        "operationId": "createInterview",
+        "summary": "Create a session; queues resume and JD analysis",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:create",
+        "x-rate-class": "interview_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInterviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listInterviews",
+        "summary": "Interview history, newest first",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}": {
+      "get": {
+        "operationId": "getInterview",
+        "summary": "Session state, progress, timer and transcript (refresh recovery)",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/events": {
+      "get": {
+        "operationId": "streamInterviewEvents",
+        "summary": "SSE stream of session state changes (analysis and report jobs)",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/briefing": {
+      "get": {
+        "operationId": "getBriefing",
+        "summary": "Extracted profiles and recommended settings for confirmation",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Briefing"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/plan": {
+      "post": {
+        "operationId": "planInterview",
+        "summary": "Confirm details and configuration; builds the plan",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanInterviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/start": {
+      "post": {
+        "operationId": "startInterview",
+        "summary": "Start the interview; streams the first question",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "interview_turn",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/question": {
+      "post": {
+        "operationId": "askQuestion",
+        "summary": "Recover an interrupted question stream",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "interview_turn",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/turns": {
+      "post": {
+        "operationId": "submitAnswer",
+        "summary": "Submit an answer; streams evaluation status and the next question",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "interview_turn",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitAnswerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/clarify": {
+      "post": {
+        "operationId": "clarifyQuestion",
+        "summary": "Ask the interviewer a clarifying question about the current question; streams the reply",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "interview_turn",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClarifyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/pause": {
+      "post": {
+        "operationId": "pauseInterview",
+        "summary": "Pause the interview timer",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/resume": {
+      "post": {
+        "operationId": "resumeInterview",
+        "summary": "Resume a paused interview",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/end": {
+      "post": {
+        "operationId": "endInterview",
+        "summary": "End the interview and queue the report",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndInterviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/cancel": {
+      "post": {
+        "operationId": "cancelInterview",
+        "summary": "Cancel a session that has not started",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/report": {
+      "get": {
+        "operationId": "getReport",
+        "summary": "The saved performance report",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "report:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewReport"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/report/retry": {
+      "post": {
+        "operationId": "retryReport",
+        "summary": "Re-queue a failed report job (idempotent)",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/report/pdf": {
+      "get": {
+        "operationId": "getReportPdf",
+        "summary": "Short-lived download link for the report PDF",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "report:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignedDownload"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interview-prep/dashboard": {
+      "get": {
+        "operationId": "getDashboard",
+        "summary": "Dashboard aggregates from persisted data",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InterviewDashboard"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/assets/interviewer-model": {
+      "get": {
+        "operationId": "getInterviewerModel",
+        "summary": "The 3D interviewer model, AES-GCM encrypted per response (key and IV in X-Asset-Key / X-Asset-Iv); never cached. The licence forbids making it publicly downloadable.",
+        "tags": [
+          "assets"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "Encrypted binary",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "summary": "The signed-in ThreatReady user (identity from onboard.threatready.io)",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/skills/me": {
+      "get": {
+        "operationId": "getMySkills",
+        "summary": "Skill scores from interview evidence",
+        "tags": [
+          "skills"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "skills:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SkillProgress"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "webhooks": {}
+}

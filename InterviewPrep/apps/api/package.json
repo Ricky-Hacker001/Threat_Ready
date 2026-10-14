@@ -1,0 +1,52 @@
+{
+  "name": "@threatready/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/main.js api",
+    "start:worker": "node dist/main.js worker",
+    "dev": "tsx watch src/main.ts api",
+    "dev:worker": "tsx watch src/main.ts worker",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.0",
+    "@aws-sdk/client-s3": "^3.1149.0",
+    "@aws-sdk/client-sesv2": "^3.1149.0",
+    "@aws-sdk/s3-presigned-post": "^3.1149.0",
+    "@aws-sdk/s3-request-presigner": "^3.1149.0",
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@sentry/node": "^10.20.0",
+    "@threatready/contracts": "0.1.0",
+    "@threatready/db": "0.1.0",
+    "@threatready/shared": "0.1.0",
+    "better-auth": "^1.7.7",
+    "drizzle-orm": "0.45.4",
+    "express": "^5.1.0",
+    "mammoth": "^1.11.0",
+    "multer": "^2.0.2",
+    "pdfkit": "^0.17.2",
+    "pg": "^8.16.0",
+    "pg-boss": "^12.37.1",
+    "pino": "^10.0.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "unpdf": "^1.4.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^12.1.2",
+    "@types/express": "^5.0.3",
+    "@types/multer": "^2.0.0",
+    "@types/pdfkit": "^0.17.0",
+    "@types/pg": "^8.15.0",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.0"
+  }
+}

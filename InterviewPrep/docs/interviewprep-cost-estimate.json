@@ -1,0 +1,166 @@
+{
+  "generatedAt": "2026-10-12T08:01:41.475Z",
+  "models": {
+    "SMALL": "claude-haiku-4-5",
+    "LARGE": "claude-sonnet-5-5"
+  },
+  "charsPerToken": 3.5,
+  "outputTokenAssumptions": {
+    "candidate_profile": 1800,
+    "job_profile": 900,
+    "gap_analysis": 2000,
+    "answer_evaluation": 380,
+    "question": 75,
+    "final_scoring_base": 2600,
+    "final_scoring_per_turn": 520
+  },
+  "results": [
+    {
+      "durationMin": 15,
+      "turns": 6,
+      "totalUsd": 0.1327,
+      "byCall": {
+        "candidate_profile": {
+          "calls": 1,
+          "inputTokens": 3124,
+          "outputTokens": 1800,
+          "costUsd": 0.012124,
+          "tier": "SMALL"
+        },
+        "job_profile": {
+          "calls": 1,
+          "inputTokens": 2294,
+          "outputTokens": 900,
+          "costUsd": 0.006794,
+          "tier": "SMALL"
+        },
+        "gap_analysis": {
+          "calls": 1,
+          "inputTokens": 1550,
+          "outputTokens": 2000,
+          "costUsd": 0.0231,
+          "tier": "LARGE"
+        },
+        "question": {
+          "calls": 6,
+          "inputTokens": 8761,
+          "outputTokens": 450,
+          "costUsd": 0.011011,
+          "tier": "SMALL"
+        },
+        "answer_evaluation": {
+          "calls": 6,
+          "inputTokens": 5683,
+          "outputTokens": 2280,
+          "costUsd": 0.017083,
+          "tier": "SMALL"
+        },
+        "final_scoring": {
+          "calls": 1,
+          "inputTokens": 2687,
+          "outputTokens": 5720,
+          "costUsd": 0.062574,
+          "tier": "LARGE"
+        }
+      }
+    },
+    {
+      "durationMin": 30,
+      "turns": 12,
+      "totalUsd": 0.2003,
+      "byCall": {
+        "candidate_profile": {
+          "calls": 1,
+          "inputTokens": 3124,
+          "outputTokens": 1800,
+          "costUsd": 0.012124,
+          "tier": "SMALL"
+        },
+        "job_profile": {
+          "calls": 1,
+          "inputTokens": 2294,
+          "outputTokens": 900,
+          "costUsd": 0.006794,
+          "tier": "SMALL"
+        },
+        "gap_analysis": {
+          "calls": 1,
+          "inputTokens": 1550,
+          "outputTokens": 2000,
+          "costUsd": 0.0231,
+          "tier": "LARGE"
+        },
+        "question": {
+          "calls": 12,
+          "inputTokens": 21965,
+          "outputTokens": 900,
+          "costUsd": 0.026465,
+          "tier": "SMALL"
+        },
+        "answer_evaluation": {
+          "calls": 12,
+          "inputTokens": 11427,
+          "outputTokens": 4560,
+          "costUsd": 0.034227,
+          "tier": "SMALL"
+        },
+        "final_scoring": {
+          "calls": 1,
+          "inputTokens": 4607,
+          "outputTokens": 8840,
+          "costUsd": 0.097614,
+          "tier": "LARGE"
+        }
+      }
+    },
+    {
+      "durationMin": 45,
+      "turns": 17,
+      "totalUsd": 0.2575,
+      "byCall": {
+        "candidate_profile": {
+          "calls": 1,
+          "inputTokens": 3124,
+          "outputTokens": 1800,
+          "costUsd": 0.012124,
+          "tier": "SMALL"
+        },
+        "job_profile": {
+          "calls": 1,
+          "inputTokens": 2294,
+          "outputTokens": 900,
+          "costUsd": 0.006794,
+          "tier": "SMALL"
+        },
+        "gap_analysis": {
+          "calls": 1,
+          "inputTokens": 1550,
+          "outputTokens": 2000,
+          "costUsd": 0.0231,
+          "tier": "LARGE"
+        },
+        "question": {
+          "calls": 17,
+          "inputTokens": 34179,
+          "outputTokens": 1275,
+          "costUsd": 0.040554,
+          "tier": "SMALL"
+        },
+        "answer_evaluation": {
+          "calls": 17,
+          "inputTokens": 16096,
+          "outputTokens": 6460,
+          "costUsd": 0.048396,
+          "tier": "SMALL"
+        },
+        "final_scoring": {
+          "calls": 1,
+          "inputTokens": 6076,
+          "outputTokens": 11440,
+          "costUsd": 0.126552,
+          "tier": "LARGE"
+        }
+      }
+    }
+  ]
+}

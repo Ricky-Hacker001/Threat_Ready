@@ -1,0 +1,9 @@
+**/node_modules
+**/dist
+**/coverage
+.git
+var
+apps/web/*
+!apps/web/package.json
+*.md
+!content/**

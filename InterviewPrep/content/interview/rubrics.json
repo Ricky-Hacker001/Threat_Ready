@@ -1,0 +1,120 @@
+{
+  "version": "2026-10-12.2",
+  "note": "Server-only. Rubric descriptors and weights are never sent to the browser. Levels 0-4 map to points 0/25/50/75/100 in code.",
+  "levels": {
+    "0": "Not demonstrated, incorrect, or no answer",
+    "1": "Minimal: vague or largely incorrect, one relevant idea",
+    "2": "Partial: some correct elements, important gaps or imprecision",
+    "3": "Solid: correct and mostly complete for the level asked",
+    "4": "Strong: correct, complete, precise, with trade-offs or depth beyond the question"
+  },
+  "criteria": {
+    "technical_correctness": "Statements are technically accurate; no misconceptions that would cause harm in practice.",
+    "completeness": "Covers the key elements the question asks for at the target level.",
+    "reasoning": "Explains why, weighs trade-offs, structures the approach, handles edge cases.",
+    "communication": "Clear, organised and appropriately concise for an interviewer; uses terms correctly.",
+    "skill_evidence": "Gives concrete evidence of having used the skill: specifics of their own work, decisions and outcomes."
+  },
+  "rubrics": [
+    {
+      "id": "rubric.introduction",
+      "questionTypes": [
+        "introduction"
+      ],
+      "weights": {
+        "technical_correctness": 0,
+        "completeness": 0,
+        "reasoning": 0.3,
+        "communication": 0.7,
+        "skill_evidence": 0
+      },
+      "scored": false,
+      "guidance": "Warm-up. Look for a clear, relevant summary of background and motivation. Contributes to communication only; it does not move the overall score."
+    },
+    {
+      "id": "rubric.technical",
+      "questionTypes": [
+        "technical",
+        "claim_verification",
+        "jd_technical",
+        "gap_probe"
+      ],
+      "weights": {
+        "technical_correctness": 0.35,
+        "completeness": 0.2,
+        "reasoning": 0.2,
+        "communication": 0.15,
+        "skill_evidence": 0.1
+      }
+    },
+    {
+      "id": "rubric.scenario",
+      "questionTypes": [
+        "scenario",
+        "problem_solving"
+      ],
+      "weights": {
+        "technical_correctness": 0.3,
+        "completeness": 0.25,
+        "reasoning": 0.25,
+        "communication": 0.1,
+        "skill_evidence": 0.1
+      }
+    },
+    {
+      "id": "rubric.system_design",
+      "questionTypes": [
+        "system_design"
+      ],
+      "weights": {
+        "technical_correctness": 0.3,
+        "completeness": 0.2,
+        "reasoning": 0.3,
+        "communication": 0.1,
+        "skill_evidence": 0.1
+      }
+    },
+    {
+      "id": "rubric.coding_discussion",
+      "questionTypes": [
+        "coding_discussion"
+      ],
+      "weights": {
+        "technical_correctness": 0.35,
+        "completeness": 0.15,
+        "reasoning": 0.25,
+        "communication": 0.15,
+        "skill_evidence": 0.1
+      }
+    },
+    {
+      "id": "rubric.behavioral",
+      "questionTypes": [
+        "behavioral"
+      ],
+      "weights": {
+        "technical_correctness": 0,
+        "completeness": 0.25,
+        "reasoning": 0.2,
+        "communication": 0.3,
+        "skill_evidence": 0.25
+      },
+      "guidance": "Look for a specific situation, the candidate's own actions, and the outcome (STAR). Technical correctness does not apply."
+    },
+    {
+      "id": "rubric.closing",
+      "questionTypes": [
+        "closing"
+      ],
+      "weights": {
+        "technical_correctness": 0,
+        "completeness": 0,
+        "reasoning": 0.4,
+        "communication": 0.6,
+        "skill_evidence": 0
+      },
+      "scored": false,
+      "guidance": "Wrap-up. The candidate adds anything the interview did not cover. Contributes to communication only; it does not move the overall score."
+    }
+  ]
+}
