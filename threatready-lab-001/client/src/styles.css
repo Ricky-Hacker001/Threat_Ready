@@ -125,6 +125,22 @@ table.plain td{border-bottom:1px solid #f2f3f3;padding:5px 6px}table.plain tr.pe
 @media print{.archfab,.archwin,.top,.simbar,.left,.side,.dock,.toasts,.sidetab,.pagehead .actions{display:none!important}.main{overflow:visible}.app,.body,.center{display:block;height:auto}body{background:#fff}}
 
 /* Lab catalog uses the platform shell (platform.css). Only the console's dropdown link lives here. */
+.lab-track { position: relative; transition: border-color .15s; }
+.lab-track:hover { border-color: var(--border-strong); }
+.lab-track:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lab-card-link { color: var(--text); text-decoration: none; }
+.lab-card-link:focus { outline: none; }
+.lab-card-link::after { content: ""; position: absolute; inset: 0; border-radius: var(--r2); }
+.lab-track-icon { display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: var(--r1); background: var(--accent-soft); color: var(--accent-text); }
+.lab-track-icon .tr-icon { width: 20px; height: 20px; }
+.lab-track-icon-sm { width: 24px; height: 24px; margin-right: 8px; border: 0; background: none; vertical-align: middle; }
+.lab-track-icon-sm .tr-icon { width: 16px; height: 16px; }
+.lab-track-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
+.lab-track-list li { display: flex; justify-content: space-between; gap: 12px; }
+.lab-track-go { color: var(--accent-text); font-weight: 600; }
+.lab-crumbs { display: flex; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--text-3); margin-bottom: 16px; }
+.lab-crumbs a { color: var(--text-2); text-decoration: none; }
+.lab-crumbs a:hover { color: var(--text); text-decoration: underline; }
 .ddmenu a.ddlink{display:block;padding:7px 8px;border-radius:3px;color:var(--ink)}.ddmenu a.ddlink:hover{background:#f2f3f3;text-decoration:none}
 .tr-shell{min-height:100vh;display:flex;flex-direction:column}.tr-shell>main{flex:1}
 .tr-shell h1,.tr-shell h2,.tr-shell h3{font-family:var(--font)}

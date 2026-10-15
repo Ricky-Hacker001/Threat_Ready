@@ -17,6 +17,9 @@ InterviewPrep/apps/api/assets/interviewer.glb
 InterviewPrep/apps/api/var/
 Threatready-landing-page-main/.local/
 threatready-lab-001/data/*.json
+soc/data/*.json
+soc/data/*.tmp
+red_team_lab/web/data/
 .logs/
 test-results/
 .claude/

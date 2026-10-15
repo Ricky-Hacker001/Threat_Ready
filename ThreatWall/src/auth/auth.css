@@ -1,0 +1,94 @@
+/* ---------- Simulated browser frame (pre-login screens only) ---------- */
+.tw-browser { min-height: 100%; display: flex; flex-direction: column; background: #fff; }
+.tw-stage-browser { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tw-urlbar { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; background: #e9ebee; border-bottom: 1px solid #d2d6db; font-size: 13px; }
+.tw-urlbar .url { flex: 1; max-width: 760px; display: flex; align-items: center; gap: 8px; background: #fff; border-radius: 14px; height: 26px; padding: 0 12px; color: #3a4049; border: 1px solid transparent; }
+.tw-urlbar .url:focus-within { border-color: #1a73e8; }
+.tw-urlbar .url input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font-size: 12.5px; }
+.tw-url-btn { width: 26px; height: 26px; border: 0; border-radius: 50%; background: none; color: #5f6368; display: grid; place-items: center; }
+.tw-url-btn:hover { background: #dadce0; }
+.tw-url-who { margin-left: auto; font-size: 11.5px; color: #5f6368; white-space: nowrap; }
+.tw-newtab { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 80px 20px; color: #3c4043; gap: 4px; }
+.tw-newtab h1 { font-size: 22px; font-weight: 500; margin: 14px 0 6px; color: #202124; }
+.tw-newtab p { max-width: 560px; margin: 4px 0; font-size: 14px; line-height: 1.5; }
+.tw-newtab .tw-btn { margin-top: 14px; }
+.tw-urlbar .insecure { display: inline-flex; align-items: center; gap: 4px; color: #c5221f; font-weight: 600; }
+.tw-urlbar .scheme-bad { color: #c5221f; text-decoration: line-through; }
+.tw-lab-banner { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: #fff7e6; border-bottom: 1px solid #f1d9a6; color: #6b4b00; font-size: 12.5px; }
+
+/* ---------- Certificate interstitial ---------- */
+.tw-cert { flex: 1; display: flex; justify-content: center; padding: 70px 20px 40px; background: #fff; }
+.tw-cert-box { max-width: 600px; color: #3c4043; }
+.tw-cert-box h1 { font-size: 24px; font-weight: 500; margin: 22px 0 14px; color: #202124; }
+.tw-cert-box p { font-size: 15px; line-height: 1.55; margin: 0 0 12px; }
+.tw-cert-code { font-size: 12px; color: #5f6368; font-family: var(--mono); }
+.tw-cert-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 30px; gap: 12px; flex-wrap: wrap; }
+.tw-cert-btn { height: 36px; padding: 0 18px; border-radius: 4px; border: 1px solid #dadce0; background: #fff; color: #1a73e8; font-weight: 500; }
+.tw-cert-btn.primary { background: #1a73e8; color: #fff; border-color: #1a73e8; }
+.tw-cert-adv { margin-top: 26px; padding-top: 18px; border-top: 1px solid #e8eaed; font-size: 14.5px; }
+.tw-cert-adv button.link { background: none; border: 0; padding: 0; color: #5f6368; text-decoration: underline; font-size: 14.5px; }
+
+/* ---------- Login ---------- */
+.tw-login { flex: 1; display: grid; grid-template-columns: minmax(360px, 480px) 1fr; min-height: 0; }
+.tw-login-left { background: #1d232b; color: #e7ebf0; padding: 64px 56px 32px; display: flex; flex-direction: column; position: relative; }
+.tw-login-left::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 4px; background: linear-gradient(var(--tw-accent), var(--tw-accent-2)); }
+.tw-login-brand { display: flex; align-items: center; gap: 12px; }
+.tw-login-brand .tw-brand-name { color: #fff; }
+.tw-login-sub { margin: 10px 0 46px; color: #aeb7c2; font-size: 15px; }
+.tw-login-form { display: flex; flex-direction: column; gap: 6px; max-width: 340px; }
+.tw-login-form label { font-size: 13.5px; font-weight: 600; color: #f0f3f6; margin-top: 12px; }
+.tw-login-field { display: flex; align-items: center; border: 1px solid #56606d; background: #262d36; border-radius: 3px; height: 40px; padding: 0 10px; }
+.tw-login-field:focus-within { border-color: var(--tw-accent); box-shadow: 0 0 0 2px #ef6c1f33; }
+.tw-login-field input { flex: 1; border: 0; outline: 0; background: none; color: #fff; font-size: 14px; }
+.tw-login-field input::placeholder { color: #8a95a3; }
+.tw-login-field button { background: none; border: 0; color: #9fb0c3; display: grid; place-items: center; }
+.tw-login-submit { margin-top: 22px; height: 40px; border: 0; border-radius: 3px; background: var(--tw-accent); color: #fff; font-weight: 700; font-size: 14px; letter-spacing: .04em; }
+.tw-login-submit:hover { background: var(--tw-accent-2); }
+.tw-login-err { margin-top: 10px; color: #ffb4a9; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.tw-login-setup { margin-top: 26px; font-size: 13px; color: #c5ced8; }
+.tw-login-setup button { background: none; border: 0; color: #ffa86a; padding: 0; text-decoration: underline; font-size: 13px; }
+.tw-login-foot { margin-top: auto; font-size: 11.5px; color: #7f8a97; padding-top: 30px; }
+
+.tw-login-right { background: #eef1f4; padding: 64px 48px; display: flex; flex-direction: column; gap: 18px; overflow: auto; }
+.tw-login-card { background: #fff; border: 1px solid #d9dde2; padding: 18px 20px; max-width: 620px; }
+.tw-login-card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--tw-accent); margin: 0 0 12px; }
+.tw-login-kv { display: grid; grid-template-columns: 170px 1fr; row-gap: 7px; font-size: 13px; }
+.tw-login-kv dt { color: var(--text-2); }
+.tw-login-kv dd { margin: 0; font-weight: 600; }
+.tw-login-hint summary { cursor: pointer; color: var(--tw-link); font-size: 13px; }
+
+/* ---------- Setup wizard ---------- */
+.tw-wiz-wrap { flex: 1; display: grid; place-items: start center; padding: 36px 16px; background: #eef1f4; overflow: auto; }
+.tw-wiz { width: min(900px, 100%); background: #fff; border: 1px solid #d5d9df; display: grid; grid-template-columns: 230px 1fr; min-height: 520px; box-shadow: 0 6px 24px #0000000f; }
+.tw-wiz-rail { background: #1d232b; color: #cfd6de; padding: 20px 0; }
+.tw-wiz-rail .head { display: flex; align-items: center; gap: 8px; padding: 0 18px 18px; color: #fff; font-weight: 600; }
+.tw-wiz-rail ol { list-style: none; margin: 0; padding: 0; }
+.tw-wiz-rail li { display: flex; align-items: center; gap: 10px; padding: 9px 18px; font-size: 13px; }
+.tw-wiz-rail li .n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1px solid #66717f; font-size: 11.5px; flex: none; }
+.tw-wiz-rail li.done .n { background: var(--tw-ok); border-color: var(--tw-ok); color: #fff; }
+.tw-wiz-rail li.cur { background: #2b333d; color: #fff; box-shadow: inset 3px 0 0 var(--tw-accent); }
+.tw-wiz-rail li.cur .n { border-color: var(--tw-accent); color: #fff; background: var(--tw-accent); }
+.tw-wiz-main { display: flex; flex-direction: column; min-width: 0; }
+.tw-wiz-main .body { padding: 22px 26px; flex: 1; }
+.tw-wiz-main h1 { font-size: 19px; font-weight: 600; margin: 0 0 6px; }
+.tw-wiz-main .lead { color: var(--text-2); margin: 0 0 18px; font-size: 13.5px; }
+.tw-wiz-main .foot { display: flex; justify-content: space-between; align-items: center; padding: 12px 26px; border-top: 1px solid var(--line); background: #fafbfc; }
+.tw-wiz .tw-form { padding-left: 0; grid-template-columns: 190px minmax(0, 1fr); }
+.tw-pwcheck { list-style: none; padding: 0; margin: 4px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; font-size: 12px; }
+.tw-pwcheck li { display: flex; gap: 6px; align-items: center; color: var(--text-2); }
+.tw-pwcheck li.ok { color: #4f7d0d; }
+.tw-summary { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tw-summary th { text-align: left; width: 200px; color: var(--text-2); font-weight: 500; padding: 6px 0; vertical-align: top; }
+.tw-summary td { padding: 6px 0; font-weight: 600; }
+.tw-summary tr + tr th, .tw-summary tr + tr td { border-top: 1px solid #eef0f2; }
+
+@media (max-width: 860px) {
+  .tw-login { grid-template-columns: 1fr; }
+  .tw-login-left { padding: 36px 22px 24px; }
+  .tw-login-right { padding: 24px 16px; }
+  .tw-wiz { grid-template-columns: 1fr; }
+  .tw-wiz-rail ol { display: flex; overflow-x: auto; }
+  .tw-wiz-rail li span:not(.n) { display: none; }
+  .tw-wiz .tw-form { grid-template-columns: 1fr; }
+  .tw-cert { padding-top: 32px; }
+}

@@ -1,0 +1,24 @@
+# Render Blueprint. In Render: New > Blueprint, pick this repository.
+# For an existing Web Service, copy the same values into its Settings.
+services:
+  - type: web
+    name: soc-sim
+    runtime: node
+    plan: free
+    # devDependencies (Vite, React) are needed to build the UI.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      # Signs the session cookie. Render generates a random value. Optional:
+      # without it the server makes one at start-up and sessions end on restart.
+      - key: SIM_SESSION_SECRET
+        generateValue: true
+      # PORT is set by Render automatically; do not add it.
+      # Optional: SOC_SIM_DATA, DAILY_WIPE, and (only to accept ThreatReady
+      # links) TR_SIM_SECRET, TR_HOME_URL.

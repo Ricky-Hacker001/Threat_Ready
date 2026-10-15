@@ -1,0 +1,30 @@
+// What to learn next: one row per skill id (Build specification, section
+// 7.4, and the Recommendations table in the Scenario specifications tab).
+
+export const RECOMMENDATIONS = {
+  'log.windows-auth': { topic: 'Windows logon events (4624, 4625, 4740, 4771) and their status codes', replay: 'F1', tip: 'Decode every status and sub-status code before you decide.' },
+  'log.network': { topic: 'Firewall, proxy and DNS fields: allow versus deny, bytes, categories', replay: 'F9', tip: 'For every block, search for an allow to the same place.' },
+  'log.endpoint': { topic: 'Process creation, parent and child processes, command lines', replay: 'I5', tip: 'Read the parent process before the process itself.' },
+  'log.email': { topic: 'Email headers, SPF, DKIM and DMARC results', replay: 'F5', tip: 'Search by sender, not just the reported message.' },
+  'log.cloud': { topic: 'CloudTrail, Entra ID sign-in and audit, Microsoft 365 mailbox audit', replay: 'E4', tip: "Compare source address and user agent with the identity's normal use." },
+  'log.web': { topic: 'HTTP status codes and response sizes; WAF actions', replay: 'I10', tip: 'Judge success by the response, never by the request.' },
+  'tri.verdict': { topic: 'True positive, benign true positive and false positive', replay: 'F3', tip: 'Ask: did the rule work, and was the activity authorised?' },
+  'tri.severity': { topic: "Severity from impact and scope, not from the alert's label", replay: 'F4', tip: 'Lower severity when containment is proven; raise it when scope grows.' },
+  'tri.escalation': { topic: 'When to close at L1 and when to escalate', replay: 'I7', tip: 'Escalate when the next step needs rights or context L1 does not have.' },
+  'tri.false-positive': { topic: 'Proving benign with positive evidence (owner, change, baseline)', replay: 'I9', tip: 'Never close as benign on the absence of bad signs alone.' },
+  'inv.search': { topic: 'Query syntax, field filters, wide time ranges', replay: 'E7', tip: 'Widen the time range before you narrow the query.' },
+  'inv.pivot': { topic: 'Pivoting from one field (host, user, address) to the next entity', replay: 'I8', tip: 'Every answer is a new search term.' },
+  'inv.timeline': { topic: 'Ordering events into an attack sequence', replay: 'I3', tip: 'Write the timeline before you answer the questions.' },
+  'inv.scope': { topic: 'Finding every affected user, host and account', replay: 'I12', tip: 'After the first hit, search for the indicator across everything.' },
+  'inv.ioc': { topic: 'Extracting, enriching and sweeping indicators', replay: 'I5', tip: 'Collect domain, address and hash, then sweep each one.' },
+  'kno.attack-mapping': { topic: 'MITRE ATT&CK tactics and techniques', replay: 'E1', tip: 'Name the technique for each step you find.' },
+  'kno.auth-protocols': { topic: 'Kerberos and NTLM, ticket types, encryption types', replay: 'I4', tip: 'Learn what normal looks like (AES tickets, type 3 logons) first.' },
+  'kno.malware': { topic: 'Malware and ransomware behaviour and precursors', replay: 'E2', tip: 'Know the commands that come before encryption.' },
+  'kno.phishing': { topic: 'Phishing types: credential, attachment, consent', replay: 'F5', tip: 'Check who else received it, and who clicked.' },
+  'kno.cloud-identity': { topic: 'MFA, sessions, tokens and app consent', replay: 'E11', tip: 'Ask what survives a password reset.' },
+  'res.containment': { topic: 'Isolating hosts, disabling accounts, blocking indicators', replay: 'E2', tip: 'Contain first when damage is in progress.' },
+  'res.recovery': { topic: 'Recovery steps: credential resets, krbtgt, restore from backup', replay: 'E3', tip: 'Plan recovery so the attacker cannot come back the same way.' },
+  'res.proportionality': { topic: 'Containing without causing business outage', replay: 'E8', tip: 'Choose the smallest action that stops the attacker.' },
+  'doc.evidence': { topic: 'Pinning and linking evidence; preserving logs', replay: 'I7', tip: 'Every finding needs the event that proves it.' },
+  'doc.root-cause': { topic: 'Writing the root cause and the fix that prevents a repeat', replay: 'F12', tip: 'State what to change, not only what happened.' },
+};

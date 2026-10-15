@@ -1,5 +1,5 @@
 // Cross-browser journeys across every ThreatReady app: sign-in, home, theme, menus, profile, admin,
-// InterviewPrep (incl. the 2D interviewer), Lab Simulations and Attack Reasoning — in Chromium,
+// InterviewPrep (incl. the 2D interviewer), Lab Simulations (tracks and every live lab) and Attack Reasoning — in Chromium,
 // Firefox and WebKit (Safari's engine), at desktop and phone width.
 //
 //   E2E_USER=asha.rao E2E_PASSWORD=… node cross-browser.mjs            # all installed browsers
@@ -180,13 +180,35 @@ async function run(name, engine) {
       await noOverflow(page);
     });
 
-    await c('Lab Simulations: catalog and a lab', async () => {
+    await c('Lab Simulations: tracks, a track and a lab', async () => {
       await page.goto(LABS);
       await page.getByRole('heading', { name: /work the incident/i }).waitFor({ timeout: 15000 });
+      const tracks = await page.locator('.lab-track h3').allInnerTexts();
+      assert(['Cloud Security', 'Blue Team', 'Red Team', 'Network Security'].every((t) => tracks.includes(t)), `tracks: ${tracks.join(', ')}`);
       await noOverflow(page);
-      await page.getByRole('button', { name: /(start|continue|review) lab/i }).first().click();
+      await page.getByRole('link', { name: 'Cloud Security', exact: true }).click();
+      await page.getByRole('heading', { name: 'Cloud Security labs' }).waitFor();
+      await noOverflow(page);
+      await page.locator('.tr-card', { hasText: 'The Compromised Startup' }).getByRole('button', { name: /(start|continue|review) lab/i }).click();
       await page.waitForURL(/\/labs\/TR-CLOUD-001/);
       await page.locator('.top').waitFor({ timeout: 20000 }); // the AWS-style console (kept as is by design)
+    });
+
+    await c('Lab Simulations: SOC, DevSecOps, Firewall and Red Team labs open signed in', async () => {
+      const open = async (slug, lab) => {
+        await page.goto(`${LABS}tracks/${slug}`);
+        await page.locator('.tr-card', { hasText: lab }).getByRole('link', { name: 'Open lab' }).click();
+        await page.waitForLoadState('load');
+      };
+      await open('blue-team', 'SOC Simulation');
+      // Signed in with the ThreatReady account (no name sign-in), with a way back to the catalog.
+      await page.locator('.name-chip').getByRole('link', { name: 'All labs' }).waitFor({ timeout: 20000 });
+      await open('cloud-security', 'DevSecOps Lab');
+      await page.waitForFunction(() => document.title.includes('DevSecOps') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      await open('network-security', 'ThreatReady Firewall');
+      await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      await open('red-team', 'NovaCart');
+      await page.getByRole('link', { name: 'All labs' }).first().waitFor({ timeout: 20000 });
     });
 
     await c('Attack Reasoning: filter and scenario page', async () => {

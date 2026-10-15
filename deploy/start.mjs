@@ -53,10 +53,18 @@ const labsId = await import('./dist/labs/identity.js');
 const arMod = await import('./dist/ar/app.js');
 const arId = await import('./dist/ar/identity.js');
 const identityUrl = `http://127.0.0.1:${ONBOARD_PORT}`;
+// The SOC simulation and the Red Team lab run in this process; DevSecOps and the Firewall are static. Records live in /tmp
+// like the other labs (lost on restart; see deploy/README.md).
+const hosted = await labsMod.loadHostedLabs(ROOT, {
+  catalogUrl: `${PUBLIC_URL}/labs/`, socDataFile: process.env.SOC_DATA_FILE || '/tmp/threatready-soc/cases.json',
+  identity: labsId.onboardIdentity({ identityUrl, internalToken: INTERNAL_TOKEN }), appOrigin: new URL(PUBLIC_URL).origin, onboardUrl: PUBLIC_URL,
+  redTeamServer: path.join(import.meta.dirname, 'dist/redteam'), redTeamDataFile: process.env.REDTEAM_DATA_FILE || '/tmp/threatready-redteam.json',
+});
 const labsApp = labsMod.createApp(store, path.join(ROOT, 'threatready-lab-001/dist'), {
   identity: labsId.onboardIdentity({ identityUrl, internalToken: INTERNAL_TOKEN }),
-  internalToken: INTERNAL_TOKEN, appOrigin: new URL(PUBLIC_URL).origin, onboardUrl: PUBLIC_URL, apps: labsId.onboardApps(identityUrl),
+  internalToken: INTERNAL_TOKEN, appOrigin: new URL(PUBLIC_URL).origin, onboardUrl: PUBLIC_URL, apps: labsId.onboardApps(identityUrl), hosted,
 });
+log(`hosted labs: ${hosted.map((h) => h.slug).join(', ') || 'none'}`);
 const arApp = arMod.createApp(path.join(ROOT, 'attack-reasoning/dist'), {
   identity: arId.onboardIdentity({ identityUrl, internalToken: INTERNAL_TOKEN }),
   internalToken: INTERNAL_TOKEN, appOrigin: new URL(PUBLIC_URL).origin, onboardUrl: PUBLIC_URL, apps: arId.onboardApps(identityUrl),

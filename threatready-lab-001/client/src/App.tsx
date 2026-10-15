@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, newRequestId, onConnection, store, fmt, signOut, onboardLinks, BASE } from './api';
-import { Catalog } from './catalog';
+import { Catalog, TrackPage, trackBySlug } from './catalog';
 import { Ctx, Modal, Badge, Tabs, Note, Field, StatusDot, useLab as useLabCtx } from './ui';
 import { IamConsole, S3Console, Ec2Console, VpcConsole } from './services1';
 import { CloudTrailConsole, CloudWatchConsole, LambdaConsole, KmsConsole, SecretsConsole, OrgConsole } from './services2';
@@ -39,9 +39,12 @@ export function App() {
   const go = (to: string) => { history.pushState(null, '', to); setPath(to); window.scrollTo(0, 0); };
   if (err) return <div className="gate"><div className="gate-card"><h1>Cannot reach ThreatReady Labs</h1><Note tone="bad">{err}</Note><button className="btn primary" onClick={load}>Retry</button></div></div>;
   if (!user) return <div className="gate"><div className="gate-card"><div className="spinner" aria-label="Loading" /><p className="muted">Checking your ThreatReady sign-in…</p></div></div>;
+  const open = (id: string) => go(`${BASE}${encodeURIComponent(id)}`);
+  const t = new RegExp(`^${BASE}tracks/([\\w-]{1,40})/?$`).exec(path);
+  if (t && trackBySlug(t[1])) return <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} />;
   const m = new RegExp(`^${BASE}([\\w-]{1,40})/?$`).exec(path);
-  if (m) return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
-  return <Catalog user={user} open={(id: string) => go(`${BASE}${encodeURIComponent(id)}`)} />;
+  if (m && m[1] !== 'tracks') return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
+  return <Catalog user={user} go={go} />;
 }
 
 function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any; logout: () => void; backToCatalog: () => void }) {

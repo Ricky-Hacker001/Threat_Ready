@@ -6,7 +6,8 @@ The whole platform runs as **one free Render web service** at one URL:
 |---|---|
 | `/` | onboard: sign-in, home, profile, admin console |
 | `/interview-prep/` | InterviewPrep |
-| `/labs/` | Lab Simulations |
+| `/labs/` | Lab Simulations: tracks, and the AWS lab at `/labs/TR-CLOUD-001` |
+| `/labs/soc/`, `/labs/devsecops/`, `/labs/threatwall/`, `/labs/redteam/` | SOC simulation, DevSecOps lab, ThreatReady Firewall, Red Team web pentest lab (built from `soc/`, `DevSecOps-Simulation/`, `ThreatWall/`, `red_team_lab/web/`; same sign-in) |
 | `/ar/` | Attack Reasoning Lab |
 
 One URL means one session cookie, so signing in once works in every app. (`onrender.com` is on the
@@ -54,8 +55,9 @@ child processes on loopback ports, memory-capped to fit 512 MB. Migrations run o
 ## Free-tier behaviour to expect
 
 - **Sleeps after 15 minutes without traffic.** The first visit after that takes about a minute.
-- **Files don't survive a restart or sleep:** uploaded resumes, report PDFs and Lab Simulations
-  progress (stored on the instance's disk). Accounts, interviews, scores and AI usage are in Neon and
+- **Files don't survive a restart or sleep:** uploaded resumes, report PDFs, Lab Simulations, SOC
+  simulation and Red Team lab progress (stored on the instance's disk). The DevSecOps lab and ThreatReady Firewall
+  keep progress in the learner's browser. Accounts, interviews, scores and AI usage are in Neon and
   are kept.
 - **No captcha** unless you add Cloudflare Turnstile keys (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`);
   sign-up then relies on rate limits.

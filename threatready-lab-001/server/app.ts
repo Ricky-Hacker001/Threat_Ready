@@ -5,6 +5,8 @@ import { Store, Session } from './store';
 import { cloudLab001, LabEngine } from './engine';
 import { CATALOG } from './catalog';
 import { IdentityResolver, internalTokenMatches } from './identity';
+import { HostedLab, hostedLabs } from './hosted';
+export { loadHostedLabs } from './hosted';
 
 const ENGINES: Record<string, LabEngine> = { [cloudLab001.labId]: cloudLab001 };
 
@@ -19,6 +21,8 @@ export interface AppOptions {
   onboardUrl: string;
   /** Every ThreatReady app (for the shared header). Optional: the header then shows Home only. */
   apps?: () => Promise<{ key: string; title: string; url: string; status: string }[]>;
+  /** Labs that are their own apps, served at /labs/<slug>/ (see hosted.ts). */
+  hosted?: HostedLab[];
 }
 
 const pct = (score: number, max: number) => (max > 0 ? Math.round((score / max) * 100) : 0);
@@ -30,6 +34,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
   // and a cached 304 must not stand in for a fresh list).
   app.set('etag', false);
+  // Before the JSON parser: hosted labs read their own request bodies.
+  if (opts.hosted?.length) app.use(hostedLabs(opts.hosted, opts));
   app.use(express.json({ limit: '64kb' }));
 
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
@@ -49,7 +55,7 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     res.json({
       app: 'labs',
       stats: [
-        { label: 'Labs started', value: labsStarted, hint: `${Object.keys(ENGINES).length} available now` },
+        { label: 'Labs started', value: labsStarted, hint: `${Object.keys(ENGINES).length + (opts.hosted?.length ?? 0)} available now` },
         { label: 'Labs completed', value: labsCompleted },
         { label: 'Best score', value: best === null ? '—' : `${best}/100` },
         { label: 'In progress', value: active.length },
@@ -113,6 +119,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   api.get('/labs', (req, res) => {
     const user = (req as any).user;
     res.json(CATALOG.map(c => {
+      // Hosted labs keep their own progress; they are live when this server serves them.
+      if (c.href) return { ...c, available: !!opts.hosted?.some(h => `${h.slug}/` === c.href), progress: null };
       const e = ENGINES[c.id];
       if (!e) return { ...c, available: false, progress: null };
       const runs = store.sessionsOf(user.id, c.id);
