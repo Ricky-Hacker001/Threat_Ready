@@ -198,6 +198,7 @@ async function run(name, engine) {
       await page.locator('.tr-card', { hasText: 'The Compromised Startup' }).getByRole('button', { name: /(start|continue|review) lab/i }).click();
       await page.waitForURL(/\/labs\/TR-CLOUD-001/);
       await page.locator('.top').waitFor({ timeout: 20000 }); // the AWS-style console (kept as is by design)
+      await page.locator('.tr-labnav').waitFor({ timeout: 10000 }); // the ThreatReady strip above it
     });
 
     await c('Lab Simulations: SOC, DevSecOps, Firewall, AI Security and Red Team labs open signed in', async () => {
@@ -207,19 +208,31 @@ async function run(name, engine) {
         await page.locator('.tr-card', { hasText: lab }).getByRole('link', { name: 'Open lab' }).click();
         await page.waitForLoadState('load');
       };
+      // Every console carries the ThreatReady strip: mark, Back, All labs (lab-nav.js).
+      const strip = async () => {
+        await page.locator('.tr-labnav').waitFor({ timeout: 20000 });
+        const links = await page.locator('.tr-labnav a, .tr-labnav button').allInnerTexts();
+        assert(links.some((t) => /Back/.test(t)) && links.some((t) => t.trim() === 'All labs'), `strip lacks Back/All labs: ${links.join(', ')}`);
+        assert((await page.getByRole('link', { name: 'All labs' }).count()) === 1, 'All labs appears more than once');
+      };
       await open(null, 'SOC Simulation');
-      // Signed in with the ThreatReady account (no name sign-in), with a way back to the catalog.
-      await page.locator('.name-chip').getByRole('link', { name: 'All labs' }).waitFor({ timeout: 20000 });
+      // Signed in with the ThreatReady account (no name sign-in).
+      await page.locator('.name-chip', { hasText: 'Signed in as' }).waitFor({ timeout: 20000 });
+      await strip();
       await open(null, 'DevSecOps Lab');
       await page.waitForFunction(() => document.title.includes('DevSecOps') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      await strip();
       await open('network-security', 'ThreatReady Firewall');
       await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      await strip();
       await open(null, 'AI Security Lab');
-      // Enters as the ThreatReady account (no name prompt) and links back to the catalog.
-      await page.getByRole('link', { name: 'All labs' }).waitFor({ timeout: 20000 });
+      // Enters as the ThreatReady account (no name prompt).
+      await page.getByRole('heading', { name: 'Mission Control' }).waitFor({ timeout: 20000 });
       assert((await page.locator('input[aria-label="Your name"]').count()) === 0, 'AI Security Lab asked for a name despite the platform session');
+      await strip();
       await open('red-team', 'AeroCart');
-      await page.getByRole('link', { name: 'All labs' }).first().waitFor({ timeout: 20000 });
+      await page.getByRole('button', { name: /Start engagement/ }).waitFor({ timeout: 20000 });
+      await strip();
     });
 
     await c('Attack Reasoning: filter and scenario page', async () => {
