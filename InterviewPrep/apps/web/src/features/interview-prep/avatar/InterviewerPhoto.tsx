@@ -100,6 +100,20 @@ export function InterviewerPhoto({ photos, status, speaking, candidateTyping = f
     const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const centerYaw = Math.floor(manifest.yaws / 2);
 
+    // Fit the still to its box: as tall as the art area allows, never wider than it (a percentage
+    // height does not resolve inside the stage's grid, so the size is set from the box itself).
+    const box = el.parentElement;
+    const fit = () => {
+      if (!box) return;
+      const h = Math.max(0, box.clientHeight - 8);
+      const w = Math.min(box.clientWidth, (h * manifest.width) / manifest.height);
+      el.style.width = `${Math.floor(w)}px`;
+      el.style.height = `${Math.floor((w * manifest.height) / manifest.width)}px`;
+    };
+    fit();
+    const ro = typeof ResizeObserver !== 'undefined' && box ? new ResizeObserver(fit) : null;
+    if (box) ro?.observe(box);
+
     let word: { seq: Viseme[]; dur: number; at: number } | null = null;
     let lastWordAt = -Infinity;
     const off = speechBus.subscribe((w: SpokenWord | null) => {
@@ -177,7 +191,7 @@ export function InterviewerPhoto({ photos, status, speaking, candidateTyping = f
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); off(); };
+    return () => { cancelAnimationFrame(raf); off(); ro?.disconnect(); };
   }, [photos]);
 
   return <canvas ref={canvas} className="ivw-photo" role="img" aria-label="Alex, your interviewer" data-testid="interviewer-photo" />;

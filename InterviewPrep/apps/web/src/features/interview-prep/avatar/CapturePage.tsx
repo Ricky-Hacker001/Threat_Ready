@@ -14,7 +14,7 @@ import { createRig } from './useInterviewerAnimation';
  */
 
 export interface CaptureParams {
-  /** Head turn: -1 left, 0 straight at the camera, 1 right (±6°). */
+  /** Head turn: -1 left, 0 straight at the camera, 1 right (±10°). */
   yaw: number;
   /** 0..1 mouthOpen morph. */
   mouth: number;
@@ -37,7 +37,7 @@ const H = 800;
 const LOOK_AT = new THREE.Vector3(0, 1.2, 0.1);
 const CAMERA_POS: [number, number, number] = [0.02, 1.25, 1.35];
 const FRAME_H = 0.62; // metres visible at the subject
-const YAW_STEP = THREE.MathUtils.degToRad(6);
+const YAW_STEP = THREE.MathUtils.degToRad(10);
 
 function Subject() {
   const gltf = use(loadInterviewerModel());
@@ -82,6 +82,9 @@ function Subject() {
 
   const tmpQ = useMemo(() => new THREE.Quaternion(), []);
   const tmpE = useMemo(() => new THREE.Euler(), []);
+  // The held clip has no head track, so the turn is applied to the bone's rest rotation each frame
+  // rather than multiplied onto the previous frame (which would accumulate into a profile view).
+  const headBase = useMemo(() => rig.head?.quaternion.clone(), [rig]);
   useFrame(() => {
     rig.mixer.update(1 / 60);
     const p = params.current;
@@ -92,9 +95,9 @@ function Subject() {
       set('mouthOpen', p.mouth);
       set('smile', p.smile - p.mouth * 0.15);
     }
-    if (rig.head) {
+    if (rig.head && headBase) {
       tmpE.set(0, p.yaw * YAW_STEP, 0, 'YXZ');
-      rig.head.quaternion.multiply(tmpQ.setFromEuler(tmpE));
+      rig.head.quaternion.copy(headBase).multiply(tmpQ.setFromEuler(tmpE));
       rig.head.updateWorldMatrix(false, true);
       for (const eye of rig.eyes) { eye.updateWorldMatrix(true, false); eye.lookAt(camera.position); }
     }
