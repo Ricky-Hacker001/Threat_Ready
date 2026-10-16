@@ -1,10 +1,12 @@
 import React from "react";
 import { BRAND } from "@/brand/brand";
 import { useApp } from "@/state/store";
+import { usePlatformUser } from "@/platform";
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const { state, dispatch } = useApp();
   const at = state.attempt;
+  const user = usePlatformUser();
 
   return (
     <div className="app">
@@ -22,7 +24,10 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {at.scenario.taskTitle} · {at.scenario.title}
             </span>
           )}
-          {state.progress && state.view !== "entry" && (
+          {state.progress && state.view !== "entry" && (user ? (
+            // Inside ThreatReady the name is the account's; it is changed on the platform, not here.
+            <span className="pill grey hide-sm">{state.progress.learnerName}</span>
+          ) : (
             <button
               className="pill grey hide-sm"
               style={{ cursor: "pointer", background: "none" }}
@@ -31,6 +36,11 @@ export function Shell({ children }: { children: React.ReactNode }) {
             >
               {state.progress.learnerName} ▾
             </button>
+          ))}
+          {user && (
+            <a className="btn sm ghost" href={user.catalogUrl}>
+              All labs
+            </a>
           )}
           {state.view !== "entry" && state.view !== "mission" && (
             <button className="btn sm ghost" onClick={() => dispatch({ t: "mission" })}>

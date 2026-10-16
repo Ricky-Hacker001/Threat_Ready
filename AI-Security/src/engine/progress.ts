@@ -53,6 +53,12 @@ export const browserStorage = (): StorageAdapter => {
 };
 
 const KEY = "aeropay-lab:progress:v1";
+/** Inside ThreatReady, progress is kept per signed-in account (set before the store first reads). */
+let namespace = "";
+export function setProgressNamespace(ns: string): void {
+  namespace = ns;
+}
+const key = () => (namespace ? `${KEY}:${namespace}` : KEY);
 
 export function emptyProgress(learnerName: string): ProgressState {
   return {
@@ -65,7 +71,7 @@ export function emptyProgress(learnerName: string): ProgressState {
 }
 
 export function loadProgress(store: StorageAdapter): ProgressState | null {
-  const raw = store.get(KEY);
+  const raw = store.get(key());
   if (!raw) return null;
   try {
     return JSON.parse(raw) as ProgressState;
@@ -75,11 +81,11 @@ export function loadProgress(store: StorageAdapter): ProgressState | null {
 }
 
 export function saveProgress(store: StorageAdapter, p: ProgressState): void {
-  store.set(KEY, JSON.stringify(p));
+  store.set(key(), JSON.stringify(p));
 }
 
 export function resetProgress(store: StorageAdapter): void {
-  store.remove(KEY);
+  store.remove(key());
 }
 
 export function scenarioId(taskId: number, level: Level): string {

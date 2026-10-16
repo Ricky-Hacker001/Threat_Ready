@@ -215,7 +215,9 @@ async function run(name, engine) {
       await open('network-security', 'ThreatReady Firewall');
       await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
       await open(null, 'AI Security Lab');
-      await page.waitForFunction(() => document.title.includes('AI Security') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      // Enters as the ThreatReady account (no name prompt) and links back to the catalog.
+      await page.getByRole('link', { name: 'All labs' }).waitFor({ timeout: 20000 });
+      assert((await page.locator('input[aria-label="Your name"]').count()) === 0, 'AI Security Lab asked for a name despite the platform session');
       await open('red-team', 'AeroCart');
       await page.getByRole('link', { name: 'All labs' }).first().waitFor({ timeout: 20000 });
     });

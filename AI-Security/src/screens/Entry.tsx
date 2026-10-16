@@ -1,11 +1,26 @@
 import React, { useState } from "react";
 import { BRAND } from "@/brand/brand";
 import { useApp } from "@/state/store";
+import { usePlatformUser } from "@/platform";
 
 export function Entry() {
   const { state, dispatch } = useApp();
   const [name, setName] = useState(state.progress?.learnerName ?? "");
   const returning = Boolean(state.progress);
+  // Inside ThreatReady the signed-in user is the learner: enter straight away, no name prompt.
+  const user = usePlatformUser();
+  React.useEffect(() => {
+    if (user) dispatch({ t: "enter", name: user.name });
+  }, [user, dispatch]);
+  if (user !== null) {
+    return (
+      <div className="card pad-lg" style={{ maxWidth: 520, margin: "40px auto" }} role="status">
+        <img src={BRAND.logoWhite} alt={BRAND.company} style={{ height: 30, marginBottom: 18 }} />
+        <h1>{BRAND.productName}</h1>
+        <p className="muted">{user ? `Opening as ${user.name}…` : "Opening…"}</p>
+      </div>
+    );
+  }
   return (
     <div className="card pad-lg" style={{ maxWidth: 520, margin: "40px auto" }}>
       <img src={BRAND.logoWhite} alt={BRAND.company} style={{ height: 30, marginBottom: 18 }} />
