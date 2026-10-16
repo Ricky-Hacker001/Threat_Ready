@@ -89,7 +89,7 @@ export function App() {
 
   return (
     <ToastProvider>
-      <div className="ip-shell">
+      <div className="ip-shell tr-shell">
         <a href="#main" className="tr-skip">Skip to content</a>
         {data && <PlatformHeader user={data} />}
         {data && <SubNav />}

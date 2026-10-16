@@ -274,3 +274,22 @@ html[data-theme="light"] .tr-theme-btn .tr-i-moon { display: none; }
 @keyframes tr-ping { 0% { transform: scale(0.62); opacity: 0.75; } 100% { transform: scale(1.3); opacity: 0; } }
 @keyframes tr-blink { to { visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .tr-loading-sweep, .tr-loading-ping, .tr-loading-cursor { animation: none; } .tr-loading-ping { opacity: 0.35; transform: none; } }
+
+/* ---------- Switching apps: a smooth hand-off between ThreatReady's services ----------
+   1. Same-origin (the single-origin deployment): the browser cross-fades the old page into the new one
+      (cross-document view transitions; Chrome, Edge, Safari). 2. Everywhere: platform-nav.js fades the
+      page out on an app link, the loading screen rises in, and the shell fades in once it mounts. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: tr-vt-out 0.18s ease-in both; }
+::view-transition-new(root) { animation: tr-vt-in 0.26s ease-out both; }
+@keyframes tr-vt-out { to { opacity: 0; } }
+@keyframes tr-vt-in { from { opacity: 0; } }
+html.tr-leaving body { opacity: 0; transition: opacity 0.16s ease-in; }
+.tr-loading-in { animation: tr-rise 0.36s ease-out both; }
+.tr-shell { animation: tr-enter 0.3s ease-out both; }
+@keyframes tr-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tr-enter { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root), .tr-loading-in, .tr-shell { animation: none; }
+  html.tr-leaving body { transition: none; }
+}

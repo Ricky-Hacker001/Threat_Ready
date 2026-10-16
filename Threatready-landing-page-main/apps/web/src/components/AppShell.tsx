@@ -121,7 +121,7 @@ export function AppShell() {
   if (!error && (leaving || !me || !config)) return <PlatformLoading app={leaving ?? "ThreatReady"} />;
 
   return (
-    <>
+    <div className="tr-shell">
       <a className="skip-link" href="#main">
         Skip to content
       </a>
@@ -160,7 +160,7 @@ export function AppShell() {
         ) : null}
       </main>
       <PlatformFooter />
-    </>
+    </div>
   );
 }
 
