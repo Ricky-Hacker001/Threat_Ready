@@ -328,7 +328,7 @@ const stages = [
         key: {
           checks: [
             { id: 'ti', label: 'Source address checked in threat intelligence', test: (c) => c.toolRuns.some((t) => t.tool === 'reputation' && t.input === ATK) },
-            { id: 'dir', label: 'Targeted account looked up in the directory', test: (c) => c.toolRuns.some((t) => t.tool === 'user' && t.input.replace(/^meridian\\/, '') === USER.sam) },
+            { id: 'dir', label: 'Targeted account looked up in the directory', test: (c) => c.toolRuns.some((t) => t.tool === 'user' && t.input.replace(/^aerofreight\\/, '') === USER.sam) },
             { id: 'chg', label: 'Change calendar consulted', test: (c) => c.toolRuns.some((t) => t.tool === 'change') },
           ],
           explain: 'A conclusion is validated when independent sources agree: the logs, outside intelligence, the directory and the change record.',
@@ -517,7 +517,7 @@ export default {
     minutes: '30-40',
     tiers: 'L1, L2, L3',
     sources: ['proxy', 'dns', 'email', 'edr', 'winsec', 'firewall', 'audit'],
-    environment: 'Meridian Freight Systems, a simulated company of about 30 hosts. All logs are synthetic. All times are UTC.',
+    environment: 'Aero Freight Systems, a simulated company of about 30 hosts. All logs are synthetic. All times are UTC.',
   },
   build,
   alert: { at: 5, build: alert },

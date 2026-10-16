@@ -3,9 +3,9 @@ import { helmetEnabled, moduleLoadError, parameterised, poweredByHidden, routeBl
 import { parseYamlDocs } from './yaml';
 import { dockerRun } from './container';
 
-// Staging cluster: Kyverno admission, rollouts, the running ShopFlow app (HTTP) and OWASP ZAP.
+// Staging cluster: Kyverno admission, rollouts, the running AeroShop app (HTTP) and OWASP ZAP.
 
-export const STAGING_HOST = 'staging.shopflow.local';
+export const STAGING_HOST = 'staging.aeroshop.local';
 
 const ORDERS = [
   { id: 5001, customer_id: 'C-1001', total: 129.9, status: 'shipped' },
@@ -48,7 +48,7 @@ export function httpRequest(app: RunningApp, method: string, rawPath: string, bo
   const headers = headersFor(app);
   const reply = (b: unknown, status = 200, statusText = 'OK'): HttpResponse => ({ status, statusText, headers, body: JSON.stringify(b) });
   const orders = app.files['src/routes/orders.js'];
-  if (method === 'GET' && (path === '/' || path === '/health')) return reply({ status: 'ok', service: 'shopflow-api' });
+  if (method === 'GET' && (path === '/' || path === '/health')) return reply({ status: 'ok', service: 'aeroshop-api' });
   if (method === 'GET' && path === '/api/orders') {
     const blk = routeBlock(orders, 'get', '/orders');
     if (!blk) return reply({ error: 'not found' }, 404, 'Not Found');
@@ -203,11 +203,11 @@ export function denyMessage(w: Workload, file: string, v: Violation[]): string[]
 
 export function rollout(image: string, registry: Record<string, ImageInfo>, commit: string): { ok: boolean; log: string[]; dep?: Deployment } {
   const img = registry[image];
-  const wait = 'Waiting for deployment "shopflow-api" rollout to finish: 0 of 2 updated replicas are available...';
-  if (!img) return { ok: false, log: [wait, `  shopflow-api-7c9d5b-xk2lp   0/1   ErrImagePull   image "${image}" not found in registry`, 'error: deployment "shopflow-api" exceeded its progress deadline'] };
+  const wait = 'Waiting for deployment "aeroshop-api" rollout to finish: 0 of 2 updated replicas are available...';
+  if (!img) return { ok: false, log: [wait, `  aeroshop-api-7c9d5b-xk2lp   0/1   ErrImagePull   image "${image}" not found in registry`, 'error: deployment "aeroshop-api" exceeded its progress deadline'] };
   const run = dockerRun(img);
-  if (!run.ok) return { ok: false, log: [wait, '  shopflow-api-7c9d5b-xk2lp   0/1   CrashLoopBackOff', ...run.log.map((l) => '  ' + l), 'error: deployment "shopflow-api" exceeded its progress deadline'] };
+  if (!run.ok) return { ok: false, log: [wait, '  aeroshop-api-7c9d5b-xk2lp   0/1   CrashLoopBackOff', ...run.log.map((l) => '  ' + l), 'error: deployment "aeroshop-api" exceeded its progress deadline'] };
   const err = moduleLoadError(img.files, img.installed);
-  if (err) return { ok: false, log: [wait, '  shopflow-api-7c9d5b-xk2lp   0/1   CrashLoopBackOff', ...err.split('\n').map((l) => '  ' + l), 'error: deployment "shopflow-api" exceeded its progress deadline'] };
-  return { ok: true, log: ['deployment "shopflow-api" successfully rolled out'], dep: { image, commit, files: img.files, installed: img.installed, at: Date.now() } };
+  if (err) return { ok: false, log: [wait, '  aeroshop-api-7c9d5b-xk2lp   0/1   CrashLoopBackOff', ...err.split('\n').map((l) => '  ' + l), 'error: deployment "aeroshop-api" exceeded its progress deadline'] };
+  return { ok: true, log: ['deployment "aeroshop-api" successfully rolled out'], dep: { image, commit, files: img.files, installed: img.installed, at: Date.now() } };
 }

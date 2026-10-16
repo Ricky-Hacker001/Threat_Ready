@@ -14,7 +14,7 @@ interface Props {
   initial: string[];
 }
 
-const PROMPT = 'devsecops@shopflow:~/shopflow-api$';
+const PROMPT = 'devsecops@aeroshop:~/aeroshop-api$';
 
 export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ execute, files, initial }, ref) {
   const [lines, setLines] = useState<string[]>(initial);

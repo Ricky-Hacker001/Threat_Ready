@@ -2,7 +2,7 @@ import type { LabDef } from '../../engine/lab';
 import { failingTests, scanFresh } from '../../engine/lab';
 import { ignoredBy } from '../../engine/git';
 import { scanFiles } from '../../engine/secrets';
-import { baseFiles, CART_TESTS, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, TEAM } from '../aeroshop';
 import { headFiles, isPushed } from './common';
 
 // Training values only — visibly fake, never valid credentials.
@@ -12,7 +12,7 @@ export const FAKE_SECRET = 'TrainingOnlyFakeSecret/NotReal/Q7x9';
 const CONFIG_WITH_KEY = `// S3 settings for invoice PDF uploads
 module.exports = {
   region: 'eu-west-1',
-  bucket: 'shopflow-invoices',
+  bucket: 'aeroshop-invoices',
   accessKeyId: '${FAKE_KEY_ID}',
   secretAccessKey: '${FAKE_SECRET}',
 };
@@ -36,8 +36,8 @@ export const secretsLab: LabDef = {
   minutes: 30,
   summary: 'Find a committed cloud credential with Gitleaks, disable it, move config to environment variables, rewrite history and prove the repo is clean.',
   story:
-    "Secret scanning flagged a cloud access key in shopflow-api. Run it as a proper incident: confirm the finding, disable the credential, fix the code, clean the repository history and record evidence that it is gone. (All credentials in this lab are fake training values.)",
-  ticket: 'SEC-311 — Cloud credential exposed in shopflow-api. Contain, remove from code and history, prevent recurrence, provide a clean scan as evidence.',
+    "Secret scanning flagged a cloud access key in aeroshop-api. Run it as a proper incident: confirm the finding, disable the credential, fix the code, clean the repository history and record evidence that it is gone. (All credentials in this lab are fake training values.)",
+  ticket: 'SEC-311 — Cloud credential exposed in aeroshop-api. Contain, remove from code and history, prevent recurrence, provide a clean scan as evidence.',
   skills: ['Secret scanning', 'Credential revocation', 'Environment-based config', 'Git history rewrite'],
   tools: ['gitleaks', 'aws iam', 'git filter-repo'],
   concepts: [
@@ -51,7 +51,7 @@ export const secretsLab: LabDef = {
     const withKey = { ...base, 'src/config/storage.js': CONFIG_WITH_KEY, 'src/services/invoices.js': UPLOADER };
     return {
       history: [
-        { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 40, files: base },
+        { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 40, files: base },
         { message: 'Add invoice upload to object storage', author: TEAM.marco, daysAgo: 12, files: withKey },
         { message: 'Update README', author: TEAM.dana, daysAgo: 3, files: { ...withKey, 'README.md': base['README.md'] + '\nInvoices are stored in object storage.\n' } },
       ],
@@ -125,7 +125,7 @@ export const secretsLab: LabDef = {
         'Commit your fix. Write a replacements file with one `old==>REMOVED` line for the key id and one for the secret, run `git filter-repo --replace-text <file> --force`, add the remote back (filter-repo removes it deliberately) and force-push. Then delete the replacements file.',
       hints: [
         'git add -A && git commit -m "Read storage credentials from env"',
-        'git remote add origin https://git.shopflow.local/shopflow/shopflow-api.git',
+        'git remote add origin https://git.aeroshop.local/aeroshop/aeroshop-api.git',
         'git push --force origin main',
       ],
       check: (s) =>

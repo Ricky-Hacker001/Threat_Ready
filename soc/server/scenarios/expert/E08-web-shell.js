@@ -26,10 +26,10 @@ export default defineScenario({
   alertTags: ['cmd'],
   build(x) {
     const P = (i) => 7000 + i * 13;
-    x.add('decoy_upload', E.web(x.T(-50 * 60), { src_ip: CUST, method: 'POST', uri: '/documents/upload.aspx', status: 200, bytes: 412, ua: UA, referer: 'https://portal.meridianfreight.example/documents', time_ms: 310 }));
+    x.add('decoy_upload', E.web(x.T(-50 * 60), { src_ip: CUST, method: 'POST', uri: '/documents/upload.aspx', status: 200, bytes: 412, ua: UA, referer: 'https://portal.aerofreight.example/documents', time_ms: 310 }));
     x.add('decoy_upload', E.edr(x.T(-50 * 60 + 1), WEB.name, 11, 'FileCreate', { user: dom('svc_web'), image: W3WP, target_filename: `${ROOT}\\uploads\\POD_88412.pdf`, file_size: 182330 }));
     x.add('recon', E.web(x.T(-31 * 60), { src_ip: ATK, method: 'GET', uri: '/documents/upload.aspx', status: 200, bytes: 5120, ua: UA, time_ms: 40 }));
-    x.add('upload', E.web(x.T(-30 * 60), { src_ip: ATK, method: 'POST', uri: '/documents/upload.aspx', status: 200, bytes: 398, ua: UA, referer: 'https://portal.meridianfreight.example/documents/upload.aspx', time_ms: 220 }));
+    x.add('upload', E.web(x.T(-30 * 60), { src_ip: ATK, method: 'POST', uri: '/documents/upload.aspx', status: 200, bytes: 398, ua: UA, referer: 'https://portal.aerofreight.example/documents/upload.aspx', time_ms: 220 }));
     x.add('upload', E.edr(x.T(-30 * 60 + 1), WEB.name, 11, 'FileCreate', { user: dom('svc_web'), image: W3WP, target_filename: `${ROOT}\\uploads\\${SHELL}`, file_size: 2711 }));
     x.add('waf_log', E.waf(x.T(-29 * 60), { src_ip: ATK, rule_id: '933100', rule_msg: 'Script file requested from uploads path', action: 'log', uri: `/uploads/${SHELL}`, score: 5, ua: UA }));
     const cmds = ['whoami', 'ipconfig /all', 'net group "Domain Admins" /domain', 'systeminfo', `dir ${ROOT}\\App_Data`];

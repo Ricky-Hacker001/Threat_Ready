@@ -282,12 +282,12 @@ priya.sharma@example.com | +91 98765 43210 | (022) 2345 6789 | linkedin.com/in/p
 Address: 12 MG Road, Bengaluru
 Flat 4B, 2nd Floor, Indiranagar Main Road, Bengaluru 560038
 PAN ABCDE1234F  Aadhaar 2345 6789 0123  DOB: 01/02/1999
-Security Analyst (2022 - present) at Acme. Reduced MTTR by 35%.`,
+Security Analyst (2022 - present) at Aero Fintech. Reduced MTTR by 35%.`,
       { redactNameLine: true },
     );
     expect(r.text).not.toMatch(/priya\.sharma|98765|2345 6789|ABCDE1234F|linkedin\.com|priya\.dev|MG Road|560038|01\/02\/1999/);
     expect(r.text).toMatch(/^\[NAME\]/);
-    expect(r.text).toContain('Security Analyst (2022 - present) at Acme. Reduced MTTR by 35%.');
+    expect(r.text).toContain('Security Analyst (2022 - present) at Aero Fintech. Reduced MTTR by 35%.');
     expect(r.counts.email).toBe(1);
     expect(r.counts.phone).toBeGreaterThanOrEqual(1);
   });

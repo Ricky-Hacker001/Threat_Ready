@@ -1,6 +1,6 @@
 import type { LabDef } from '../../engine/lab';
 import { revOf } from '../../engine/shell';
-import { baseFiles, CART_TESTS, SERVER_TEST, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, SERVER_TEST, TEAM } from '../aeroshop';
 import { dockerignoreHas, finalStage, hasMinimalPinnedBase, headFiles, runsAsNonRoot } from './common';
 
 const WEAK_DOCKERFILE = `FROM node:latest
@@ -27,8 +27,8 @@ export const containerLab: LabDef = {
   minutes: 40,
   summary: 'Lint a Dockerfile, build and scan the image, then harden it: minimal pinned base, non-root user, no baked-in secrets, smaller attack surface — and keep it running.',
   story:
-    'Platform engineering will only run images that pass the container baseline. The ShopFlow image runs as root on a 1 GB base with debugging tools and a password in its layers. Harden it — and make sure the container still starts.',
-  ticket: 'SEC-352 — shopflow-api image fails the container baseline (root user, :latest, secrets in layers, fixable CRITICAL CVEs). Fix and provide a clean scan.',
+    'Platform engineering will only run images that pass the container baseline. The AeroShop image runs as root on a 1 GB base with debugging tools and a password in its layers. Harden it — and make sure the container still starts.',
+  ticket: 'SEC-352 — aeroshop-api image fails the container baseline (root user, :latest, secrets in layers, fixable CRITICAL CVEs). Fix and provide a clean scan.',
   skills: ['Dockerfile best practice', 'Image scanning', 'Least privilege', 'Build-context hygiene'],
   tools: ['hadolint', 'docker build/run', 'trivy image', 'trivy config'],
   concepts: [
@@ -39,7 +39,7 @@ export const containerLab: LabDef = {
   openFile: 'Dockerfile',
   seed: () => ({
     history: [
-      { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 90, files: baseFiles({ Dockerfile: WEAK_DOCKERFILE }) },
+      { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 90, files: baseFiles({ Dockerfile: WEAK_DOCKERFILE }) },
       { message: 'Add curl and vim for debugging in prod', author: TEAM.marco, daysAgo: 20, files: baseFiles({ Dockerfile: WEAK_DOCKERFILE }) },
     ],
     local: { '.env': 'DB_PASSWORD=LocalOnlyTraining77\nDB_HOST=localhost\n' },
@@ -58,7 +58,7 @@ export const containerLab: LabDef = {
       id: 'baseline',
       title: 'Build the current image and scan it (baseline)',
       guide: 'Build and scan before changing anything, so you can show the improvement afterwards.',
-      command: 'docker build -t shopflow-api:1.4.0 . && trivy image shopflow-api:1.4.0',
+      command: 'docker build -t aeroshop-api:1.4.0 . && trivy image aeroshop-api:1.4.0',
       hints: ['Use the same tag each time; `docker images` lists what you built.'],
       check: (s) => !!s.scans['trivy-image'],
     },
@@ -91,7 +91,7 @@ export const containerLab: LabDef = {
       id: 'clean-scan',
       title: 'Fresh image scan: no fixable HIGH/CRITICAL, no secrets',
       guide: 'Rebuild and scan the hardened image. Unfixed OS CVEs may remain on some bases — that is a documented, accepted risk; fixable ones are not.',
-      command: 'docker build -t shopflow-api:1.4.0 . && trivy image --severity HIGH,CRITICAL shopflow-api:1.4.0',
+      command: 'docker build -t aeroshop-api:1.4.0 . && trivy image --severity HIGH,CRITICAL aeroshop-api:1.4.0',
       hints: ['trivy image --ignore-unfixed shows only what you can act on.'],
       check: (s) => {
         const img = freshImage(s);
@@ -103,7 +103,7 @@ export const containerLab: LabDef = {
       id: 'runs',
       title: 'The hardened container starts',
       guide: 'Security that breaks the service is not done. Run the latest image and confirm it listens on port 3000.',
-      command: 'docker run --rm -p 3000:3000 shopflow-api:1.4.0',
+      command: 'docker run --rm -p 3000:3000 aeroshop-api:1.4.0',
       hints: ['Distroless: use exec-form CMD ["src/server.js"] — node is already the entrypoint.', 'Shell-form CMD needs /bin/sh.'],
       check: (s) => {
         const img = freshImage(s);

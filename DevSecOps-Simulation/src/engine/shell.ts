@@ -27,7 +27,7 @@ export interface ShellCtx {
   commit: string;
 }
 
-export const REPO_URL = 'https://git.shopflow.local/shopflow/shopflow-api.git';
+export const REPO_URL = 'https://git.aeroshop.local/aeroshop/aeroshop-api.git';
 
 export function revOf(s: LabState): string {
   return hexDigest(JSON.stringify(s.files) + '|' + s.head + '|' + JSON.stringify(s.installed), 12);
@@ -62,7 +62,7 @@ function positional(args: string[], withValue: string[] = []): string[] {
   return out;
 }
 
-const norm = (p: string) => p.replace(/^\.\//, '').replace(/^\/workspace\/shopflow-api\//, '').replace(/^\/app\//, '');
+const norm = (p: string) => p.replace(/^\.\//, '').replace(/^\/workspace\/aeroshop-api\//, '').replace(/^\/app\//, '');
 
 function listDir(fs: Files, dir: string): string[] {
   const d = norm(dir).replace(/^\.$/, '').replace(/\/$/, '');
@@ -165,13 +165,13 @@ function runSimple(cmd: string, ctx: ShellCtx, stdin: string[] | null): CmdResul
       case 'clear':
         return res(['\x1bc']);
       case 'pwd':
-        return res(['/workspace/shopflow-api']);
+        return res(['/workspace/aeroshop-api']);
       case 'whoami':
         return res([ctx.pipeline ? 'runner' : 'devsecops']);
       case 'date':
         return res([new Date().toUTCString()]);
       case 'cd':
-        return !args.length || ['.', '~', '/workspace/shopflow-api'].includes(args[0]) ? res([]) : res(['cd: this lab shell stays at the repository root — use paths like src/config/storage.js'], 1);
+        return !args.length || ['.', '~', '/workspace/aeroshop-api'].includes(args[0]) ? res([]) : res(['cd: this lab shell stays at the repository root — use paths like src/config/storage.js'], 1);
       case 'node':
         return args[0] === '-v' || args[0] === '--version' ? res(['v20.18.0']) : res([C.gray('(servers are not started in this shell — use docker run, or deploy through the pipeline)')]);
       case 'export':
@@ -294,7 +294,7 @@ function runSimple(cmd: string, ctx: ShellCtx, stdin: string[] | null): CmdResul
 
 function help(): CmdResult {
   return res([
-    C.bold('ShopFlow DevSecOps workstation') + C.gray('  (repo: /workspace/shopflow-api)'),
+    C.bold('AeroShop DevSecOps workstation') + C.gray('  (repo: /workspace/aeroshop-api)'),
     '',
     C.cyan('Files    ') + 'ls, cat, head, tail, grep -rn, echo … > file, touch, rm, cp, mv, tree',
     C.cyan('Git      ') + 'git status | add | commit -m | log [-p] | diff [--staged] | show | push [--force] | remote | restore | filter-repo',
@@ -928,7 +928,7 @@ function docker(args: string[], ctx: ShellCtx): CmdResult {
       const tag = t.includes(':') ? t : t + ':latest';
       const img = s.images[tag];
       if (!img) return res([`An image does not exist locally with the tag: ${t}`], 1);
-      if (!tag.startsWith('registry.shopflow.local/')) return res([`The push refers to repository [docker.io/library/${tag.split(':')[0]}]`, 'denied: requested access to the resource is denied', C.gray('hint: the company registry is registry.shopflow.local/')], 1);
+      if (!tag.startsWith('registry.aeroshop.local/')) return res([`The push refers to repository [docker.io/library/${tag.split(':')[0]}]`, 'denied: requested access to the resource is denied', C.gray('hint: the company registry is registry.aeroshop.local/')], 1);
       s.registry[tag] = img;
       return res([`The push refers to repository [${tag.split(':')[0]}]`, '5f70bf18a086: Pushed', `${tag.split(':').pop()}: digest: sha256:${hexDigest(tag, 64)} size: 1789`]);
     }
@@ -1067,10 +1067,10 @@ function kubectl(args: string[], ctx: ShellCtx): CmdResult {
     if (!image.includes(':') || image.endsWith(':latest')) return res(['error: admission webhook "validate.kyverno.svc-fail" denied the request: disallow-latest-tag: Using a mutable image tag is not allowed.'], 1);
     const r = rollout(image, s.registry, ctx.pipeline ? ctx.commit : s.head);
     if (r.ok) s.staging = r.dep!;
-    return res(['deployment.apps/shopflow-api image updated', ...r.log], r.ok ? 0 : 1);
+    return res(['deployment.apps/aeroshop-api image updated', ...r.log], r.ok ? 0 : 1);
   }
-  if (sub === 'rollout') return s.staging ? res(['deployment "shopflow-api" successfully rolled out']) : res(['Error from server (NotFound): deployments.apps "shopflow-api" not found'], 1);
-  if (sub === 'get') return s.staging ? res(['NAME                         READY   STATUS    RESTARTS   AGE', 'shopflow-api-7c9d5b-xk2lp    1/1     Running   0          42s', 'shopflow-api-7c9d5b-qq81z    1/1     Running   0          40s', C.gray(`image: ${s.staging.image}`)]) : res(['No resources found in shop namespace.']);
+  if (sub === 'rollout') return s.staging ? res(['deployment "aeroshop-api" successfully rolled out']) : res(['Error from server (NotFound): deployments.apps "aeroshop-api" not found'], 1);
+  if (sub === 'get') return s.staging ? res(['NAME                         READY   STATUS    RESTARTS   AGE', 'aeroshop-api-7c9d5b-xk2lp    1/1     Running   0          42s', 'aeroshop-api-7c9d5b-qq81z    1/1     Running   0          40s', C.gray(`image: ${s.staging.image}`)]) : res(['No resources found in shop namespace.']);
   return res(['kubectl: apply -f, get pods, set image, rollout status'], sub ? 1 : 0);
 }
 

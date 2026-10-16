@@ -84,7 +84,7 @@ const stages = [
           checks: [
             { id: 'asset', label: 'Source host looked up in the asset inventory', test: (c) => c.toolRuns.some((t) => t.tool === 'asset' && ['scan01', SCAN.ip].includes(t.input)) },
             { id: 'change', label: 'Change calendar consulted', test: (c) => c.toolRuns.some((t) => t.tool === 'change') },
-            { id: 'acct', label: 'Account that logged on successfully looked up in the directory', test: (c) => c.toolRuns.some((t) => t.tool === 'user' && t.input.replace(/^meridian\\/, '') === 'svc_scan') },
+            { id: 'acct', label: 'Account that logged on successfully looked up in the directory', test: (c) => c.toolRuns.some((t) => t.tool === 'user' && t.input.replace(/^aerofreight\\/, '') === 'svc_scan') },
           ],
           explain: 'A benign verdict needs positive confirmation: what the source is, that the activity is authorised now, and that the account is the one documented for it.',
         },
@@ -236,7 +236,7 @@ export default {
     minutes: '10-20',
     tiers: 'L1 (L2 only if escalated)',
     sources: ['proxy', 'dns', 'email', 'edr', 'winsec', 'firewall'],
-    environment: 'Meridian Freight Systems, about 30 hosts. Web egress is logged at the proxy; firewall logs cover inter-VLAN and inbound traffic. All times are UTC.',
+    environment: 'Aero Freight Systems, about 30 hosts. Web egress is logged at the proxy; firewall logs cover inter-VLAN and inbound traffic. All times are UTC.',
   },
   build,
   alert: { at: 5, build: alert },

@@ -51,7 +51,7 @@ export const BEATS = [
   // ---- 1 -----------------------------------------------------------------
   {
     id: '1-console', step: 1, kind: 'info', title: 'This is a practice SOC console', focus: 'The whole screen',
-    what: 'A console where an analyst watches logs, investigates alerts and records decisions. The company on screen, Meridian Freight Systems, is simulated.',
+    what: 'A console where an analyst watches logs, investigates alerts and records decisions. The company on screen, Aero Freight Systems, is simulated.',
     why: 'Real analysts spend the day in a screen like this. Learning where things are comes before learning what to decide.',
     how: SHOWN,
     expect: 'Nothing changes yet. Logs are already streaming on the left.',
@@ -572,7 +572,7 @@ const past = (ctx, id) => ctx.c.status === 'closed' || stageOrder(ctx).indexOf(c
 const sameIp = (v, ip) => String(v || '').trim() === ip;
 // A pinned sign-in by the real user from her workstation, but to some other server.
 const otherServerPin = (ctx) => ctx.c.pins.map((p) => p.snapshot).find((e) => String(e.fields.event_id) === '4624' && e.fields.src_ip === ctx.scn.facts.WS_IP && e.host !== ctx.scn.facts.WEB && cleanUser(e.fields.target_user) === ctx.scn.facts.USER);
-const cleanUser = (v) => String(v || '').trim().toLowerCase().replace(/^meridian\\/, '');
+const cleanUser = (v) => String(v || '').trim().toLowerCase().replace(/^aerofreight\\/, '');
 const ok = (message) => ({ ok: true, message });
 const no = (message, items) => ({ ok: false, message, ...(items ? { items } : {}) });
 

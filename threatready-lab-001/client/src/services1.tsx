@@ -173,7 +173,7 @@ export function Reachability() {
   const { cloud, act, busy, def } = useLab(); const [source, setS] = useState('internet'); const [target, setT] = useState(Object.keys(cloud.ec2.instances)[0]); const [port, setPort] = useState('22'); const [res, setRes] = useState<any>(null);
   return <Panel title="Reachability test"><p className="muted">Attempts one simulated TCP connection and evaluates it against routing and security group rules.</p>
     <div className="formrow"><Field label="Source"><select value={source} onChange={e => setS(e.target.value)}>{def.sources.map((s: any) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></Field>
-      <Field label="Destination"><select value={target} onChange={e => setT(e.target.value)}><option value="alb">nc-storefront-alb</option>{Object.values<any>(cloud.ec2.instances).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
+      <Field label="Destination"><select value={target} onChange={e => setT(e.target.value)}><option value="alb">ac-storefront-alb</option>{Object.values<any>(cloud.ec2.instances).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}</select></Field>
       <Field label="TCP port"><input type="number" min={1} max={65535} value={port} onChange={e => setPort(e.target.value)} /></Field>
       <button className="btn primary" disabled={busy || !port} onClick={async () => setRes(await act('ec2.reachabilityTest', { source, target, port: Number(port) }, { silent: true }))}>Run test</button></div><Result r={res} /></Panel>;
 }
@@ -181,7 +181,7 @@ export function Reachability() {
 // ============================== VPC ==============================
 export function VpcConsole() {
   const { cloud, route, nav } = useLab(); const tab = route.tab || 'map'; useInspect(`vpc/vpc/${cloud.vpc.id}#${tab}`);
-  const app = Object.values<any>(cloud.ec2.instances).find(i => i.name === 'nc-app-server'), batch = Object.values<any>(cloud.ec2.instances).find(i => i.name === 'nc-batch-worker');
+  const app = Object.values<any>(cloud.ec2.instances).find(i => i.name === 'ac-app-server'), batch = Object.values<any>(cloud.ec2.instances).find(i => i.name === 'ac-batch-worker');
   const ports = (id: string) => cloud.exposure.find((e: any) => e.target === id)?.ports || []; const ap = ports(app.id);
   return <div className="page"><PageHeader crumbs={[{ label: 'VPC' }, { label: cloud.vpc.name }]} title={cloud.vpc.name} desc={`${cloud.vpc.id} · ${cloud.vpc.cidr} · internet gateway ${cloud.vpc.igw}`} />
     <Tabs value={tab} onChange={x => nav({ service: 'vpc', tab: x })} tabs={[{ id: 'map', label: 'Resource map' }, { id: 'subnets', label: 'Subnets' }, { id: 'routes', label: 'Route tables' }, { id: 'reachability', label: 'Reachability test' }]} />
@@ -191,15 +191,15 @@ export function VpcConsole() {
         <rect x="170" y="48" width="656" height="150" rx="4" className="sub pub" /><text x="182" y="66" className="lbl">public-1a · 10.0.1.0/24 · route 0.0.0.0/0 → {cloud.vpc.igw}</text>
         <rect x="170" y="212" width="656" height="92" rx="4" className="sub prv" /><text x="182" y="230" className="lbl">private-1a · 10.0.11.0/24 · route 0.0.0.0/0 → NAT</text>
         <g className="node"><rect x="14" y="96" width="104" height="54" rx="27" /><text x="66" y="128" textAnchor="middle">Internet</text></g>
-        <g className="node"><rect x="250" y="84" width="170" height="54" rx="4" /><text x="335" y="106" textAnchor="middle">nc-storefront-alb</text><text x="335" y="124" textAnchor="middle" className="sm">nc-alb-sg</text></g>
-        <g className={`node ${ap.length ? 'exposed' : ''}`}><rect x="590" y="84" width="200" height="72" rx="4" /><text x="690" y="106" textAnchor="middle">nc-app-server</text><text x="690" y="124" textAnchor="middle" className="sm">{app.publicIp} · nc-app-server-sg</text><text x="690" y="142" textAnchor="middle" className="sm">{ap.length ? `${ap.length} port(s) open to internet` : 'no direct internet access'}</text></g>
-        <g className="node"><rect x="590" y="236" width="200" height="54" rx="4" /><text x="690" y="258" textAnchor="middle">nc-batch-worker</text><text x="690" y="276" textAnchor="middle" className="sm">{ports(batch.id).length ? 'EXPOSED' : 'no public IP · nc-internal-sg'}</text></g>
+        <g className="node"><rect x="250" y="84" width="170" height="54" rx="4" /><text x="335" y="106" textAnchor="middle">ac-storefront-alb</text><text x="335" y="124" textAnchor="middle" className="sm">ac-alb-sg</text></g>
+        <g className={`node ${ap.length ? 'exposed' : ''}`}><rect x="590" y="84" width="200" height="72" rx="4" /><text x="690" y="106" textAnchor="middle">ac-app-server</text><text x="690" y="124" textAnchor="middle" className="sm">{app.publicIp} · ac-app-server-sg</text><text x="690" y="142" textAnchor="middle" className="sm">{ap.length ? `${ap.length} port(s) open to internet` : 'no direct internet access'}</text></g>
+        <g className="node"><rect x="590" y="236" width="200" height="54" rx="4" /><text x="690" y="258" textAnchor="middle">ac-batch-worker</text><text x="690" y="276" textAnchor="middle" className="sm">{ports(batch.id).length ? 'EXPOSED' : 'no public IP · ac-internal-sg'}</text></g>
         <path d="M118 118 H250" className="edge ok" /><text x="184" y="110" textAnchor="middle" className="sm">443, 80</text>
         <path d="M420 111 H590" className="edge ok" /><text x="505" y="103" textAnchor="middle" className="sm">8080 (from ALB SG)</text>
         {ap.length > 0 && <><path d="M66 150 V180 H690 V156" className="edge bad" /><text x="380" y="174" textAnchor="middle" className="sm bad">direct from 0.0.0.0/0: {ap.map((p: number) => `tcp/${p}`).join(', ')}</text></>}
         <path d="M690 156 V236" className="edge ok" /><text x="700" y="226" className="sm">5432</text>
       </svg>
-      <KV items={[['Internet → load balancer', 'tcp/443, tcp/80 (intended: public storefront)'], ['Internet → nc-app-server', ap.length ? <Badge tone="red">{ap.map((p: number) => `tcp/${p}`).join(', ')}</Badge> : <Badge tone="green">No direct path</Badge>], ['Internet → nc-batch-worker', 'No route (private subnet, no public IP)']]} />
+      <KV items={[['Internet → load balancer', 'tcp/443, tcp/80 (intended: public storefront)'], ['Internet → ac-app-server', ap.length ? <Badge tone="red">{ap.map((p: number) => `tcp/${p}`).join(', ')}</Badge> : <Badge tone="green">No direct path</Badge>], ['Internet → ac-batch-worker', 'No route (private subnet, no public IP)']]} />
       <p><Link to={{ service: 'ec2', type: 'sgs' }}>Manage security groups in EC2</Link></p></Panel>}
     {tab === 'subnets' && <Panel pad={false}><DataTable search={false} rows={cloud.vpc.subnets} rowKey={r => r.id} cols={[{ key: 'name', label: 'Name' }, { key: 'id', label: 'Subnet ID' }, { key: 'cidr', label: 'IPv4 CIDR' }, { key: 'az', label: 'Availability Zone' }, { key: 'public', label: 'Type', render: r => r.public ? 'Public' : 'Private' }, { key: 'routeTable', label: 'Route table' }, { key: 'res', label: 'Instances', render: r => Object.values<any>(cloud.ec2.instances).filter(i => i.subnet === r.id).map(i => i.name).join(', ') || '—' }]} /></Panel>}
     {tab === 'routes' && cloud.vpc.routeTables.map((rt: any) => <Panel key={rt.id} title={`${rt.name} (${rt.id})`} pad={false}><DataTable search={false} rows={rt.routes} rowKey={r => r.destination} cols={[{ key: 'destination', label: 'Destination' }, { key: 'target', label: 'Target' }]} /></Panel>)}

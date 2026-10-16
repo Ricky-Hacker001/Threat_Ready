@@ -56,7 +56,7 @@ export const EXPLAIN: Record<string, Explain> = {
   },
   'L2.declare': {
     why: 'You cannot stop an attacker until you know which credential they are using. Disabling the wrong key would break the store and leave the intruder in.',
-    how: 'An access key is like a password for software. Each CloudTrail event records which key was used and from which IP. The app\'s own key is used from inside NovaCart\'s network; a key used from an unfamiliar outside address is suspicious.',
+    how: 'An access key is like a password for software. Each CloudTrail event records which key was used and from which IP. The app\'s own key is used from inside AeroCart\'s network; a key used from an unfamiliar outside address is suspicious.',
     behind: 'Declaring the key in the Incident Center records your conclusion. The server checks it against what really happened. It does not disable anything; that is the next step.',
     done: 'You declared the access key the intruder is actually using.', nodes: ['iam', 'trail', 'app'],
   },

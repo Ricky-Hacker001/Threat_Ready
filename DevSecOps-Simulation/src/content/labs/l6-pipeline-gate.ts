@@ -1,14 +1,14 @@
 import type { LabDef } from '../../engine/lab';
 import type { PipelineRun } from '../../engine/types';
 import { failedTools, ranTool } from '../../engine/pipeline';
-import { baseFiles, CART_TESTS, DOCKERFILE_OK, DOCKERIGNORE_OK, npmFiles, ORDER_TESTS, ORDERS_SAFE, SERVER_TEST, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, DOCKERFILE_OK, DOCKERIGNORE_OK, npmFiles, ORDER_TESTS, ORDERS_SAFE, SERVER_TEST, TEAM } from '../aeroshop';
 import { headFiles, isPushed, runForHead } from './common';
 
 const FAKE_REPORT_KEY = 'AKIAFAKETRAININGKEY3';
 
 const REPORT_CONFIG = `// Nightly sales export to the analytics bucket
 module.exports = {
-  bucket: 'shopflow-analytics',
+  bucket: 'aeroshop-analytics',
   accessKeyId: '${FAKE_REPORT_KEY}',
 };
 `;
@@ -42,9 +42,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t registry.shopflow.local/shopflow-api:\${{ github.sha }} .
-      - run: docker push registry.shopflow.local/shopflow-api:\${{ github.sha }}
-      - run: kubectl set image deployment/shopflow-api api=registry.shopflow.local/shopflow-api:\${{ github.sha }}
+      - run: docker build -t registry.aeroshop.local/aeroshop-api:\${{ github.sha }} .
+      - run: docker push registry.aeroshop.local/aeroshop-api:\${{ github.sha }}
+      - run: kubectl set image deployment/aeroshop-api api=registry.aeroshop.local/aeroshop-api:\${{ github.sha }}
 `;
 
 const SECURITY_TOOLS = ['gitleaks', 'semgrep', 'trivy fs', 'npm audit'];
@@ -71,7 +71,7 @@ export const pipelineLab: LabDef = {
   minutes: 45,
   summary: 'Add blocking secrets, SAST and SCA stages to a GitHub Actions pipeline, prove the gate stops a vulnerable deploy, then remediate until it ships green.',
   story:
-    'An audit found that shopflow-api deploys to staging on every push with no security checks — and the pipeline is green. Green does not mean safe. Wire in real gates before deploy, show that they block, then fix what they catch.',
+    'An audit found that aeroshop-api deploys to staging on every push with no security checks — and the pipeline is green. Green does not mean safe. Wire in real gates before deploy, show that they block, then fix what they catch.',
   ticket: 'AUD-212 — Add blocking secret, SAST and dependency gates before deploy. Demonstrate a blocked deploy, remove any bypasses, then ship a green, gated build to staging.',
   skills: ['Pipeline design', 'Quality gates', 'Exit codes', 'Remediation under a gate'],
   tools: ['GitHub Actions YAML', 'gitleaks', 'semgrep', 'trivy', 'kubectl'],
@@ -94,12 +94,12 @@ export const pipelineLab: LabDef = {
     delete initial['src/config/reporting.js'];
     return {
       history: [
-        { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 50, files: initial },
+        { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 50, files: initial },
         { message: 'Add nightly sales export', author: TEAM.marco, daysAgo: 9, files },
       ],
       iamKeys: [{ id: FAKE_REPORT_KEY, user: 'svc-reporting', status: 'Active', created: '2026-10-06T10:00:00Z' }],
       flags: { leakedKeyId: FAKE_REPORT_KEY },
-      registryFromHead: 'registry.shopflow.local/shopflow-api:1.3.9',
+      registryFromHead: 'registry.aeroshop.local/aeroshop-api:1.3.9',
       stagingFromHead: true,
       runInitialPipeline: true,
     };

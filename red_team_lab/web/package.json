@@ -1,7 +1,7 @@
 {
   "name": "threatready-web-pentest-lab",
   "version": "0.1.0",
-  "description": "ThreatReady Web Pentest Lab — TR-RED-001 NovaCart. A story-driven, server-authoritative web application penetration-testing simulation (SIMULATION ONLY).",
+  "description": "ThreatReady Web Pentest Lab — TR-RED-001 AeroCart. A story-driven, server-authoritative web application penetration-testing simulation (SIMULATION ONLY).",
   "private": true,
   "type": "module",
   "scripts": {

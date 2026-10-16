@@ -89,7 +89,7 @@ export function createLabState(def: LabDef): LabState {
     completedAt: null,
     achieved: [],
   };
-  let stagingImage = 'registry.shopflow.local/shopflow-api:1.3.9';
+  let stagingImage = 'registry.aeroshop.local/aeroshop-api:1.3.9';
   if (seed.registryFromHead) {
     const b = dockerBuild(head.files, seed.registryFromHead);
     if (b.image) s.registry[seed.registryFromHead] = b.image;

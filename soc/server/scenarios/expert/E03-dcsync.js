@@ -19,10 +19,10 @@ export default defineScenario({
   skills: ['kno.auth-protocols', 'kno.attack-mapping', 'res.containment', 'res.recovery'],
   alertTags: ['dcsync'],
   build(x) {
-    x.add('decoy_repl', E.winsec(x.T(-900), 'DC01', 4662, 'An operation was performed on an object', { subject_user: dom('DC02$'), object_name: `DC=corp,DC=meridianfreight,DC=example`, access: `Control Access {${GC}} {${GCA}}`, src_ip: DC2.ip }));
+    x.add('decoy_repl', E.winsec(x.T(-900), 'DC01', 4662, 'An operation was performed on an object', { subject_user: dom('DC02$'), object_name: `DC=corp,DC=aerofreight,DC=example`, access: `Control Access {${GC}} {${GCA}}`, src_ip: DC2.ip }));
     x.add('logon', E.winsec(x.T(-70), 'DC01', 4624, 'An account was successfully logged on', { target_user: dom(DA.sam), logon_type: 3, auth_package: 'Kerberos', src_ip: WS.ip, workstation: WS.name }));
     x.add('tool', E.procCreate(x.T(-15), WS.name, { user: dom(DA.sam), image: 'C:\\Users\\Public\\m64.exe', command_line: `"C:\\Users\\Public\\m64.exe" "lsadump::dcsync /domain:${ORG.adDomain} /all /csv" exit`, pid: 5520, parent_image: 'C:\\Windows\\System32\\cmd.exe', ppid: 5400, signature: 'Not signed' }));
-    x.add('dcsync', E.winsec(x.T(-10), 'DC01', 4662, 'An operation was performed on an object', { subject_user: dom(DA.sam), object_name: 'DC=corp,DC=meridianfreight,DC=example', access: `Control Access {${GC}} {${GCA}}`, src_ip: WS.ip }));
+    x.add('dcsync', E.winsec(x.T(-10), 'DC01', 4662, 'An operation was performed on an object', { subject_user: dom(DA.sam), object_name: 'DC=corp,DC=aerofreight,DC=example', access: `Control Access {${GC}} {${GCA}}`, src_ip: WS.ip }));
     x.add('tgt_odd', E.winsec(x.T(90), 'DC01', 4769, 'A Kerberos service ticket was requested', { target_user: `${DA.sam}@${ORG.adDomain.toUpperCase()}`, service: 'cifs/DC01', src_ip: WS.ip, ticket_encryption: '0x17', status: '0x0', privileges: 'TGT lifetime 87600 hours (10 years)' }));
   },
   alert: () => ({

@@ -183,7 +183,7 @@ Security Analyst | priya.sharma@example.com | +91 98765 43210 | linkedin.com/in/
 Address: 12 MG Road, Bengaluru 560001
 
 EXPERIENCE
-Security Analyst, Acme Fintech (2022 - present)
+Security Analyst, Aero Fintech (2022 - present)
 - Triaged 60+ SIEM alerts per shift in Splunk and escalated confirmed incidents to the IR team.
 - Wrote SPL correlation searches for password spraying and impossible travel detection.
 - Deployed microservices using Kubernetes on EKS for an internal phishing-report tool.

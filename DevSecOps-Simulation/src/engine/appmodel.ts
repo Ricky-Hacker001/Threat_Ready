@@ -1,7 +1,7 @@
 import type { Files } from './types';
 import { SAST_RULES } from './sast';
 
-// Static model of the ShopFlow Express app: used by unit tests, the staging
+// Static model of the AeroShop Express app: used by unit tests, the staging
 // environment and DAST so that behaviour follows the learner's real code.
 
 export function routeBlock(src: string | undefined, method: string, path: string): string | null {

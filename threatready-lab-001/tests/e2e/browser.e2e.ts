@@ -42,7 +42,7 @@ try {
 
   console.log('Navigate to a resource and collect evidence');
   await page.getByRole('navigation', { name: 'Services' }).getByRole('button', { name: 'S3', exact: true }).click();
-  await page.getByRole('link', { name: 'novacart-internal-docs' }).click();
+  await page.getByRole('link', { name: 'aerocart-internal-docs' }).click();
   await page.getByRole('tab', { name: 'Permissions' }).click(); await shot(page, 's3-permissions');
   const vuln = page.locator('.side').getByRole('tab', { name: /Vulnerabilities/ }); await vuln.click();
   assert((await page.locator('.vulnlist li.found, .vulnlist li.done').count()) === 0, 'opening the page did not mark anything as found');
@@ -59,14 +59,14 @@ try {
   await page.locator('.side').getByRole('tab', { name: 'Objectives' }).click();
   assert(await page.locator('.objs li', { hasText: 'Remediate and verify: Publicly exposed S3 bucket' }).innerText().then(t => t.includes('run a verification test')), 'fix alone is not counted as verified');
   await page.getByRole('button', { name: 'Send request' }).click(); await page.locator('.note', { hasText: /Blocked by S3 Block Public Access|AccessDenied/ }).waitFor();
-  await page.getByLabel('Requester').selectOption({ label: 'role/nc-app-server-role' }); await page.getByRole('button', { name: 'Send request' }).click(); await page.locator('.note', { hasText: '200 OK' }).waitFor();
+  await page.getByLabel('Requester').selectOption({ label: 'role/ac-app-server-role' }); await page.getByRole('button', { name: 'Send request' }).click(); await page.locator('.note', { hasText: '200 OK' }).waitFor();
   await page.locator('.objs li.done', { hasText: 'Remediate and verify: Publicly exposed S3 bucket' }).waitFor(); assert(true, 'objective completes after passing verification tests'); await shot(page, 'verified');
 
   console.log('A denied destructive action gives meaningful feedback');
   await page.getByRole('button', { name: 'Delete', exact: true }).click(); await confirm('Delete bucket'); await page.locator('.toast', { hasText: 'Access denied' }).waitFor(); assert(true, 'destructive action denied by learner permissions');
 
   console.log('Other consoles render and progress persists across reload');
-  for (const [svc, text] of [['IAM', 'svc-storefront-app'], ['EC2', 'nc-app-server'], ['VPC', 'Network exposure map'], ['CloudTrail', 'StopLogging'], ['CloudWatch', 'nc-app-cpu-high'], ['Lambda', 'nc-order-processor'], ['KMS', 'alias/novacart-data'], ['Secrets Manager', 'novacart/prod/db-master'], ['Governance', 'Organization structure'], ['Security Findings', 'Publicly exposed S3 bucket'], ['Lab Objectives', 'Level 1']] as const) {
+  for (const [svc, text] of [['IAM', 'svc-storefront-app'], ['EC2', 'ac-app-server'], ['VPC', 'Network exposure map'], ['CloudTrail', 'StopLogging'], ['CloudWatch', 'ac-app-cpu-high'], ['Lambda', 'ac-order-processor'], ['KMS', 'alias/aerocart-data'], ['Secrets Manager', 'aerocart/prod/db-master'], ['Governance', 'Organization structure'], ['Security Findings', 'Publicly exposed S3 bucket'], ['Lab Objectives', 'Level 1']] as const) {
     await page.getByRole('navigation', { name: 'Services' }).getByRole('button', { name: svc, exact: true }).click(); await page.locator('#main').getByText(text).first().waitFor(); if (['VPC', 'CloudTrail', 'IAM'].includes(svc)) await shot(page, svc.toLowerCase());
   }
   assert(true, 'all eleven service consoles and lab pages render');

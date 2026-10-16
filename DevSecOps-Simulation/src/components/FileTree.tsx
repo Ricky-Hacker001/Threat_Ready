@@ -74,7 +74,7 @@ export function FileTree({ files, active, marks, findingsByFile, onOpen, onNew, 
   return (
     <div className="tree">
       <div className="hdr">
-        <span>Explorer · shopflow-api</span>
+        <span>Explorer · aeroshop-api</span>
         <button className="btn ghost sm" title="New file" onClick={onNew}>
           ＋
         </button>

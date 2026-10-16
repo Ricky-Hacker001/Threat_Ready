@@ -41,7 +41,7 @@ export function GetStarted({ progress, update, go }: { progress: Progress; updat
         <span className="chip">Step 1 of 1</span>
         <h2 style={{ marginTop: 12 }}>How do you want to work?</h2>
         <p className="sub">
-          You are joining ShopFlow&apos;s platform team. Every lab gives you a repository, a terminal, a CI pipeline and a staging cluster. Choose the level of support
+          You are joining AeroShop&apos;s platform team. Every lab gives you a repository, a terminal, a CI pipeline and a staging cluster. Choose the level of support
           that fits you — you can change it later from the lab dashboard.
         </p>
         <div className="modes">

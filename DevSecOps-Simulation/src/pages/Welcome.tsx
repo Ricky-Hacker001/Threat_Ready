@@ -19,7 +19,7 @@ remote: CI pipeline triggered → run #3
 
 $ git commit -am "Use parameterised query" && git push
 \x1b[32m✓ build  ✓ security  ✓ deploy\x1b[0m
-deployment "shopflow-api" successfully rolled out
+deployment "aeroshop-api" successfully rolled out
 \x1b[32m✔ Objective complete: gate proven and passing\x1b[0m`;
 
 export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgress: boolean }) {
@@ -47,7 +47,7 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
               Welcome to the <span>Threatready DevSecOps Lab</span>
             </h1>
             <p className="lead">
-              Work as the DevSecOps engineer at ShopFlow, a (fictional) online shop. Configure pipelines, run security scanners, investigate findings,
+              Work as the DevSecOps engineer at AeroShop, a (fictional) online shop. Configure pipelines, run security scanners, investigate findings,
               fix vulnerabilities, verify the fix and ship to staging — with a real terminal, a real code editor and graded objectives that check what you
               actually did.
             </p>

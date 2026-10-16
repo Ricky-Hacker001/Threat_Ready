@@ -4,7 +4,7 @@ import { Badge, useLab } from './ui';
 import { statusTone } from './pages';
 import { EXPLAIN } from './explain';
 
-// Lab guide window: the story so far, how NovaCart works, and what each test did behind the scenes. Drag by the title bar, resize from the edges.
+// Lab guide window: the story so far, how AeroCart works, and what each test did behind the scenes. Drag by the title bar, resize from the edges.
 // Finding markers appear only for findings the learner has already discovered.
 type Node = { id: string; x: number; y: number; w?: number; h?: number; title: string; sub: string; svc?: string; findings?: string[]; external?: boolean; what: string; ask?: string };
 const W = 130, H = 56;
@@ -12,10 +12,10 @@ const NODES: Node[] = [
   { id: 'org', x: 10, y: 8, w: 790, h: 28, title: 'Account guardrails', sub: 'Governance', svc: 'org', findings: ['V10'],
     what: 'Organization-wide rules (service control policies). They can forbid an action for everyone in the account, even administrators.', ask: 'Is anything stopping a powerful user from switching off the audit log?' },
   { id: 'users', x: 20, y: 78, title: 'Customers', sub: 'Internet', external: true,
-    what: 'People shopping on NovaCart from their browsers. They are outside AWS, on the public internet.', ask: 'Customers should only ever reach the load balancer, nothing behind it.' },
-  { id: 'alb', x: 180, y: 78, title: 'Load balancer', sub: 'nc-storefront-alb', svc: 'ec2',
+    what: 'People shopping on AeroCart from their browsers. They are outside AWS, on the public internet.', ask: 'Customers should only ever reach the load balancer, nothing behind it.' },
+  { id: 'alb', x: 180, y: 78, title: 'Load balancer', sub: 'ac-storefront-alb', svc: 'ec2',
     what: 'The front door. It receives every customer request over HTTPS and passes it on to the app server. It is meant to be public.' },
-  { id: 'app', x: 340, y: 78, title: 'App server', sub: 'nc-app-server', svc: 'ec2', findings: ['V3'],
+  { id: 'app', x: 340, y: 78, title: 'App server', sub: 'ac-app-server', svc: 'ec2', findings: ['V3'],
     what: 'The virtual computer (EC2 instance) that runs the storefront code. Its security group is a firewall that decides who may connect to it.', ask: 'Who is allowed to connect to it directly, and on which ports?' },
   { id: 'fn', x: 500, y: 78, title: 'Order processor', sub: 'Lambda', svc: 'lambda', findings: ['V6', 'V7'],
     what: 'A small piece of code (Lambda function) that runs for every new order: it charges the customer and saves an export file.', ask: 'Where does it keep its payment key? What is its role allowed to do?' },
@@ -27,7 +27,7 @@ const NODES: Node[] = [
     what: 'An S3 bucket (a folder in the cloud) holding product photos. These are meant to be public so the store can show them.' },
   { id: 'docs', x: 340, y: 200, title: 'Internal docs', sub: 'S3 · internal-docs', svc: 's3', findings: ['V2', 'V5'],
     what: 'An S3 bucket with confidential company files such as invoices and payroll.', ask: 'Who can read it? Is it encrypted the way company policy requires?' },
-  { id: 'kms', x: 500, y: 200, title: 'Encryption key', sub: 'KMS · novacart-data', svc: 'kms', findings: ['V9'],
+  { id: 'kms', x: 500, y: 200, title: 'Encryption key', sub: 'KMS · aerocart-data', svc: 'kms', findings: ['V9'],
     what: 'The key that encrypts confidential data. Anyone allowed to use this key can read that data.', ask: 'Who may use the key, and who may change its rules?' },
   { id: 'secrets', x: 660, y: 200, title: 'Stored secrets', sub: 'Secrets Manager', svc: 'secrets',
     what: 'A safe for passwords and API keys. Apps fetch a secret when they need it instead of keeping it in their settings.' },
@@ -35,8 +35,8 @@ const NODES: Node[] = [
     what: 'The account\'s security camera. It records every action: who did it, when, and from which IP address.', ask: 'Is it recording right now? Does it cover all regions and all actions?' },
   { id: 'cw', x: 420, y: 318, title: 'Monitoring', sub: 'CloudWatch alarms', svc: 'cloudwatch', findings: ['V8'],
     what: 'Collects logs and metrics, and raises an alarm when something looks wrong.', ask: 'If someone made unauthorized calls, would any alarm go off?' },
-  { id: 'team', x: 660, y: 318, title: 'Security team', sub: 'SNS · nc-security-alerts', external: true,
-    what: 'The people who receive alarms (through the SNS topic nc-security-alerts) and respond to incidents. In this lab, that is you.' },
+  { id: 'team', x: 660, y: 318, title: 'Security team', sub: 'SNS · ac-security-alerts', external: true,
+    what: 'The people who receive alarms (through the SNS topic ac-security-alerts) and respond to incidents. In this lab, that is you.' },
 ];
 const SVC_LABEL: Record<string, string> = { org: 'Governance', ec2: 'EC2', lambda: 'Lambda', iam: 'IAM', s3: 'S3', kms: 'KMS', secrets: 'Secrets Manager', cloudtrail: 'CloudTrail', cloudwatch: 'CloudWatch' };
 const N = Object.fromEntries(NODES.map(n => [n.id, n]));
@@ -48,7 +48,7 @@ const EDGES: [string, string, string, string, string?][] = [
   ['app', 'fn', 'new order', 'When someone checks out, the app hands the order to the order processor.', 'orders'],
   ['fn', 'pay', 'charge', 'The order processor charges the card through the payment gateway.', 'orders'],
   ['app', 'assets', 'upload', 'The app uploads product photos using the svc-storefront-app access key.', 'asset-upload'],
-  ['app', 'docs', 'invoices', 'The app writes invoices using its server role (nc-app-server-role).', 'invoices'],
+  ['app', 'docs', 'invoices', 'The app writes invoices using its server role (ac-app-server-role).', 'invoices'],
   ['docs', 'kms', 'encrypts with', 'Confidential files are encrypted with the KMS key.'],
   ['fn', 'secrets', 'payment key', 'The order processor needs the payment key to charge cards.'],
   ['trail', 'cw', 'events', 'CloudTrail sends its events to CloudWatch for checking.'],
@@ -80,9 +80,9 @@ const loadGeo = (): Geo | null => { try { const g = JSON.parse(store.get(GEO_KEY
 
 // ---------- The story: what is happening and why the learner is doing it, one entry per server chapter ----------
 const STORY: Record<number, { what: string; why: string; focus: string[] }> = {
-  1: { what: 'NovaCart is about to launch. A review found settings that may be unsafe, and customers report odd account activity. Nobody knows yet whether someone has broken in.',
+  1: { what: 'AeroCart is about to launch. A review found settings that may be unsafe, and customers report odd account activity. Nobody knows yet whether someone has broken in.',
     why: 'Think of yourself as a building inspector. Look at who can reach what, write down each problem, fix it, then prove the fix works. The audit log (CloudTrail) is your best witness of what really happened.', focus: ['iam', 'docs', 'app', 'trail'] },
-  2: { what: 'The audit log stopped recording. The last thing it saw: someone using the storefront app\'s identity switched it off, from an internet address that is not NovaCart\'s. Someone outside has one of the app\'s keys.',
+  2: { what: 'The audit log stopped recording. The last thing it saw: someone using the storefront app\'s identity switched it off, from an internet address that is not AeroCart\'s. Someone outside has one of the app\'s keys.',
     why: 'Saving that last event as evidence proves what happened, even if logs are lost later. Next you will work out which key was stolen.', focus: ['trail', 'iam'] },
   3: { what: 'An alarm fired: the stolen key is being used right now. The intruder keeps working in the background and tries a new move every so often.',
     why: 'Stop the stolen key first, but only that key. The store uses a different key; if you switch that one off, customers cannot shop (an outage).', focus: ['iam', 'app'] },
@@ -126,7 +126,7 @@ function explainTest(t: any): { title: string; ok: boolean; result: string; how:
       how: 'The simulator read every policy that applies to this identity (its own permissions and the account guardrails) and worked out the answer without doing anything for real. A "deny" anywhere always wins.', nodes: ['iam', 'org'] };
     case 's3.access': return { title: `Access test: can ${who(t.principal)} ${t.operation === 'GET' ? 'read' : t.operation === 'PUT' ? 'write' : t.operation} ${t.key ? `${t.bucket}/${t.key}` : t.bucket}?`, ok, result: ok ? 'Allowed' : 'Denied',
       how: `The simulator sent a pretend request and checked, in order: is the access key active, does Block Public Access stop it, what do the bucket policy and ACL say, and what do the caller's own permissions allow.${t.reason ? ` Answer: ${t.reason}` : ''}`,
-      nodes: [t.bucket === 'novacart-product-assets' ? 'assets' : 'docs', t.principal === 'anonymous' ? 'users' : 'iam'] };
+      nodes: [t.bucket === 'aerocart-product-assets' ? 'assets' : 'docs', t.principal === 'anonymous' ? 'users' : 'iam'] };
     case 'ec2.reach': return { title: `Network test: can ${t.source === 'internet' ? 'the internet' : t.source} reach the ${t.target === 'alb' ? 'load balancer' : 'app server'} on port ${t.port}?`, ok, result: ok ? 'Reachable' : 'Blocked',
       how: `The simulator followed the path a network packet would take, then checked the firewall rules (security group) on the target.${t.reason ? ` Answer: ${t.reason}` : ''}`, nodes: [t.target === 'alb' ? 'alb' : 'app', t.source === 'internet' ? 'users' : 'alb'] };
     case 'cloudtrail.audit': return { title: 'Audit test: is the audit log recording?', ok, result: ok ? 'Recorded' : 'Not recorded',
@@ -142,7 +142,7 @@ function explainTest(t: any): { title: string; ok: boolean; result: string; how:
     default: return { title: t.kind, ok, result: ok ? 'Passed' : 'Failed', how: '', nodes: [] };
   }
 }
-const KEYWORDS: [RegExp, string][] = [[/intruder|Consequence|198\.51\.100\.77|Nobody at NovaCart/i, 'intruder'], [/CloudTrail|audit|logging/i, 'trail'], [/bucket|S3|payroll/i, 'docs'], [/access key|credential|IAM|user/i, 'iam'], [/order processor|function/i, 'fn'], [/payment/i, 'pay'], [/alarm|CloudWatch/i, 'cw'], [/storefront|outage|restored/i, 'app'], [/finding/i, 'iam']];
+const KEYWORDS: [RegExp, string][] = [[/intruder|Consequence|198\.51\.100\.77|Nobody at AeroCart/i, 'intruder'], [/CloudTrail|audit|logging/i, 'trail'], [/bucket|S3|payroll/i, 'docs'], [/access key|credential|IAM|user/i, 'iam'], [/order processor|function/i, 'fn'], [/payment/i, 'pay'], [/alarm|CloudWatch/i, 'cw'], [/storefront|outage|restored/i, 'app'], [/finding/i, 'iam']];
 const nodesFor = (text: string) => [...new Set(KEYWORDS.filter(([re]) => re.test(text)).map(([, n]) => n))].slice(0, 4);
 
 export function ArchitectureCorner() {
@@ -291,7 +291,7 @@ export function ArchitectureCorner() {
           </div>
           <span className="archpanhint" aria-hidden>Drag to move · scroll to zoom</span>
           <svg ref={svgRef} className="archmap" viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet" onPointerDown={startPan}
-            onClickCapture={e => { if (dragged.current) { e.stopPropagation(); e.preventDefault(); dragged.current = false; } }} role="img" aria-label="NovaCart architecture: customers to load balancer to app server, then to storage, order processing and monitoring" onClick={e => e.target === e.currentTarget && pick(null)}>
+            onClickCapture={e => { if (dragged.current) { e.stopPropagation(); e.preventDefault(); dragged.current = false; } }} role="img" aria-label="AeroCart architecture: customers to load balancer to app server, then to storage, order processing and monitoring" onClick={e => e.target === e.currentTarget && pick(null)}>
             <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#545b64" /></marker>
               <marker id="arr-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0972d3" /></marker>
               <marker id="arr-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d13212" /></marker>
@@ -318,7 +318,7 @@ export function ArchitectureCorner() {
                 {m && <><circle cx={n.x + w - 4} cy={n.y + 4} r="9" className={`arch-dot ${m}`} /><text x={n.x + w - 4} y={n.y + 8} textAnchor="middle" className="arch-dot-t">{m === 'ok' ? '✓' : '!'}</text></>}
               </g>;
             })}
-            {intruderSeen && <g className={`arch-node intruder ${contained ? 'out' : ''} ${dim('intruder') ? 'dim' : ''}`} onClick={() => setTab('story')}><title>The intruder: someone outside NovaCart using a stolen key</title>
+            {intruderSeen && <g className={`arch-node intruder ${contained ? 'out' : ''} ${dim('intruder') ? 'dim' : ''}`} onClick={() => setTab('story')}><title>The intruder: someone outside AeroCart using a stolen key</title>
               <rect x="20" y="318" width={W} height={H} rx="5" /><text x={85} y={342} textAnchor="middle" className="t">Intruder</text><text x={85} y={359} textAnchor="middle" className="s">{contained ? 'locked out' : 'outside, stolen key'}</text></g>}
           </svg>
         </div>
@@ -358,7 +358,7 @@ export function ArchitectureCorner() {
           </div>}
 
           {tab === 'system' && <>
-            {!node && <p className="archintro"><b>New to cloud?</b> Each box is one part of NovaCart; arrows show how data moves. <b>Click any box</b> to learn what it does, or take the tour. <button className="btn sm" onClick={() => { setTour(true); setSel(TOUR[0]); }}>▶ Guided tour</button></p>}
+            {!node && <p className="archintro"><b>New to cloud?</b> Each box is one part of AeroCart; arrows show how data moves. <b>Click any box</b> to learn what it does, or take the tour. <button className="btn sm" onClick={() => { setTour(true); setSel(TOUR[0]); }}>▶ Guided tour</button></p>}
             {node && <div className="archinfo" aria-live="polite">
               <div className="archinfo-h">{step >= 0 && <span className="archstep">Step {step + 1} of {TOUR.length}</span>}<b>{node.title}</b><span className="muted">· {node.sub}</span><span className="grow" /><button className="x" onClick={() => pick(null)} aria-label="Close details">×</button></div>
               <p>{node.what}</p>

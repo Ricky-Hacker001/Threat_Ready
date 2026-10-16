@@ -1,6 +1,6 @@
 import type { LabDef } from '../../engine/lab';
 import { failingTests, testsGreenNow } from '../../engine/lab';
-import { baseFiles, CART_JS_OK, CART_TESTS, ORDER_TESTS, TEAM } from '../shopflow';
+import { baseFiles, CART_JS_OK, CART_TESTS, ORDER_TESTS, TEAM } from '../aeroshop';
 import { headFiles, isPushed, runForHead } from './common';
 
 export const CI_BASIC = `name: ci
@@ -33,7 +33,7 @@ export const redBuild: LabDef = {
   minutes: 15,
   summary: 'Read a failing pipeline, reproduce it locally, fix the code and ship a green build through Git.',
   story:
-    "First day on the ShopFlow platform team. The main branch pipeline is red after yesterday's merge and nobody can deploy. Work out why, fix it properly (no disabling tests), and get main green again.",
+    "First day on the AeroShop platform team. The main branch pipeline is red after yesterday's merge and nobody can deploy. Work out why, fix it properly (no disabling tests), and get main green again.",
   ticket: 'INC-1042 — main is red. Restore a green pipeline. Tests must not be skipped or weakened.',
   skills: ['Reading CI logs', 'Git basics', 'Tests as a quality gate'],
   tools: ['GitHub Actions', 'git', 'npm', 'Jest'],
@@ -45,7 +45,7 @@ export const redBuild: LabDef = {
   openFile: 'src/lib/cart.js',
   seed: () => ({
     history: [
-      { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 30, files: baseFiles({ '.github/workflows/ci.yml': CI_BASIC }) },
+      { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 30, files: baseFiles({ '.github/workflows/ci.yml': CI_BASIC }) },
       { message: 'Simplify cart total calculation', author: TEAM.marco, daysAgo: 1, files: baseFiles({ '.github/workflows/ci.yml': CI_BASIC, 'src/lib/cart.js': BROKEN_CART }) },
     ],
     runInitialPipeline: true,

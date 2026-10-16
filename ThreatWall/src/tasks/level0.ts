@@ -148,11 +148,11 @@ const t05: TaskDef = {
   whatWeDo: 'Register the serial number and authentication code from the dashboard, then confirm every service shows Licensed.',
   why: 'Unlicensed services look configured but do nothing — a dangerous illusion of protection.',
   prerequisites: ['0.4'],
-  expected: [{ label: 'Serial / auth code', value: 'as shown on HOME › Dashboard and DEVICE › Licenses' }, { label: 'Account e-mail', value: 'any lab address, e.g. admin@kgi.example' }],
+  expected: [{ label: 'Serial / auth code', value: 'as shown on HOME › Dashboard and DEVICE › Licenses' }, { label: 'Account e-mail', value: 'any lab address, e.g. admin@aero.example' }],
   steps: [
     nav('nav', 'device/settings/licenses', ['Settings', 'Licenses']),
     open('open', 'Click Register', 'register', 'device/settings/licenses', '[data-guide="register"]'),
-    { id: 'email', title: 'Enter a lab account e-mail address', expect: 'admin@kgi.example', route: 'device/settings/licenses', target: '#rg-email',
+    { id: 'email', title: 'Enter a lab account e-mail address', expect: 'admin@aero.example', route: 'device/settings/licenses', target: '#rg-email',
       done: (c) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.draft<Reg>('register')?.email ?? '') || c.s.config.licensing.registered,
       beginner: 'In the lab no e-mail is sent anywhere. On real kit this is your vendor portal account.' },
     { id: 'serial', title: 'Enter the serial number exactly as shown on this page', route: 'device/settings/licenses', target: '#rg-serial',

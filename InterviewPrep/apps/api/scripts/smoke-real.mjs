@@ -17,7 +17,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const resume = `Priya Sharma
 Cloud Security Engineer | priya.sharma@example.com | +91 98765 43210
 EXPERIENCE
-Cloud Security Engineer, Acme Fintech (2022 - present)
+Cloud Security Engineer, Aero Fintech (2022 - present)
 - Designed least-privilege IAM roles across 40 AWS accounts using permission boundaries and SCPs.
 - Investigated GuardDuty findings and CloudTrail anomalies; contained a leaked access key within 30 minutes.
 - Deployed microservices using Kubernetes on EKS and enforced network policies and RBAC.
@@ -56,8 +56,8 @@ const r2 = b.recommendation;
 await call('POST', `/v1/interviews/${s0.id}/plan`, { config: { interviewType: r2.interviewType, difficulty: r2.difficulty, durationMin: 15, mode: 'practice', track: r2.track, focusSkillIds: [], speakQuestions: false } });
 let v = done(await call('POST', `/v1/interviews/${s0.id}/start`));
 const answers = [
-  'I am a cloud security engineer with about three years of experience, mostly at Acme Fintech where I own IAM design and threat detection across our AWS organisation. Before that I interned in a bank SOC. I am interested in this role because it is a senior position focused on multi-account AWS security, which is exactly where I want to grow.',
-  'At Acme I designed least-privilege roles across 40 AWS accounts. I started from CloudTrail access analysis to see which actions each workload really used, generated scoped policies, attached permission boundaries so delegated admins could not escalate, and enforced guardrails with SCPs such as denying disabling CloudTrail or leaving the region allow-list. We rolled it out account by account with IAM Access Analyzer checks in CI.',
+  'I am a cloud security engineer with about three years of experience, mostly at Aero Fintech where I own IAM design and threat detection across our AWS organisation. Before that I interned in a bank SOC. I am interested in this role because it is a senior position focused on multi-account AWS security, which is exactly where I want to grow.',
+  'At Aero Fintech I designed least-privilege roles across 40 AWS accounts. I started from CloudTrail access analysis to see which actions each workload really used, generated scoped policies, attached permission boundaries so delegated admins could not escalate, and enforced guardrails with SCPs such as denying disabling CloudTrail or leaving the region allow-list. We rolled it out account by account with IAM Access Analyzer checks in CI.',
   'I would check logs and rotate keys.',
 ];
 for (const a of answers) {

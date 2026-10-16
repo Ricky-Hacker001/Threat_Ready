@@ -20,9 +20,9 @@ export default defineScenario({
   alertTags: ['upload'],
   build(x) {
     const ex = x.n(7, 6);
-    for (let i = 0; i < ex; i++) x.add('crm_export', E.proxy(x.T(-1700 + i * 40), { src_ip: WS.ip, user: dom(U.sam), method: 'GET', url: `https://meridian.my.salesforce.com/export?type=accounts&fmt=csv&part=${i + 1}`, dest_ip: '136.147.46.10', status: 200, bytes_out: 900, bytes_in: (40 + i * 25) * 1048576, category: 'Business/CRM' }));
+    for (let i = 0; i < ex; i++) x.add('crm_export', E.proxy(x.T(-1700 + i * 40), { src_ip: WS.ip, user: dom(U.sam), method: 'GET', url: `https://aerofreight.my.salesforce.com/export?type=accounts&fmt=csv&part=${i + 1}`, dest_ip: '136.147.46.10', status: 200, bytes_out: 900, bytes_in: (40 + i * 25) * 1048576, category: 'Business/CRM' }));
     [600, 700, 650].forEach((mb, i) => x.add('upload', E.proxy(x.T(-900 + i * 280), { src_ip: WS.ip, user: dom(U.sam), method: 'POST', url: `https://${CLOUD}/upload`, dest_ip: CLOUD_IP, status: 200, bytes_out: Math.round(mb * x.n(100, 95) / 100) * 1048576, bytes_in: 4800, category: 'Personal Storage' })));
-    x.add('decoy_share', E.proxy(x.T(-1200), { src_ip: hostNamed('WS-SAL-001').ip, user: dom('k.yamamoto'), method: 'POST', url: 'https://meridianfreight.sharepoint.com/sites/Sales/_layouts/15/upload.aspx', dest_ip: '13.107.136.10', status: 200, bytes_out: 314572800, bytes_in: 2100, category: 'Business/File Sharing' }));
+    x.add('decoy_share', E.proxy(x.T(-1200), { src_ip: hostNamed('WS-SAL-001').ip, user: dom('k.yamamoto'), method: 'POST', url: 'https://aerofreight.sharepoint.com/sites/Sales/_layouts/15/upload.aspx', dest_ip: '13.107.136.10', status: 200, bytes_out: 314572800, bytes_in: 2100, category: 'Business/File Sharing' }));
   },
   alert: ({ tagged }) => ({
     description: `${U.sam} uploaded ${(tagged('upload').reduce((s, e) => s + e.fields.bytes_out, 0) / 1073741824).toFixed(1)} GB to ${CLOUD} in three sessions.`,

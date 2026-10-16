@@ -282,12 +282,12 @@ export const s43 = (s: S, seed: (s: S) => S): S => {
   };
 };
 export function s44(s: S): S {
-  const x = { ...s, config: { ...s.config, certificates: [...s.config.certificates, { name: 'KGI-HQ-FW management', type: 'Local' as const, subject: 'CN=kgi-hq-fw.kgi.example', issuer: 'KGI Internal Root CA (lab)', expires: '2028-12-31', builtIn: false }] } };
+  const x = { ...s, config: { ...s.config, certificates: [...s.config.certificates, { name: 'AERO-HQ-FW management', type: 'Local' as const, subject: 'CN=aero-hq-fw.aero.example', issuer: 'AERO Internal Root CA (lab)', expires: '2028-12-31', builtIn: false }] } };
   return {
     ...x,
     config: {
       ...x.config,
-      system: { ...x.config.system, adminUser: LAB.adminName, otpMethod: 'totp', lockout: { enabled: true, attempts: 5, minutes: 30 }, httpsPort: LAB.mgmtPort, certificate: 'KGI-HQ-FW management', syslog: { enabled: true, server: LAB.syslog, port: 514 }, backupSchedule: 'weekly', firmwareReviewed: true },
+      system: { ...x.config.system, adminUser: LAB.adminName, otpMethod: 'totp', lockout: { enabled: true, attempts: 5, minutes: 30 }, httpsPort: LAB.mgmtPort, certificate: 'AERO-HQ-FW management', syslog: { enabled: true, server: LAB.syslog, port: 514 }, backupSchedule: 'weekly', firmwareReviewed: true },
     },
     session: { ...x.session, connectedPort: LAB.mgmtPort },
   };

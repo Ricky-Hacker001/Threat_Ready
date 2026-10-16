@@ -5,15 +5,15 @@ import { SG_ALB, SG_APP, I_APP, KEY_APP, FN, ATTACKER_IP } from './fixture';
 export const SOURCES: Record<string, { label: string; ip: string; sgs: string[]; external: boolean }> = {
   internet: { label: 'Internet (198.51.100.77)', ip: ATTACKER_IP, sgs: [], external: true },
   'office-vpn': { label: 'Office VPN (203.0.113.10)', ip: '203.0.113.10', sgs: [], external: true },
-  alb: { label: 'nc-storefront-alb', ip: '10.0.1.10', sgs: [SG_ALB], external: false },
-  'app-server': { label: 'nc-app-server', ip: '10.0.1.25', sgs: [SG_APP], external: false },
+  alb: { label: 'ac-storefront-alb', ip: '10.0.1.10', sgs: [SG_ALB], external: false },
+  'app-server': { label: 'ac-app-server', ip: '10.0.1.25', sgs: [SG_APP], external: false },
 };
 
 export function reach(state: any, source: string, target: string, port: number): Decision {
   const src = SOURCES[source];
   if (!src) return { allowed: false, reason: 'Unknown source' };
   let sgs: string[]; let isPublic: boolean; let label: string;
-  if (target === 'alb') { const lb = state.ec2.loadBalancers['nc-storefront-alb']; sgs = lb.securityGroups; isPublic = true; label = lb.name; }
+  if (target === 'alb') { const lb = state.ec2.loadBalancers['ac-storefront-alb']; sgs = lb.securityGroups; isPublic = true; label = lb.name; }
   else {
     const i = state.ec2.instances[target];
     if (!i) return { allowed: false, reason: 'Unknown target' };
@@ -90,9 +90,9 @@ export function lambdaRun(state: any, name: string) {
   } else return fail('ConfigError: no payment credential configured (expected PAYMENT_SECRET_ARN)');
   if (cred !== state.gateway.current) return fail('PaymentGatewayError: 401 Unauthorized — credential rejected');
   logs.push('INFO gateway auth ok');
-  const put = authorize(state, { principal: role, action: 's3:PutObject', resource: arn.object(f.env.EXPORT_BUCKET || 'novacart-order-exports', 'exports/test-event.json') });
+  const put = authorize(state, { principal: role, action: 's3:PutObject', resource: arn.object(f.env.EXPORT_BUCKET || 'aerocart-order-exports', 'exports/test-event.json') });
   if (!put.allowed) return fail(`AccessDenied: ${f.role} is not authorized to perform s3:PutObject on the export bucket — ${put.reason}`);
-  logs.push('INFO s3:PutObject novacart-order-exports/exports/test-event.json', 'END RequestId: sim-test-event');
+  logs.push('INFO s3:PutObject aerocart-order-exports/exports/test-event.json', 'END RequestId: sim-test-event');
   return { ok: true, error: null as string | null, logs, usedSecret };
 }
 
@@ -101,11 +101,11 @@ export function health(state: any) {
   const add = (id: string, label: string, ok: boolean, detail: string) => probes.push({ id, label, ok, detail });
   const a = reach(state, 'internet', 'alb', 443), b = reach(state, 'alb', I_APP, 8080);
   add('storefront', 'Storefront reachable (customers → ALB → app)', a.allowed && b.allowed, !a.allowed ? a.reason : b.reason);
-  const img = s3Access(state, { principal: ANON, operation: 'GET', bucket: 'novacart-product-assets', key: 'public/logo.png' });
+  const img = s3Access(state, { principal: ANON, operation: 'GET', bucket: 'aerocart-product-assets', key: 'public/logo.png' });
   add('catalog-images', 'Public catalog images load', img.allowed, img.reason);
-  const up = s3Access(state, { principal: arn.user('svc-storefront-app'), operation: 'PUT', bucket: 'novacart-product-assets', key: 'uploads/health.jpg', accessKeyId: KEY_APP });
+  const up = s3Access(state, { principal: arn.user('svc-storefront-app'), operation: 'PUT', bucket: 'aerocart-product-assets', key: 'uploads/health.jpg', accessKeyId: KEY_APP });
   add('asset-upload', 'Storefront app can upload product assets', up.allowed, up.reason);
-  const inv = s3Access(state, { principal: arn.role('nc-app-server-role'), operation: 'PUT', bucket: 'novacart-internal-docs', key: 'invoices/health.json' });
+  const inv = s3Access(state, { principal: arn.role('ac-app-server-role'), operation: 'PUT', bucket: 'aerocart-internal-docs', key: 'invoices/health.json' });
   add('invoices', 'App server can write invoices', inv.allowed, inv.reason);
   const run = lambdaRun(state, FN);
   add('orders', 'Order processor charges and exports', run.ok, run.error || 'OK');

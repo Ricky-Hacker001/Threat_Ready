@@ -102,8 +102,8 @@ export function CertificatesPage() {
 
 function ImportDialog({ onClose, onImport }: { onClose: () => void; onImport: (name: string, subject: string) => void }) {
   const { config } = useStore();
-  const [name, setName] = useState('KGI-HQ-FW management');
-  const [cn, setCn] = useState(config.system.hostname.toLowerCase() + '.kgi.example');
+  const [name, setName] = useState('AERO-HQ-FW management');
+  const [cn, setCn] = useState(config.system.hostname.toLowerCase() + '.aero.example');
   useDraft('certimport', { name, cn });
   return (
     <Dialog title="Import Certificate (lab)" size="sm" onClose={onClose} footer={<><button className="tw-btn" onClick={onClose}>Cancel</button><button className="tw-btn tw-btn-primary" data-guide="certimport-ok" disabled={!name.trim() || !cn.trim()} onClick={() => onImport(name.trim(), `CN=${cn.trim()}`)}>Import</button></>}>

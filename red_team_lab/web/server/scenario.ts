@@ -1,4 +1,4 @@
-// SERVER-ONLY scenario definitions for TR-RED-001 (NovaCart). None of this reaches the browser
+// SERVER-ONLY scenario definitions for TR-RED-001 (AeroCart). None of this reaches the browser
 // except objective/finding titles and, once earned, explanations. Detection predicates, hints not
 // yet requested, remediation answer keys, canary flag values and the solver are kept here.
 
@@ -175,8 +175,8 @@ export const HINTS: Record<string, string[]> = {
   'V-RXSS': ['Look at pages that echo your input. The search results page shows your term.', 'Search for <script>alert(document.domain)</script> and read the raw response, not the rendered page.', 'Use Repeater on GET /search?q= and inspect the response body for your unencoded tag.'],
   'V-SXSS': ['Anything you save and that staff later read is a stored-XSS candidate.', 'Submit a support ticket whose body is <script>…</script>, then open the ticket.', 'Submit via POST /support/ticket, then GET /support/ticket?id=<new id> and check the sink.'],
   'V-IDOR': ['Access control questions are about "whose data is this?".', 'Sign in, note your order id, then request a neighbouring id like 5002 on /api/order.', 'Capture GET /api/order?id= in Repeater and iterate the id across values you do not own.'],
-  'V-JWT': ['The admin console uses a signed cookie token. Signatures are only as strong as the secret.', 'The leaked backup/.env contains the signing secret. Decode the token, then re-sign an admin one.', 'Use the terminal jwt tool (or the Decoder) to decode nc_admin and sign a new {role:"admin"} token with the leaked secret.'],
-  'V-FILE': ['robots.txt is a map of what they wish you would not look at.', 'Fetch /download?file=backups/novacart-db.sql.bak and /download?file=.env.', 'Use curl or the browser address bar to request the disallowed paths directly.'],
+  'V-JWT': ['The admin console uses a signed cookie token. Signatures are only as strong as the secret.', 'The leaked backup/.env contains the signing secret. Decode the token, then re-sign an admin one.', 'Use the terminal jwt tool (or the Decoder) to decode ac_admin and sign a new {role:"admin"} token with the leaked secret.'],
+  'V-FILE': ['robots.txt is a map of what they wish you would not look at.', 'Fetch /download?file=backups/aerocart-db.sql.bak and /download?file=.env.', 'Use curl or the browser address bar to request the disallowed paths directly.'],
   'V-TRAVERSAL': ['The downloader builds a filesystem path from your input.', 'Try /download?file=../../../../etc/passwd (and URL-encoded variants).', 'Use Repeater or curl on GET /download?file= with ../ sequences.'],
   'V-CMD': ['The admin host check shells out to ping.', 'Append a shell metacharacter: host=127.0.0.1;id .', 'From the admin console (needs the forged JWT), call /admin/ping?host=127.0.0.1;id in Repeater.'],
   'V-SSRF': ['The partner fetch will request any URL you give it.', 'Point it at the metadata IP: /admin/fetch?url=http://169.254.169.254/.', 'In Repeater (admin cookie set), set url to the internal metadata endpoint and read the response.'],
@@ -216,7 +216,7 @@ export const GUIDE_MODES: { id: GuideMode; label: string; blurb: string }[] = [
 ];
 
 const allReported = (s: any) => FINDINGS.every(f => s.sim.findings[f.id]?.reported);
-const T = 'shop.novacart.lab';
+const T = 'shop.aerocart.lab';
 
 export interface GuideStep { id: string; level: number; tool: string; title: string; detail: string; done: (s: any) => boolean }
 
@@ -233,11 +233,11 @@ const EXPLOIT_STEPS: GuideStep[] = [
   { id: 'g-traversal', level: 2, tool: 'browser', title: 'Path traversal in the downloader', done: s => confirmed(s, 'V-TRAVERSAL'),
     detail: `Browser →  /download?file=../../../../etc/passwd  — you read a host file outside the document root → path traversal confirmed.` },
   { id: 'g-file', level: 2, tool: 'browser', title: 'Grab the exposed backup & .env (leaks the JWT secret)', done: s => confirmed(s, 'V-FILE'),
-    detail: `Browser →  /download?file=backups/novacart-db.sql.bak  and  /download?file=.env .\nThe DB backup and .env are served directly → sensitive file exposure confirmed. Copy the JWT_SIGNING_SECRET / JWT_SECRET value — you’ll need it next.` },
+    detail: `Browser →  /download?file=backups/aerocart-db.sql.bak  and  /download?file=.env .\nThe DB backup and .env are served directly → sensitive file exposure confirmed. Copy the JWT_SIGNING_SECRET / JWT_SECRET value — you’ll need it next.` },
   { id: 'g-jwt', level: 2, tool: 'terminal', title: 'Forge an admin token with the leaked secret', done: s => confirmed(s, 'V-JWT'),
-    detail: `Terminal (use the secret from the previous step):\n  jwt sign <secret> {"user":"admin","role":"admin"}\nCopy the token. In the Browser cookie jar, Set cookie  nc_admin = <token>, then open /admin → forged admin session confirmed.` },
+    detail: `Terminal (use the secret from the previous step):\n  jwt sign <secret> {"user":"admin","role":"admin"}\nCopy the token. In the Browser cookie jar, Set cookie  ac_admin = <token>, then open /admin → forged admin session confirmed.` },
   { id: 'g-cmd', level: 2, tool: 'browser', title: 'Command injection in the admin host check', done: s => confirmed(s, 'V-CMD'),
-    detail: `With the forged nc_admin cookie set, Browser →  /admin/ping?host=127.0.0.1;id  — the injected command runs → command injection confirmed.` },
+    detail: `With the forged ac_admin cookie set, Browser →  /admin/ping?host=127.0.0.1;id  — the injected command runs → command injection confirmed.` },
   { id: 'g-ssrf', level: 2, tool: 'browser', title: 'SSRF to the internal metadata service', done: s => confirmed(s, 'V-SSRF'),
     detail: `With the admin cookie set, Browser →  /admin/fetch?url=http://169.254.169.254/  — you reach the internal metadata endpoint and its credentials → SSRF confirmed.` },
 ];
@@ -278,7 +278,7 @@ export const PREFILL: Record<string, any> = {
   'g-sxss': { tool: 'browser', method: 'POST', url: '/support/ticket', body: 'subject=hi&body=<script>alert(1)</script>' },
   'g-idor': { tool: 'browser', method: 'GET', url: '/api/order?id=5002' },
   'g-traversal': { tool: 'browser', method: 'GET', url: '/download?file=../../../../etc/passwd' },
-  'g-file': { tool: 'browser', method: 'GET', url: '/download?file=backups/novacart-db.sql.bak' },
+  'g-file': { tool: 'browser', method: 'GET', url: '/download?file=backups/aerocart-db.sql.bak' },
   'g-jwt': { tool: 'terminal', runnable: false, commands: ['jwt sign <paste-the-JWT_SECRET-from-.env-here> {"user":"admin","role":"admin"}'] },
   'g-cmd': { tool: 'browser', method: 'GET', url: '/admin/ping?host=127.0.0.1;id' },
   'g-ssrf': { tool: 'browser', method: 'GET', url: '/admin/fetch?url=http://169.254.169.254/' },
@@ -341,7 +341,7 @@ export function scoreReport(s: any, input: any): { total: number; max: number; b
 }
 
 export const CHAPTERS = [
-  { n: 1, title: 'The brief', text: 'NovaCart reports account anomalies and possible customer-data exposure. You have an authorized engagement. Map the surface first.', when: () => true },
+  { n: 1, title: 'The brief', text: 'AeroCart reports account anomalies and possible customer-data exposure. You have an authorized engagement. Map the surface first.', when: () => true },
   { n: 2, title: 'First blood', text: 'You have proven at least one vulnerability against the target. Keep going — breadth matters.', when: (s: any) => FINDINGS.some(f => confirmed(s, f.id)) },
   { n: 3, title: 'The chain', text: 'The leaked secret, the forged admin token and the admin-only sinks chain into full compromise. Document the chain.', when: (s: any) => confirmed(s, 'V-FILE') && confirmed(s, 'V-JWT') },
   { n: 4, title: 'Hardening', text: 'Engineering shipped fixes. Verify each one and catch any regression.', when: (s: any) => FINDINGS.some(f => verified(s, f.id)) },
@@ -349,10 +349,10 @@ export const CHAPTERS = [
 ];
 
 export const BRIEFING = {
-  client: 'NovaCart (e-commerce)', role: 'Junior Penetration Tester', engagement: 'ENG-2041',
-  intro: 'NovaCart, an Indian e-commerce startup, has reported account anomalies and possible customer-data exposure ahead of a major launch. Our consultancy has an authorized engagement to assess their storefront, APIs and admin console. You are the tester on record.',
-  authorization: 'Authorized, time-boxed black/grey-box web application assessment of the NovaCart staging target only. Signed by the NovaCart CTO.',
-  scope: ['shop.novacart.lab storefront, APIs under /api, and the admin console at /admin.'],
+  client: 'AeroCart (e-commerce)', role: 'Junior Penetration Tester', engagement: 'ENG-2041',
+  intro: 'AeroCart, an Indian e-commerce startup, has reported account anomalies and possible customer-data exposure ahead of a major launch. Our consultancy has an authorized engagement to assess their storefront, APIs and admin console. You are the tester on record.',
+  authorization: 'Authorized, time-boxed black/grey-box web application assessment of the AeroCart staging target only. Signed by the AeroCart CTO.',
+  scope: ['shop.aerocart.lab storefront, APIs under /api, and the admin console at /admin.'],
   outOfScope: ['Any host other than the provided target.', 'Denial-of-service / stress testing.', 'Social engineering and physical attacks.', 'Destructive actions against data.'],
   rules: [
     'Everything is simulated. No real company, customer, credential or system is involved.',

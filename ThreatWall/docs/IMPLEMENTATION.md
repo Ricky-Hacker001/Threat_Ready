@@ -13,7 +13,7 @@ Target version decision: **SonicOS 7.1 Classic mode** menu paths; where 7.0/7.3 
 | 0.4 | Learn the GUI layout | all six views | — | Visited HOME, MONITOR, DEVICE, NETWORK, OBJECT, POLICY + Interfaces, Addresses, Access Rules, Logs, Administration |
 | 0.5 | Register and license | DEVICE › Settings › Licenses | serial + auth code | Registered; all services licensed |
 | 0.6 | Back up before changes | DEVICE › Settings › Firmware and Settings | — | ≥1 local backup; export performed |
-| 0.7 | Admin session basics | DEVICE › Settings › Administration | KGI-HQ-FW, 10 min | hostname = KGI-HQ-FW; timeout = 10 |
+| 0.7 | Admin session basics | DEVICE › Settings › Administration | AERO-HQ-FW, 10 min | hostname = AERO-HQ-FW; timeout = 10 |
 | 1.1 | Interfaces and zones | NETWORK › System › Interfaces | X1 203.0.113.10/29 gw .9 DNS 1.1.1.1/8.8.8.8 Ping only; X0 192.168.10.1/24 HTTPS/Ping/SSH | values exact; no WAN HTTPS/SSH/SNMP; reconnected to 192.168.10.1 |
 | 1.2 | Default route and DNS | POLICY › Rules and Policies › Route Policy; DEVICE › Diagnostics | gw 203.0.113.9 | default route via X1 present; ping gw, 8.8.8.8, www.google.com succeed |
 | 1.3 | DHCP server and reservations | NETWORK › System › DHCP Server | 192.168.10.100–.199, 1440 min, gw .1, DNS 1.1.1.1/8.8.8.8; PRINTER-01 .50 | scope + reservation exact; printer lease = .50 |
@@ -35,7 +35,7 @@ Target version decision: **SonicOS 7.1 Classic mode** menu paths; where 7.0/7.3 
 | 4.1 | High availability | DEVICE › High Availability | Active/Standby, secondary 7C3A19E40C11, stateful sync, monitor X0+X1 | HA configured & synced; primary failure → secondary active, session survives |
 | 4.2 | Packet-flow troubleshooting | MONITOR › Packet Monitor (seeded fault: route ERP-Legacy-Path to dead next hop) | capture dst 192.0.2.20:443 | capture shows drop + reason; fault fixed; second capture forwarded; evidence attached |
 | 4.3 | IPsec troubleshooting | IPSec VPN HQ/Branch, Logs (3 seeded faults) | — | each fault fixed with RCA note; tunnel up |
-| 4.4 | Hardening and audit | Interfaces, Administration, Certificates, Log › Syslog, Firmware | admin kgi-fwadmin, TOTP, lockout 5/30 min, HTTPS 4443, internal-CA cert, syslog 192.168.10.250, weekly export | no WAN mgmt; admin renamed; lockout; port ≠ 443; TOTP; cert replaced; syslog; weekly export; audit sheet clear |
+| 4.4 | Hardening and audit | Interfaces, Administration, Certificates, Log › Syslog, Firmware | admin aero-fwadmin, TOTP, lockout 5/30 min, HTTPS 4443, internal-CA cert, syslog 192.168.10.250, weekly export | no WAN mgmt; admin renamed; lockout; port ≠ 443; TOTP; cert replaced; syslog; weekly export; audit sheet clear |
 | 4.5 | Capstone: contain a host | Logs, Addresses, Access Rules, Botnet, Anti-Spoof (X0:V10), Packet Monitor, Report | synthetic C2 192.0.2.66; beaconing host STAFF-LAPTOP 10.10.10.100 | beacon identified; deny rule above allows (logged); host quarantined; evidence exported; report complete |
 
 ## 2. GUI page inventory (route → page)

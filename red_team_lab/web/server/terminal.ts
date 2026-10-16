@@ -31,7 +31,7 @@ export function initTermFs(): TermState {
     env: { USER: 'analyst', HOME: '/home/analyst', TARGET: TARGET_BASE, PWD: '/home/analyst' },
     fs: {
       '/home/analyst': null,
-      '/home/analyst/engagement-brief.txt': 'ENG-2041 — NovaCart authorized web assessment.\nTarget: ' + TARGET_BASE + '\nScope: storefront, /api, /admin. Out of scope: everything else, no DoS.\n',
+      '/home/analyst/engagement-brief.txt': 'ENG-2041 — AeroCart authorized web assessment.\nTarget: ' + TARGET_BASE + '\nScope: storefront, /api, /admin. Out of scope: everything else, no DoS.\n',
       '/home/analyst/notes.md': '# Recon notes\n- Start with whatweb and robots.txt\n- Enumerate routes with ffuf/gobuster\n',
       '/home/analyst/wordlists': null,
       '/home/analyst/wordlists/common.txt': ['login', 'admin', 'products', 'product', 'search', 'account', 'api', 'api/order', 'support', 'download', 'backups', 'robots.txt', 'sitemap.xml', '.env', '.git'].join('\n') + '\n',
@@ -276,7 +276,7 @@ function whatwebCmd(args: string[], ctx: TermCtx): TermResult {
 }
 function nmapCmd(args: string[]): TermResult {
   const host = args.find(a => !a.startsWith('-')) || TARGET_HOST;
-  const out = `Starting Nmap (simulated) against ${host}\nNmap scan report for ${host} (10.13.37.10)\nHost is up (0.011s latency).\nPORT     STATE SERVICE VERSION\n80/tcp   open  http    NovaCart/1.4 (Express)\n443/tcp  open  https   NovaCart/1.4\nService detection performed.\n`;
+  const out = `Starting Nmap (simulated) against ${host}\nNmap scan report for ${host} (10.13.37.10)\nHost is up (0.011s latency).\nPORT     STATE SERVICE VERSION\n80/tcp   open  http    AeroCart/1.4 (Express)\n443/tcp  open  https   AeroCart/1.4\nService detection performed.\n`;
   return { out, requests: 0 };
 }
 function fuzzCmd(ts: TermState, args: string[], ctx: TermCtx, cmd: string): TermResult {
@@ -299,7 +299,7 @@ function niktoCmd(args: string[], ctx: TermCtx): TermResult {
   const host = opt(args, '-h') || args.find(a => !a.startsWith('-')) || TARGET_BASE;
   let out = `- Nikto v2.5 (simulated)\n+ Target: ${host}\n`;
   let requests = 0;
-  const checks: [string, string][] = [['/robots.txt', 'robots.txt present, lists Disallowed paths'], ['/.env', 'Potentially sensitive file'], ['/download?file=backups/novacart-db.sql.bak', 'Backup file exposed']];
+  const checks: [string, string][] = [['/robots.txt', 'robots.txt present, lists Disallowed paths'], ['/.env', 'Potentially sensitive file'], ['/download?file=backups/aerocart-db.sql.bak', 'Backup file exposed']];
   for (const [p, note] of checks) { const r = reqFrom('GET', host.replace(/\/$/, '') + p, {}, {}, ''); if (!r) continue; const res = ctx.runRequest(r, 'nikto'); requests++; if (res.status === 200) out += `+ ${p}: ${note} (200)\n`; }
   out += `+ Server leaks version via Server/X-Powered-By headers\n+ Missing security headers (CSP, X-Frame-Options)\n`;
   return { out, requests };
@@ -326,7 +326,7 @@ function sqlmapCmd(args: string[], ctx: TermCtx): TermResult {
   const injected = /authentication bypassed|Query returned extra columns|Welcome,/.test(res.body);
   if (injected) {
     out += `[+] parameter '${param}' appears to be injectable (boolean-based / UNION)\n`;
-    if (dump) out += `Database: novacart\nTable: users\n[4 entries]\n+----+----------+------------------+----------+\n| id | username | password         | role     |\n+----+----------+------------------+----------+\n| 1  | admin    | <hash>           | admin    |\n| 2  | rahul    | <hash>           | customer |\n+----+----------+------------------+----------+\n`;
+    if (dump) out += `Database: aerocart\nTable: users\n[4 entries]\n+----+----------+------------------+----------+\n| id | username | password         | role     |\n+----+----------+------------------+----------+\n| 1  | admin    | <hash>           | admin    |\n| 2  | rahul    | <hash>           | customer |\n+----+----------+------------------+----------+\n`;
   } else out += `[-] parameter '${param}' does not appear injectable (is it already fixed?)\n`;
   return { out, requests };
 }

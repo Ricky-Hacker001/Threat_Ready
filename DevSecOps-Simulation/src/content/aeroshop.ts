@@ -3,24 +3,24 @@ import { resolve, writeLock, type PkgJson } from '../engine/sca';
 import { moduleLoadError, parameterised, routeBlock, sqlInjectable, usesEval } from '../engine/appmodel';
 import type { TestCase } from '../engine/shell';
 
-// ShopFlow: the synthetic sample application every lab starts from.
+// AeroShop: the synthetic sample application every lab starts from.
 
 export const TEAM = {
-  priya: 'Priya Natarajan <priya@shopflow.dev>',
-  marco: 'Marco Bellini <marco@shopflow.dev>',
-  dana: 'Dana Okoye <dana@shopflow.dev>',
+  priya: 'Priya Natarajan <priya@aeroshop.dev>',
+  marco: 'Marco Bellini <marco@aeroshop.dev>',
+  dana: 'Dana Okoye <dana@aeroshop.dev>',
 };
 
 /** package.json + a lockfile pinned to the given versions. */
 export function npmFiles(deps: Record<string, string>, locked: Record<string, string>, dev: Record<string, string> = { jest: '^29.7.0' }): Files {
-  const pkg: PkgJson = { name: 'shopflow-api', version: '1.4.0', scripts: { start: 'node src/server.js', test: 'jest' }, dependencies: deps, devDependencies: dev };
+  const pkg: PkgJson = { name: 'aeroshop-api', version: '1.4.0', scripts: { start: 'node src/server.js', test: 'jest' }, dependencies: deps, devDependencies: dev };
   const { installed } = resolve(pkg, locked);
   return { 'package.json': JSON.stringify(pkg, null, 2) + '\n', 'package-lock.json': writeLock(pkg, installed) };
 }
 
-export const README = `# ShopFlow API
+export const README = `# AeroShop API
 
-Order and checkout service for the ShopFlow web shop.
+Order and checkout service for the AeroShop web shop.
 
     npm install
     npm test
@@ -46,7 +46,7 @@ app.use('/api', products);
 app.get('*', (req, res) => res.status(404).json({ error: 'not found' }));
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(\`ShopFlow API listening on \${port}\`));
+app.listen(port, () => console.log(\`AeroShop API listening on \${port}\`));
 
 module.exports = app;
 `;
@@ -57,7 +57,7 @@ const pool = new Pool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: 'shopflow',
+  database: 'aeroshop',
 });
 
 module.exports = {
@@ -209,7 +209,7 @@ export function baseFiles(extra: Files = {}): Files {
   return {
     'README.md': README,
     '.gitignore': GITIGNORE,
-    '.env.example': 'DB_HOST=localhost\nDB_USER=shopflow\nDB_PASSWORD=<set-me>\nPORT=3000\n',
+    '.env.example': 'DB_HOST=localhost\nDB_USER=aeroshop\nDB_PASSWORD=<set-me>\nPORT=3000\n',
     ...npmFiles({ express: '^4.21.2', pg: '^8.13.1' }, { express: '4.21.2', pg: '8.13.1', jest: '29.7.0' }),
     'src/server.js': SERVER_JS,
     'src/db.js': DB_JS,

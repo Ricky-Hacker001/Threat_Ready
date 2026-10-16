@@ -218,7 +218,7 @@ const H: Record<string, Handler> = {
   'ec2.reachabilityTest': { kind: 'test', run: ({ s, p }) => {
     const source = oneOf(p.source, Object.keys(SOURCES), 'source'); const target = p.target === 'alb' ? 'alb' : get<any>(s.ec2.instances, p.target, 'Target').id; const port = int(p.port, 'port', 1, 65535);
     const d = reach(s, source, target, port); recordTest(s, { kind: 'ec2.reach', source, target, port, ...d });
-    return { message: `${SOURCES[source].label} → ${target === 'alb' ? 'nc-storefront-alb' : s.ec2.instances[target].name} tcp/${port}: ${d.allowed ? 'REACHABLE' : 'BLOCKED'} — ${d.reason}`, result: d };
+    return { message: `${SOURCES[source].label} → ${target === 'alb' ? 'ac-storefront-alb' : s.ec2.instances[target].name} tcp/${port}: ${d.allowed ? 'REACHABLE' : 'BLOCKED'} — ${d.reason}`, result: d };
   } },
   'ec2.terminateInstance': denied('ec2:TerminateInstances', p => arn.instance(String(p.instanceId))),
   'ec2.stopInstance': denied('ec2:StopInstances', p => arn.instance(String(p.instanceId))),
@@ -292,8 +292,8 @@ const H: Record<string, Handler> = {
     learnerAuth(s, 'kms:PutKeyPolicy', arn.key(k.id), { name: 'PutKeyPolicy', source: 'kms', resource: k.alias });
     k.policyHistory.push({ at: simTime(s), document: k.policy }); if (k.policyHistory.length > 5) k.policyHistory.shift();
     k.policy = doc;
-    if (!authorize(s, { principal: arn.role('nc-kms-admin-role'), action: 'kms:PutKeyPolicy', resource: arn.key(k.id) }).allowed)
-      throw new LabError('MalformedPolicyDocumentException', 'Policy lockout safety check failed: the new key policy would prevent the key administrators (nc-kms-admin-role or the account root) from calling kms:PutKeyPolicy, making the key unmanageable.');
+    if (!authorize(s, { principal: arn.role('ac-kms-admin-role'), action: 'kms:PutKeyPolicy', resource: arn.key(k.id) }).allowed)
+      throw new LabError('MalformedPolicyDocumentException', 'Policy lockout safety check failed: the new key policy would prevent the key administrators (ac-kms-admin-role or the account root) from calling kms:PutKeyPolicy, making the key unmanageable.');
     return { message: `Key policy updated for ${k.alias}.` };
   } },
   'kms.restoreKeyPolicy': { kind: 'change', run: ({ s, p }) => {
@@ -333,7 +333,7 @@ const H: Record<string, Handler> = {
   'secrets.rotate': { kind: 'change', run: ({ s, p }) => {
     const sec = get<any>(s.secrets.secrets, p.name, 'Secret'); learnerAuth(s, 'secretsmanager:RotateSecret', arn.secret(sec.name), { name: 'RotateSecret', source: 'secretsmanager', resource: sec.name });
     const cur = currentValue(sec); const n = ++sec.rotationCount;
-    if (sec.name === 'novacart/prod/db-master') { newVersion(s, sec, `pg_SYNTHETIC_db_master_r${n}${s.secrets.seq}`); return { message: `${sec.name} rotated. Database clients fetch the new version automatically.` }; }
+    if (sec.name === 'aerocart/prod/db-master') { newVersion(s, sec, `pg_SYNTHETIC_db_master_r${n}${s.secrets.seq}`); return { message: `${sec.name} rotated. Database clients fetch the new version automatically.` }; }
     if (cur !== s.gateway.current) { sec.rotationCount--; throw new LabError('RotationFailed', 'Rotation failed: the rotation function could not authenticate to the payment gateway with the secret\'s current value. Check that the stored value is the credential currently in use.'); }
     const next = `ncpg_SYNTHETIC_rot${n}_${(s.secrets.seq * 7919 + 104729).toString(16)}`;
     newVersion(s, sec, next); s.gateway.current = next; s.gateway.history.push(next);
@@ -409,14 +409,14 @@ function runAttacker(s: any) {
       .filter(c => s.iam.users[c.actor]?.accessKeys.some((k: any) => k.id === c.key && k.status === 'Active'));
     if (step.id === 'A4') {
       out[step.id] = A.secretStolen ? (s.gateway.current === A.stolenValue ? 'success' : 'blocked') : 'idle';
-      if (A.secretStolen && s.gateway.current === A.stolenValue) { A.successes++; A.fraud = true; s.cloudwatch.logGroups['payment-gateway/auth'].streams.gateway.push(`${simTime(s)} auth ok client=unknown ip=${fx.ATTACKER_IP} — 14 charges attempted (SYNTHETIC)`); timeline(s, 'bad', 'Consequence: the payment gateway reports charges from an unknown client using NovaCart\'s credential. The exposed secret was never rotated.'); }
+      if (A.secretStolen && s.gateway.current === A.stolenValue) { A.successes++; A.fraud = true; s.cloudwatch.logGroups['payment-gateway/auth'].streams.gateway.push(`${simTime(s)} auth ok client=unknown ip=${fx.ATTACKER_IP} — 14 charges attempted (SYNTHETIC)`); timeline(s, 'bad', 'Consequence: the payment gateway reports charges from an unknown client using AeroCart\'s credential. The exposed secret was never rotated.'); }
       else if (A.secretStolen) { s.cloudwatch.logGroups['payment-gateway/auth'].streams.gateway.push(`${simTime(s)} auth REJECTED (401) client=unknown ip=${fx.ATTACKER_IP} — retired credential`); timeline(s, 'good', 'The payment gateway rejected an unknown client presenting the retired credential. Rotation worked.'); }
       continue;
     }
     if (!creds.length) { out[step.id] = 'idle'; timeline(s, 'good', `No activity: the intruder has no working credential (${step.event} never reached the API).`); continue; }
     let ok: (typeof creds)[0] | null = null;
     for (const c of creds) {
-      const allowed = step.id === 'A1' ? s3Access(s, { principal: c.principal, operation: 'GET', bucket: 'novacart-internal-docs', key: 'finance/payroll-2026-09.csv', accessKeyId: c.key }).allowed
+      const allowed = step.id === 'A1' ? s3Access(s, { principal: c.principal, operation: 'GET', bucket: 'aerocart-internal-docs', key: 'finance/payroll-2026-09.csv', accessKeyId: c.key }).allowed
         : step.id === 'A2' ? ['iam:CreateUser', 'iam:AttachUserPolicy', 'iam:CreateAccessKey'].every(a => authorize(s, { principal: c.principal, action: a, resource: step.resource, accessKeyId: c.key }).allowed) && !s.iam.users['support-temp-01']
         : authorize(s, { principal: c.principal, action: step.action, resource: step.resource, accessKeyId: c.key }).allowed;
       if (allowed) { ok = c; break; }
@@ -426,8 +426,8 @@ function runAttacker(s: any) {
     out[step.id] = ok ? 'success' : 'blocked';
     if (!ok) { pushMetric(s, 'UnauthorizedAPICalls', 6); timeline(s, 'good', `Blocked: the intruder attempted ${step.action} and was denied.`); continue; }
     A.successes++;
-    if (step.id === 'A1') { A.exfil++; s.cloudwatch.logGroups['s3-access/novacart-internal-docs'].streams['2026-10-09'].push(`${simTime(s)} ${fx.ATTACKER_IP} ${c.actor} REST.GET.OBJECT finance/payroll-2026-09.csv 200`); timeline(s, 'bad', 'Consequence: the S3 access log shows the payroll file downloaded from 198.51.100.77 while the compromised credential was still usable.'); }
-    if (step.id === 'A2') { A.backdoor = true; s.iam.users['support-temp-01'] = { name: 'support-temp-01', arn: arn.user('support-temp-01'), createdAt: simTime(s), groups: [], mfa: false, console: false, policies: ['pol-admin'], tags: {}, accessKeys: [{ id: fx.KEY_BACKDOOR, status: 'Active', createdAt: simTime(s), lastUsed: simTime(s), lastUsedIp: fx.ATTACKER_IP, lastUsedService: 'iam' }] }; timeline(s, 'bad', 'Consequence: a new IAM user appeared in the account. Nobody at NovaCart created it.'); }
+    if (step.id === 'A1') { A.exfil++; s.cloudwatch.logGroups['s3-access/aerocart-internal-docs'].streams['2026-10-09'].push(`${simTime(s)} ${fx.ATTACKER_IP} ${c.actor} REST.GET.OBJECT finance/payroll-2026-09.csv 200`); timeline(s, 'bad', 'Consequence: the S3 access log shows the payroll file downloaded from 198.51.100.77 while the compromised credential was still usable.'); }
+    if (step.id === 'A2') { A.backdoor = true; s.iam.users['support-temp-01'] = { name: 'support-temp-01', arn: arn.user('support-temp-01'), createdAt: simTime(s), groups: [], mfa: false, console: false, policies: ['pol-admin'], tags: {}, accessKeys: [{ id: fx.KEY_BACKDOOR, status: 'Active', createdAt: simTime(s), lastUsed: simTime(s), lastUsedIp: fx.ATTACKER_IP, lastUsedService: 'iam' }] }; timeline(s, 'bad', 'Consequence: a new IAM user appeared in the account. Nobody at AeroCart created it.'); }
     if (step.id === 'A3') { const env = s.lambda.functions[fx.FN].env; const v = Object.values<string>(env).find(x => x === s.gateway.current); if (v) { A.secretStolen = true; A.stolenValue = v; timeline(s, 'bad', 'Consequence: the order processor\'s configuration was read from 198.51.100.77. Anything stored in it must be treated as disclosed.'); } else { A.successes--; out[step.id] = 'harmless'; timeline(s, 'good', 'The intruder read the function configuration, but it no longer contains a credential.'); } }
   }
 }
@@ -458,7 +458,7 @@ function recompute(s: any, causedBy: string) {
   while (s.level < 4 && OBJECTIVES.filter(o => o.level === s.level).every(o => s.sim.objectives[o.id].done)) {
     s.level++; s.sim.levelStartedAt[s.level] = s.clock.minutes;
     timeline(s, 'story', `Level ${s.level - 1} complete. Level ${s.level} unlocked.`);
-    if (s.level === 2) { s.sim.attacker.t0 = s.clock.minutes; s.sim.alerts.push({ id: 'AL-0', at: simTime(s), severity: 'High', title: 'Suspicious IAM activity: svc-storefront-app', detail: 'An access key for svc-storefront-app is being used from 198.51.100.77, outside NovaCart address space. Activity is ongoing.' }); timeline(s, 'bad', 'ALERT: an access key for svc-storefront-app is in use from an unknown external address. The intruder is active.'); }
+    if (s.level === 2) { s.sim.attacker.t0 = s.clock.minutes; s.sim.alerts.push({ id: 'AL-0', at: simTime(s), severity: 'High', title: 'Suspicious IAM activity: svc-storefront-app', detail: 'An access key for svc-storefront-app is being used from 198.51.100.77, outside AeroCart address space. Activity is ongoing.' }); timeline(s, 'bad', 'ALERT: an access key for svc-storefront-app is in use from an unknown external address. The intruder is active.'); }
     if (s.level === 4) for (const a of ALERTS) s.sim.alerts.push({ id: a.id, at: simTime(s), severity: 'Medium', title: a.title, detail: a.detail, source: a.source, triage: true });
     for (const o of OBJECTIVES) if (o.level === s.level) { const d = o.done(s); s.sim.objectives[o.id].done = d; if (d) s.sim.objectives[o.id].at = simTime(s); }
   }
@@ -494,13 +494,13 @@ function score(s: any) {
 }
 
 const BRIEFING = {
-  company: 'NovaCart', role: 'Cloud Security Analyst', ticket: 'INC-2041',
-  intro: 'NovaCart is an Indian e-commerce startup preparing for its biggest product launch. Its AWS-style environment was built quickly. An internal security review has identified suspicious access patterns, and some customers report unusual account activity. You have just joined as the Cloud Security Analyst and the ticket is yours.',
+  company: 'AeroCart', role: 'Cloud Security Analyst', ticket: 'INC-2041',
+  intro: 'AeroCart is an Indian e-commerce startup preparing for its biggest product launch. Its AWS-style environment was built quickly. An internal security review has identified suspicious access patterns, and some customers report unusual account activity. You have just joined as the Cloud Security Analyst and the ticket is yours.',
   rules: [
     'Everything here is simulated. No real AWS account, credentials or customer data are involved.',
     'Nothing is fixed for you. Opening a page never changes a resource — you inspect, decide, act, confirm and then verify.',
     'A finding is only resolved when the server has verified the resulting configuration and you have tested it.',
-    'NovaCart is live. Changes that break the storefront, uploads, invoicing or order processing count against you — and can be undone.',
+    'AeroCart is live. Changes that break the storefront, uploads, invoicing or order processing count against you — and can be undone.',
     'Hints are available per objective and reduce that objective\'s points by 25% each.',
     'You can investigate in any order. Levels unlock when the previous level\'s objectives are complete.'],
   levels: [
@@ -508,10 +508,10 @@ const BRIEFING = {
     { n: 3, name: 'Cloud Security Engineer — Remediate' }, { n: 4, name: 'Incident Commander — Command and report' }],
   policies: [
     { title: 'Network access policy NC-NET-01', body: 'Production application servers accept application traffic (tcp/8080) only from the load balancer security group. SSH (tcp/22) is permitted only from the office VPN range 203.0.113.0/24. No other inbound access from the internet is permitted on application servers. The public load balancer serves customers on 443 (and 80 for redirect).' },
-    { title: 'Data handling policy NC-DATA-02', body: 'Data classified "confidential" must not be publicly accessible and must be encrypted at rest with SSE-KMS using the customer managed key alias/novacart-data, including objects that already exist. Product catalog images under novacart-product-assets/public/ are intentionally public.' },
+    { title: 'Data handling policy NC-DATA-02', body: 'Data classified "confidential" must not be publicly accessible and must be encrypted at rest with SSE-KMS using the customer managed key alias/aerocart-data, including objects that already exist. Product catalog images under aerocart-product-assets/public/ are intentionally public.' },
     { title: 'Secrets policy NC-SEC-03', body: 'Credentials must be stored in Secrets Manager and referenced by ARN (environment variable PAYMENT_SECRET_ARN for the order processor). Any credential that has been exposed must be rotated.' },
-    { title: 'Detection policy NC-DET-04', body: 'A complete management-event audit trail (read and write, all regions) must be active. An alarm on unauthorized API calls (threshold between 1 and 10 per period) must notify the nc-security-alerts topic.' },
-    { title: 'Key management policy NC-KMS-05', body: 'Use of alias/novacart-data is limited to nc-app-server-role. Key administration (including kms:PutKeyPolicy) belongs to nc-kms-admin-role.' }],
+    { title: 'Detection policy NC-DET-04', body: 'A complete management-event audit trail (read and write, all regions) must be active. An alarm on unauthorized API calls (threshold between 1 and 10 per period) must notify the ac-security-alerts topic.' },
+    { title: 'Key management policy NC-KMS-05', body: 'Use of alias/aerocart-data is limited to ac-app-server-role. Key administration (including kms:PutKeyPolicy) belongs to ac-kms-admin-role.' }],
 };
 
 export const cloudLab001: LabEngine = {
@@ -542,7 +542,7 @@ export const cloudLab001: LabEngine = {
     const v = clone(state); delete v.gateway; delete v.sim; delete v.labEvents; delete v.eventSeq;
     v.cloudtrail.eventCount = v.cloudtrail.events.length; delete v.cloudtrail.events;
     for (const sec of Object.values<any>(v.secrets.secrets)) for (const ver of sec.versions) ver.value = '••••••••';
-    v.exposure = internetExposure(state); v.time = simTime(state); v.learner = LEARNER; v.account = { id: ACC, alias: 'novacart-training', region: 'ap-south-1', environment: 'production-simulation' };
+    v.exposure = internetExposure(state); v.time = simTime(state); v.learner = LEARNER; v.account = { id: ACC, alias: 'aerocart-training', region: 'ap-south-1', environment: 'production-simulation' };
     return v;
   },
   status(state) {

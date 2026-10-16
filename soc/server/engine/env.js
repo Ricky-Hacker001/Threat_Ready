@@ -8,10 +8,10 @@
 import { fakeSha256 } from './rng.js';
 
 export const ORG = {
-  name: 'Meridian Freight Systems',
-  netbios: 'MERIDIAN',
-  adDomain: 'corp.meridianfreight.example',
-  mailDomain: 'meridianfreight.example',
+  name: 'Aero Freight Systems',
+  netbios: 'AEROFREIGHT',
+  adDomain: 'corp.aerofreight.example',
+  mailDomain: 'aerofreight.example',
 };
 
 const U = (sam, name, dept, title, host, ip, extra = {}) => ({
@@ -127,17 +127,17 @@ const acctBySam = new Map(ACCOUNTS.map((a) => [a.sam.toLowerCase(), a]));
 
 // v2 environment records (Build specification, section 10.2).
 export const VPN_POOL = '10.50.0';
-export const TENANT = { name: 'meridianfreight.onmicrosoft.com', apps: ['Office 365', 'Azure Portal', 'Salesforce', 'VPN SAML'] };
+export const TENANT = { name: 'aerofreight.onmicrosoft.com', apps: ['Office 365', 'Azure Portal', 'Salesforce', 'VPN SAML'] };
 export const AWS = {
   account: '441900170632', iamUsers: ['ci-deploy', 'cloud.admin', 'svc-backup-s3'], roles: ['ci-deploy', 'ec2-app-role'],
   buckets: ['mf-invoices-prod', 'mf-backups', 'mf-web-assets'], ciRunner: '10.10.0.80',
 };
-export const WEB_APPS = ['portal.meridianfreight.example', 'track.meridianfreight.example'];
+export const WEB_APPS = ['portal.aerofreight.example', 'track.aerofreight.example'];
 
 export const hostNamed = (n) => hostByName.get(String(n || '').toUpperCase());
 export const hostAt = (ip) => hostByIp.get(ip);
 export const hostNameAt = (ip) => hostByIp.get(ip)?.name;
-export const account = (sam) => acctBySam.get(String(sam || '').toLowerCase().replace(/^meridian\\/, ''));
+export const account = (sam) => acctBySam.get(String(sam || '').toLowerCase().replace(/^aerofreight\\/, ''));
 export const dom = (sam) => `${ORG.netbios}\\${sam}`;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ export const WEB = [
   ['outlook.office365.com', '52.96.165.18', 'Business/Email', '*'],
   ['login.microsoftonline.com', '20.190.151.7', 'Business/Authentication', '*'],
   ['teams.microsoft.com', '52.113.194.132', 'Business/Collaboration', '*'],
-  ['meridianfreight.sharepoint.com', '13.107.136.10', 'Business/File Sharing', '*'],
+  ['aerofreight.sharepoint.com', '13.107.136.10', 'Business/File Sharing', '*'],
   ['graph.microsoft.com', '20.190.160.20', 'Business/API', '*'],
   ['v10.events.data.microsoft.com', '20.189.173.9', 'Technology/Telemetry', '*'],
   ['ctldl.windowsupdate.com', '23.48.203.19', 'Technology/Updates', '*'],
@@ -162,7 +162,7 @@ export const WEB = [
   ['fuelcard.transfleet.example', '192.0.2.117', 'Business/Finance', 'Finance,Operations'],
   ['online.northbridge-bank.example', '203.0.113.9', 'Finance/Banking', 'Finance,Executive'],
   ['app.ledgerline.example', '198.51.100.58', 'Business/Finance', 'Finance'],
-  ['meridian.my.salesforce.com', '136.147.46.10', 'Business/CRM', 'Sales'],
+  ['aerofreight.my.salesforce.com', '136.147.46.10', 'Business/CRM', 'Sales'],
   ['github.com', '140.82.121.4', 'Technology/Development', 'Engineering,IT'],
   ['registry.npmjs.org', '104.16.1.35', 'Technology/Development', 'Engineering'],
   ['pkgs.dev.azure.com', '13.107.42.20', 'Technology/Development', 'Engineering,IT'],

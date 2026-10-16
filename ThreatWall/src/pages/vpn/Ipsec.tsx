@@ -62,7 +62,7 @@ export function IpsecPage() {
   );
 }
 
-/* ============================== Lab: Branch peer (KGI-BR-FW) ============================== */
+/* ============================== Lab: Branch peer (AERO-BR-FW) ============================== */
 export function BranchPeerPage() {
   const { config, commit } = useStore();
   const toast = useToast();

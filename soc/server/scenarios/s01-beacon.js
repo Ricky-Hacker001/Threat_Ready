@@ -107,7 +107,7 @@ function build({ t0, seed }) {
   const disc = [
     [0, 'whoami /all', B.whoami, 'whoami.exe /all'],
     [8, 'net group "Domain Admins" /domain', B.net, 'net.exe group "Domain Admins" /domain'],
-    [20, 'nltest /dclist:MERIDIAN', B.nltest, 'nltest.exe /dclist:MERIDIAN'],
+    [20, 'nltest /dclist:AEROFREIGHT', B.nltest, 'nltest.exe /dclist:AEROFREIGHT'],
     [35, 'net view \\\\FS01 /all', B.net, 'net.exe view \\\\FS01 /all'],
     [60, 'tasklist /svc', B.tasklist, 'tasklist.exe /svc'],
   ];
@@ -669,7 +669,7 @@ export default {
     minutes: '40-60',
     tiers: 'L1, L2, L3',
     sources: ['proxy', 'dns', 'email', 'edr', 'winsec', 'firewall', 'audit'],
-    environment: 'Meridian Freight Systems, about 30 hosts. Web egress is logged at the proxy; firewall logs cover inter-VLAN and inbound traffic. Endpoint telemetry is Sysmon-style and the EDR policy is detect-only. All times are UTC.',
+    environment: 'Aero Freight Systems, about 30 hosts. Web egress is logged at the proxy; firewall logs cover inter-VLAN and inbound traffic. Endpoint telemetry is Sysmon-style and the EDR policy is detect-only. All times are UTC.',
   },
   build,
   alert: { at: 6, build: (stream, c) => beaconAlert(stream, c, 'c2_ws', WS, 6, 'A1') },
@@ -694,7 +694,7 @@ export default {
   sandbox,
   assetNotes: {
     FS01: ['Outbound web access through PROXY01 is permitted for this server by legacy rule "Servers-to-Web" (flagged in the last firewall audit, not yet removed).'],
-    'WS-FIN-014': ['Backup agent installed; runs as MERIDIAN\\svc_backup.'],
+    'WS-FIN-014': ['Backup agent installed; runs as AEROFREIGHT\\svc_backup.'],
   },
   accountNotes: {
     svc_backup: ['Password last changed 412 days ago.'],

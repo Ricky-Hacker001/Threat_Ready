@@ -302,14 +302,14 @@ await h.go('network/ipsec/branch'); await p.click('[data-guide^="edit-brvpn:"]')
 console.log('br2', await lt());
 console.log('4.3', (await h.status())['4.3']);
 // 4.4
-await h.go('device/settings/administration'); await p.fill('#ad-user', 'kgi-fwadmin'); await h.sel('#ad-otp', 'totp'); await p.click('[data-guide="tab:login"]'); await tog('#ad-lockout', true); await W(); await p.fill('#ad-attempts', '5'); await p.fill('#ad-lockmin', '30'); await W(); await p.click('[data-guide="accept"]'); await W();
+await h.go('device/settings/administration'); await p.fill('#ad-user', 'aero-fwadmin'); await h.sel('#ad-otp', 'totp'); await p.click('[data-guide="tab:login"]'); await tog('#ad-lockout', true); await W(); await p.fill('#ad-attempts', '5'); await p.fill('#ad-lockmin', '30'); await W(); await p.click('[data-guide="accept"]'); await W();
 await h.go('device/settings/certificates'); await p.click('[data-guide="cert-import"]'); await W(); await p.click('[data-guide="certimport-ok"]'); await W();
-await h.go('device/settings/administration'); await p.click('[data-guide="tab:mgmt"]'); await h.sel('#ad-cert', 'KGI-HQ-FW management'); await p.fill('#ad-port', '4443'); await W(); await p.click('[data-guide="accept"]'); await W(600);
+await h.go('device/settings/administration'); await p.click('[data-guide="tab:mgmt"]'); await h.sel('#ad-cert', 'AERO-HQ-FW management'); await p.fill('#ad-port', '4443'); await W(); await p.click('[data-guide="accept"]'); await W(600);
 await step('after port');
 await p.fill('[data-guide="url"]', 'https://192.168.10.1:4443'); await p.press('[data-guide="url"]', 'Enter'); await W();
 await h.lab('controls');
-const code = await p.evaluate(() => [...document.querySelectorAll('.tw-totp span')].find((x) => x.textContent.includes('kgi-fwadmin'))?.querySelector('.mono')?.textContent);
-await p.fill('#tw-user', 'kgi-fwadmin'); await p.fill('#tw-pass', 'Lab-Firewall#2026'); await p.fill('#tw-otp', code); await p.click('[data-guide="login-submit"]'); await W(700);
+const code = await p.evaluate(() => [...document.querySelectorAll('.tw-totp span')].find((x) => x.textContent.includes('aero-fwadmin'))?.querySelector('.mono')?.textContent);
+await p.fill('#tw-user', 'aero-fwadmin'); await p.fill('#tw-pass', 'Lab-Firewall#2026'); await p.fill('#tw-otp', code); await p.click('[data-guide="login-submit"]'); await W(700);
 await step('after relogin');
 await h.go('device/log/syslog'); await tog('#sl-enable', true); await p.fill('#sl-server', '192.168.10.250'); await p.fill('#sl-port', '514'); await W(); await p.click('[data-guide="accept"]'); await W(); await p.click('[data-guide="syslog-test"]'); await W();
 await h.go('device/settings/firmware'); await p.click('[data-guide="tab:settings"]'); await p.click('[data-guide="fw-check"]'); await W(); await h.sel('[data-guide="fw-sched"]', 'weekly'); await W();

@@ -4,7 +4,7 @@ import { hexDigest } from './util';
 // In-memory Git: working tree, index, commits, one remote with push / force-push,
 // .gitignore handling and git-filter-repo style history rewriting.
 
-export const AUTHOR = 'You <you@shopflow.dev>';
+export const AUTHOR = 'You <you@aeroshop.dev>';
 
 export function makeCommit(files: Files, parent: string | null, message: string, author = AUTHOR, date = new Date().toISOString()): Commit {
   return { id: hexDigest(JSON.stringify(files) + (parent ?? '') + message + author + date), parent, message, author, date, files: { ...files } };

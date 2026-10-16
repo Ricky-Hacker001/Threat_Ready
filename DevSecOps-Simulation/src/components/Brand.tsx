@@ -6,7 +6,7 @@ export function Brand({ onClick }: { onClick?: () => void }) {
         <path d="M11 16l3.5 3.5L21.5 12" stroke="#04130a" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span>
-        Threatready <span style={{ color: 'var(--dim)', fontWeight: 400 }}>|</span> DevSecOps Lab <small>· ShopFlow simulation</small>
+        Threatready <span style={{ color: 'var(--dim)', fontWeight: 400 }}>|</span> DevSecOps Lab <small>· AeroShop simulation</small>
       </span>
     </div>
   );

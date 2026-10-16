@@ -63,9 +63,9 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
     setMethod(m); setUrl(u); setBody(b || '');
     act('browser.navigate', { url: u, method: m, body: m === 'POST' ? (b || '') : undefined });
   }, [browserPrefill?.seq]);
-  const [cookieName, setCookieName] = useState('nc_admin');
+  const [cookieName, setCookieName] = useState('ac_admin');
   const [cookieVal, setCookieVal] = useState('');
-  const host = def?.target?.host || 'shop.novacart.lab';
+  const host = def?.target?.host || 'shop.aerocart.lab';
   const lastBrowser = useMemo(() => [...view.history].reverse().find((h: any) => h.tool === 'browser' || h.tool === 'retest'), [view.history]);
   const resp = lastBrowser?.response;
 
@@ -136,7 +136,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
       <div className="small mono">{Object.keys(view.browser.cookies).length ? Object.entries(view.browser.cookies).map(([k, v]) => `${k}=${String(v).slice(0, 48)}${String(v).length > 48 ? '…' : ''}`).join('  ') : '(empty)'}</div>
       <div className="row" style={{ marginTop: 8 }}>
         <input className="wl-input" style={{ width: 120 }} value={cookieName} onChange={e => setCookieName(e.target.value)} placeholder="name" />
-        <input className="wl-input grow mono" value={cookieVal} onChange={e => setCookieVal(e.target.value)} placeholder="value (e.g. a forged nc_admin JWT)" />
+        <input className="wl-input grow mono" value={cookieVal} onChange={e => setCookieVal(e.target.value)} placeholder="value (e.g. a forged ac_admin JWT)" />
         <button className="wl-btn" disabled={!cookieName || !cookieVal} onClick={() => act('browser.setCookie', { name: cookieName, value: cookieVal }).then(() => setCookieVal(''))}>Set cookie</button>
         <button className="wl-btn" onClick={() => act('browser.clearCookies')}>Clear</button>
       </div>
@@ -147,7 +147,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
 /* ---------------- Proxy / HTTP history ---------------- */
 export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
   const [sel, setSel] = useState<string | null>(null);
-  const host = def?.target?.host || 'shop.novacart.lab';
+  const host = def?.target?.host || 'shop.aerocart.lab';
   const rows = [...view.history].reverse();
   const selected = sel ? histById(view, sel) : rows[0];
   return <div>
@@ -178,7 +178,7 @@ export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
 
 /* ---------------- Repeater ---------------- */
 export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
-  const host = def?.target?.host || 'shop.novacart.lab';
+  const host = def?.target?.host || 'shop.aerocart.lab';
   const [resp, setResp] = useState<any>(null);
   const r = repeater || { method: 'GET', path: '/login', query: '', headers: { 'content-type': 'application/x-www-form-urlencoded' }, cookies: {}, body: "username=admin'--&password=x" };
   const set = (patch: any) => setRepeater({ ...r, ...patch });
@@ -194,7 +194,7 @@ export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
       <Field label="Path"><input className="wl-input mono" value={r.path} onChange={e => set({ path: e.target.value })} /></Field>
       <Field label="Query string"><input className="wl-input mono" value={r.query} onChange={e => set({ query: e.target.value })} placeholder="q=shoes" /></Field>
       <Field label="Headers (one per line)"><textarea className="wl-area mono" value={headersText} onChange={e => set({ headers: parseHeaders(e.target.value) })} /></Field>
-      <Field label="Cookie"><input className="wl-input mono" value={cookiesText} onChange={e => set({ cookies: parseCookies(e.target.value) })} placeholder="nc_session=...; nc_admin=..." /></Field>
+      <Field label="Cookie"><input className="wl-input mono" value={cookiesText} onChange={e => set({ cookies: parseCookies(e.target.value) })} placeholder="ac_session=...; ac_admin=..." /></Field>
       <Field label="Body"><textarea className="wl-area mono" value={r.body} onChange={e => set({ body: e.target.value })} /></Field>
     </div>
     <div>

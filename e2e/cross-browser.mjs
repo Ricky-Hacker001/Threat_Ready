@@ -209,7 +209,7 @@ async function run(name, engine) {
       await page.waitForFunction(() => document.title.includes('DevSecOps') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
       await open('network-security', 'ThreatReady Firewall');
       await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
-      await open('red-team', 'NovaCart');
+      await open('red-team', 'AeroCart');
       await page.getByRole('link', { name: 'All labs' }).first().waitFor({ timeout: 20000 });
     });
 

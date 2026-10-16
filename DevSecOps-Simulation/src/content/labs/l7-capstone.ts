@@ -3,7 +3,7 @@ import type { Files } from '../../engine/types';
 import { helmetEnabled, sessionCookie } from '../../engine/appmodel';
 import { kyverno, parseWorkloads, STAGING_HOST } from '../../engine/staging';
 import { readLock } from '../../engine/sca';
-import { baseFiles, CART_TESTS, npmFiles, ORDER_TESTS, ORDERS_VULN, ordersSecure, PRODUCTS_TEST, SERVER_JS, SERVER_TEST, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, npmFiles, ORDER_TESTS, ORDERS_VULN, ordersSecure, PRODUCTS_TEST, SERVER_JS, SERVER_TEST, TEAM } from '../aeroshop';
 import { dockerignoreHas, hasMinimalPinnedBase, headFiles, isPushed, runForHead, runsAsNonRoot } from './common';
 import { bypasses } from './l6-pipeline-gate';
 
@@ -32,21 +32,21 @@ CMD ["node", "src/server.js"]
 const DEPLOYMENT = `apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: shopflow-api
+  name: aeroshop-api
   namespace: shop
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: shopflow-api
+      app: aeroshop-api
   template:
     metadata:
       labels:
-        app: shopflow-api
+        app: aeroshop-api
     spec:
       containers:
         - name: api
-          image: registry.shopflow.local/shopflow-api:1.3.9
+          image: registry.aeroshop.local/aeroshop-api:1.3.9
           ports:
             - containerPort: 3000
           securityContext:
@@ -85,10 +85,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t registry.shopflow.local/shopflow-api:\${{ github.sha }} .
+      - run: docker build -t registry.aeroshop.local/aeroshop-api:\${{ github.sha }} .
       - name: Image scan
-        run: trivy image --severity CRITICAL --exit-code 0 registry.shopflow.local/shopflow-api:\${{ github.sha }}
-      - run: docker push registry.shopflow.local/shopflow-api:\${{ github.sha }}
+        run: trivy image --severity CRITICAL --exit-code 0 registry.aeroshop.local/aeroshop-api:\${{ github.sha }}
+      - run: docker push registry.aeroshop.local/aeroshop-api:\${{ github.sha }}
 
   deploy:
     needs: build
@@ -96,7 +96,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: kubectl apply -f k8s/
-      - run: kubectl set image deployment/shopflow-api api=registry.shopflow.local/shopflow-api:\${{ github.sha }}
+      - run: kubectl set image deployment/aeroshop-api api=registry.aeroshop.local/aeroshop-api:\${{ github.sha }}
 
   dast:
     needs: deploy
@@ -128,13 +128,13 @@ function manifestPasses(files: Files): boolean {
 export const capstoneLab: LabDef = {
   id: 'capstone',
   level: 4,
-  title: 'Capstone: ship ShopFlow securely',
+  title: 'Capstone: ship AeroShop securely',
   track: 'End-to-end DevSecOps',
   minutes: 90,
   summary: 'Own the whole path: run DAST on staging, close the pipeline bypasses, fix code, headers, image and Kubernetes manifest, and ship a green, gated, scanned release.',
   story:
     'You are the DevSecOps engineer for the 1.4.0 release. The pipeline exists but has gaps, the deploy is being rejected by the cluster admission policy, and staging still runs an old, vulnerable build. Release only when every gate is real and the deployed app scans clean.',
-  ticket: 'REL-140 — Release shopflow-api 1.4.0. Requirements: no gate bypasses, image scan blocking, DAST blocking, admission policies satisfied, deployed build passes a full ZAP scan.',
+  ticket: 'REL-140 — Release aeroshop-api 1.4.0. Requirements: no gate bypasses, image scan blocking, DAST blocking, admission policies satisfied, deployed build passes a full ZAP scan.',
   skills: ['DAST', 'Pipeline hardening', 'Secure headers & cookies', 'Kubernetes admission', 'Release ownership'],
   tools: ['zap-full-scan.py', 'curl', 'semgrep', 'trivy', 'hadolint', 'docker', 'kubectl', 'kyverno'],
   concepts: [
@@ -154,11 +154,11 @@ export const capstoneLab: LabDef = {
     });
     return {
       history: [
-        { message: 'ShopFlow API 1.3.9', author: TEAM.priya, daysAgo: 21, files },
+        { message: 'AeroShop API 1.3.9', author: TEAM.priya, daysAgo: 21, files },
         { message: 'Add release pipeline', author: TEAM.dana, daysAgo: 2, files },
       ],
       local: { '.env': 'SESSION_SECRET=LocalOnlyTrainingSession\nDB_PASSWORD=LocalOnlyTraining77\n' },
-      registryFromHead: 'registry.shopflow.local/shopflow-api:1.3.9',
+      registryFromHead: 'registry.aeroshop.local/aeroshop-api:1.3.9',
       stagingFromHead: true,
       runInitialPipeline: true,
     };

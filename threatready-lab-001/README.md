@@ -1,6 +1,6 @@
 # ThreatReady — Cloud Security Lab 001: The Compromised Startup
 
-Standalone working prototype of lab **TR-CLOUD-001**. A learner investigates NovaCart's simulated AWS environment through an AWS-style console, finds ten vulnerabilities, contains an active intruder, remediates, verifies, and files an incident report across four levels.
+Standalone working prototype of lab **TR-CLOUD-001**. A learner investigates AeroCart's simulated AWS environment through an AWS-style console, finds ten vulnerabilities, contains an active intruder, remediates, verifies, and files an incident report across four levels.
 
 **SIMULATION ONLY.** No AWS account, credentials, LLM or paid service is used. Every identity, key, log line and secret is synthetic.
 
@@ -37,7 +37,7 @@ Profile menu → **Reset lab…** → type `RESET`. The server archives the curr
 ```
 client/src        React + Vite + TypeScript. Presentation only: renders server state, sends actions.
 server/policy.ts  IAM-style evaluation: identity policies, bucket/key policies, SCPs, Block Public Access, CIDR maths.
-server/fixture.ts Initial NovaCart environment (the vulnerable state).
+server/fixture.ts Initial AeroCart environment (the vulnerable state).
 server/sim.ts     Shared simulation: network reachability, S3 access incl. KMS, Lambda execution, app health probes.
 server/scenario.ts SERVER-ONLY: findings, verification predicates, objectives, hints, attacker script, report rubric.
 server/engine.ts  LabEngine implementation: action handlers, post-action simulation, scoring, public projections, report.

@@ -99,7 +99,7 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
   const svc = SERVICES.find(s => s.id === route.service) || SERVICES[0];
   const wrongRegion = region !== 'ap-south-1' && !svc.global && !svc.lab && svc.id !== 'home';
   const page = () => {
-    if (wrongRegion) return <div className="page"><div className="emptystate tall"><b>No {svc.label} resources in {region}</b><p>NovaCart runs in Asia Pacific (Mumbai). Switch the region selector back to ap-south-1.</p><button className="btn" onClick={() => setRegion('ap-south-1')}>Switch to ap-south-1</button></div></div>;
+    if (wrongRegion) return <div className="page"><div className="emptystate tall"><b>No {svc.label} resources in {region}</b><p>AeroCart runs in Asia Pacific (Mumbai). Switch the region selector back to ap-south-1.</p><button className="btn" onClick={() => setRegion('ap-south-1')}>Switch to ap-south-1</button></div></div>;
     switch (route.service) {
       case 'iam': return <IamConsole />; case 's3': return <S3Console />; case 'ec2': return <Ec2Console />; case 'vpc': return <VpcConsole />;
       case 'cloudtrail': return <CloudTrailConsole />; case 'cloudwatch': return <CloudWatchConsole />; case 'lambda': return <LambdaConsole />; case 'kms': return <KmsConsole />;
@@ -157,7 +157,7 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
       {levelUp && <LevelSummary level={levelUp} onClose={() => setLevelUp(null)} />}
       {resetOpen && <ResetModal onClose={() => setResetOpen(false)} onReset={reset} />}
       {menu === 'help' && <Modal title="How this lab works" onClose={() => setMenu(null)} footer={<button className="btn primary" onClick={() => setMenu(null)}>Close</button>}>
-        <ol className="steps"><li><b>Investigate.</b> Open a service from the left, select a resource and read its tabs.</li><li><b>Report.</b> When configuration looks unsafe, use <i>Report finding</i> on that resource and pick the matching vulnerability.</li><li><b>Act.</b> Change the configuration yourself and confirm the change.</li><li><b>Verify.</b> Use the access test, reachability test, policy simulator or test event to prove the fix. A finding is only marked Verified after a passing test.</li><li><b>Watch production.</b> The App health tab in the bottom dock shows whether NovaCart is still working.</li></ol>
+        <ol className="steps"><li><b>Investigate.</b> Open a service from the left, select a resource and read its tabs.</li><li><b>Report.</b> When configuration looks unsafe, use <i>Report finding</i> on that resource and pick the matching vulnerability.</li><li><b>Act.</b> Change the configuration yourself and confirm the change.</li><li><b>Verify.</b> Use the access test, reachability test, policy simulator or test event to prove the fix. A finding is only marked Verified after a passing test.</li><li><b>Watch production.</b> The App health tab in the bottom dock shows whether AeroCart is still working.</li></ol>
         <p className="muted">Company policies that define "correct" are in the Incident Center. Hints are per objective, in the lab panel.</p></Modal>}
     </div>
   </Ctx.Provider>;
@@ -177,7 +177,7 @@ function Briefing({ onEnter }: { onEnter: () => void }) {
     {step === 0 ? <div className="brief">
       <p className="eyebrow">{def.id} · {def.category}</p><h3 className="brief-title">{def.title}</h3><p className="muted">{def.subtitle}</p>
       <p>{b.intro}</p>
-      <div className="ticket"><div><Badge tone="orange">{b.ticket}</Badge> <b>Suspicious access patterns in novacart-training</b></div><p>Assigned to: you ({b.role}). Severity: {status.incident.severity}. Account 123456789012 · ap-south-1 · production-simulation.</p></div>
+      <div className="ticket"><div><Badge tone="orange">{b.ticket}</Badge> <b>Suspicious access patterns in aerocart-training</b></div><p>Assigned to: you ({b.role}). Severity: {status.incident.severity}. Account 123456789012 · ap-south-1 · production-simulation.</p></div>
       <Note tone="warn">SIMULATION ENVIRONMENT — identities, logs, documents and secrets are synthetic. Nothing here touches a real AWS account.</Note>
     </div> : <div className="brief">
       <h4>Rules</h4><ul className="rules">{b.rules.map((r: string) => <li key={r}>{r}</li>)}</ul>
@@ -210,7 +210,7 @@ function LevelSummary({ level, onClose }: { level: number; onClose: () => void }
 function ResetModal({ onClose, onReset }: { onClose: () => void; onReset: () => void }) {
   const [t, setT] = useState('');
   return <Modal title="Reset lab" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn danger" disabled={t !== 'RESET'} onClick={onReset}>Reset lab</button></>}>
-    <p>This restores the NovaCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived, not deleted.</p>
+    <p>This restores the AeroCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived, not deleted.</p>
     <Field label='Type RESET to confirm'><input value={t} onChange={e => setT(e.target.value)} autoFocus /></Field></Modal>;
 }
 

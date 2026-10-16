@@ -31,8 +31,8 @@ export default defineScenario({
     details: [['User', U.sam], ['First sign-in', `GB, ${OFFICE_EGRESS}`], ['Second sign-in', `DE, ${EXIT_DE}`], ['Rule logic', 'Two successful sign-ins whose locations imply travel faster than 900 km/h']],
     guidance: ['Find out who owns the second address.', 'Compare the device and session of the two sign-ins.'],
   }),
-  assetRecords: { [EXIT_DE]: { facts: [['Owner', 'Meridian Freight Systems'], ['Role', 'Company VPN egress, Frankfurt point of presence (FRA)'], ['Used by', 'VPN01 for users routed through FRA']], notes: ['Traffic from VPN users routed through the FRA point of presence leaves from this address.'] } },
-  intel: { [EXIT_DE]: { verdict: 'clean', detections: '0/89', facts: [['Owner', 'Meridian Freight Systems (VPN egress)']], notes: ['No reports.'] } },
+  assetRecords: { [EXIT_DE]: { facts: [['Owner', 'Aero Freight Systems'], ['Role', 'Company VPN egress, Frankfurt point of presence (FRA)'], ['Used by', 'VPN01 for users routed through FRA']], notes: ['Traffic from VPN users routed through the FRA point of presence leaves from this address.'] } },
+  intel: { [EXIT_DE]: { verdict: 'clean', detections: '0/89', facts: [['Owner', 'Aero Freight Systems (VPN egress)']], notes: ['No reports.'] } },
   triage: {
     checks: [{ id: 'own', label: 'Second address looked up in the asset inventory or threat intelligence', test: (c) => ran('asset', EXIT_DE)(c) || ran('reputation', EXIT_DE)(c) }],
     fields: [

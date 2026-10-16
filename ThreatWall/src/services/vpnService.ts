@@ -140,6 +140,6 @@ export function validateProfile(cfg: FirewallConfig, p: PathProfile): Errors {
 /* ------------------------------ Certificates ------------------------------ */
 
 export function importCertificate(cfg: FirewallConfig, name: string, subject: string): Result {
-  const c = { name, type: 'Local' as const, subject, issuer: 'KGI Internal Root CA (lab)', expires: '2028-12-31', builtIn: false };
+  const c = { name, type: 'Local' as const, subject, issuer: 'AERO Internal Root CA (lab)', expires: '2028-12-31', builtIn: false };
   return { next: { ...cfg, certificates: [...cfg.certificates.filter((x) => x.name !== name), c] }, audit: [{ category: 'System', action: `Certificate ${name} imported`, detail: `${subject}, issued by ${c.issuer}` }] };
 }

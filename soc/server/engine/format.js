@@ -158,7 +158,7 @@ export const E = {
   web(ts, o) {
     return mk('web', ts, 'WEB01', 'access', [
       ['src_ip', o.src_ip], ['method', o.method || 'GET'], ['uri', o.uri], ['query', o.query], ['status', o.status ?? 200], ['bytes', o.bytes],
-      ['ua', o.ua], ['referer', o.referer], ['vhost', o.vhost || 'portal.meridianfreight.example'], ['time_ms', o.time_ms],
+      ['ua', o.ua], ['referer', o.referer], ['vhost', o.vhost || 'portal.aerofreight.example'], ['time_ms', o.time_ms],
     ], 'WEB01');
   },
 

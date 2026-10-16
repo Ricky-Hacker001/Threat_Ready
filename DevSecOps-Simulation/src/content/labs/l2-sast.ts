@@ -1,7 +1,7 @@
 import type { LabDef } from '../../engine/lab';
 import { scanFresh, testsGreenNow } from '../../engine/lab';
 import { runSast } from '../../engine/sast';
-import { baseFiles, CART_TESTS, ORDER_TESTS, ORDERS_VULN, ordersSecure, PRODUCTS_JS, PRODUCTS_TEST, SERVER_TEST, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, ORDER_TESTS, ORDERS_VULN, ordersSecure, PRODUCTS_JS, PRODUCTS_TEST, SERVER_TEST, TEAM } from '../aeroshop';
 import { headFiles } from './common';
 
 export const sastLab: LabDef = {
@@ -24,7 +24,7 @@ export const sastLab: LabDef = {
   openFile: 'src/routes/orders.js',
   seed: () => ({
     history: [
-      { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 60, files: baseFiles() },
+      { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 60, files: baseFiles() },
       { message: 'Orders: customer filter, receipts and flexible discounts', author: TEAM.marco, daysAgo: 5, files: baseFiles({ 'src/routes/orders.js': ORDERS_VULN, 'src/routes/products.js': PRODUCTS_JS }) },
     ],
   }),

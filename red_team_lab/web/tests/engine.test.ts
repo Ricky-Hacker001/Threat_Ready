@@ -134,11 +134,11 @@ describe('TR-RED-001 engine — vulnerabilities are reachable and gradable', () 
 
   it('the terminal runs thin-client tools against the shared target and refuses unsupported flags', () => {
     const l = new Lab(); solve.recon(l);
-    const curl = l.term('curl -i ' + 'http://shop.novacart.lab/products');
+    const curl = l.term('curl -i ' + 'http://shop.aerocart.lab/products');
     expect(curl.result.output).toContain('200 OK');
-    const bad = l.term('curl --cert foo http://shop.novacart.lab/');
+    const bad = l.term('curl --cert foo http://shop.aerocart.lab/');
     expect(bad.result.output).toMatch(/not supported/);
-    const sqlmap = l.term("sqlmap -u 'http://shop.novacart.lab/login' --data='username=x&password=y' -p username --batch");
+    const sqlmap = l.term("sqlmap -u 'http://shop.aerocart.lab/login' --data='username=x&password=y' -p username --batch");
     expect(sqlmap.result.output).toMatch(/injectable/);
     // sqlmap traffic also confirms the SQLi finding (shared state).
     expect(l.finding('V-SQLI').confirmed).toBe(true);

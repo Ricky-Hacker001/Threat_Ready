@@ -186,7 +186,7 @@ export function Notebook({ focus }: { focus?: string }) {
 
         <section className="nb-chapter" id="nb-map">
           <h2>The lab network</h2>
-          <p>The fictional company KGI has a head office firewall, <code>{LAB.hostname}</code>, connecting the office LAN, a DMZ for the public web server, two internet links, a branch office over IPsec and remote staff over SSL VPN. By the end of Level 4 you will have built all of it.</p>
+          <p>The fictional company AERO has a head office firewall, <code>{LAB.hostname}</code>, connecting the office LAN, a DMZ for the public web server, two internet links, a branch office over IPsec and remote staff over SSL VPN. By the end of Level 4 you will have built all of it.</p>
           <Figure id="topology" n="A" caption="The finished lab. Dashed lines are VPN tunnels that run over the internet." />
           <table className="nb-table">
             <thead><tr><th>Item</th><th>Address</th><th>Built in</th></tr></thead>
@@ -260,7 +260,7 @@ export function Notebook({ focus }: { focus?: string }) {
         </section>
 
         <footer className="nb-end">
-          <p>All traffic, hosts and attacks described here are simulated in the learner’s browser. ThreatWall is a fictional appliance used for training, and KGI is a fictional company. Completing the track earns internal badges that show progress inside this simulation; they are not a certification.</p>
+          <p>All traffic, hosts and attacks described here are simulated in the learner’s browser. ThreatWall is a fictional appliance used for training, and AERO is a fictional company. Completing the track earns internal badges that show progress inside this simulation; they are not a certification.</p>
           <div className="nb-end-brand">{PRODUCT} · {COMPANY}</div>
           <div className="nb-end-copy">© {new Date().getFullYear()} {COMPANY} · ThreatReady</div>
         </footer>

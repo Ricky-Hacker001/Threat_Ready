@@ -406,7 +406,7 @@ function LabHosts() {
   const rows = useMemo(() => HOSTS.map((h) => {
     const net = hostNet(state, h);
     const iface = hostIface(state.config, h);
-    const where = h.segment === 'internet' ? 'Internet' : h.segment === 'branch' ? 'Branch office LAN (behind KGI-BR-FW)' : h.segment === 'vlan' ? `VLAN ${h.vlan} on X0 (switch port)` : `${h.iface}`;
+    const where = h.segment === 'internet' ? 'Internet' : h.segment === 'branch' ? 'Branch office LAN (behind AERO-BR-FW)' : h.segment === 'vlan' ? `VLAN ${h.vlan} on X0 (switch port)` : `${h.iface}`;
     const up = h.segment === 'iface' || h.segment === 'vlan' ? ifaceUp(state, iface) : { ok: true, reason: '' };
     return { h, net, where, up };
   }), [state]);
@@ -508,7 +508,7 @@ function LabControlsTab() {
       <Card title="Appliance power (HA pair)" guide="lab-ha">
         {(['primary', 'secondary'] as const).map((u) => (
           <div key={u} className="tw-ctl-row">
-            <span>{u === 'primary' ? 'Primary (KGI-HQ-FW)' : 'Secondary unit'}</span>
+            <span>{u === 'primary' ? 'Primary (AERO-HQ-FW)' : 'Secondary unit'}</span>
             <button className="tw-btn" data-guide={`lab-ha-${u}`} onClick={() => {
               const haPower = { ...lab.haPower, [u]: !lab.haPower[u] };
               patchLab({ haPower, haFailoverAt: u === 'primary' && !haPower.primary ? Date.now() : lab.haFailoverAt }, [{ category: 'Lab', action: `${u} unit powered ${haPower[u] ? 'on' : 'off'}`, detail: 'Lab control' }]);

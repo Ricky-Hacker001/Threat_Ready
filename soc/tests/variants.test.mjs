@@ -54,7 +54,7 @@ test('the same seed always produces byte-identical logs', () => {
 
 test('renaming round-trips; canonical names typed directly are not accepted', () => {
   const a = engine.__alias.buildAlias(42, scn.entities);
-  for (const t of ['SCAN01', '10.10.0.60', 'CHG-4471', 'p.nair', 'WS-FIN-014', 'MERIDIAN\\svc_scan']) assert.equal(a.in(a.out(t)), t);
+  for (const t of ['SCAN01', '10.10.0.60', 'CHG-4471', 'p.nair', 'WS-FIN-014', 'AEROFREIGHT\\svc_scan']) assert.equal(a.in(a.out(t)), t);
   assert.notEqual(a.in('SCAN01'), 'SCAN01');
   const h = 'a'.repeat(64);
   assert.equal(a.in(a.out(h)), h);

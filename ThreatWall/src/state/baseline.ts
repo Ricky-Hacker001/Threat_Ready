@@ -14,7 +14,7 @@ export const FACTORY = {
 
 /** The task guide's lab addressing plan. Every task, check and hint reads from here. */
 export const LAB = {
-  hostname: 'KGI-HQ-FW',
+  hostname: 'AERO-HQ-FW',
   lanIp: '192.168.10.1',
   lanMask: '255.255.255.0',
   wanIp: '203.0.113.10',
@@ -54,7 +54,7 @@ export const LAB = {
   users: ['priya', 'arjun'],
   haSerial: '7C3A19E40C11',
   syslog: '192.168.10.250',
-  adminName: 'kgi-fwadmin',
+  adminName: 'aero-fwadmin',
   mgmtPort: 4443,
   c2: '192.0.2.66',
   c2Name: 'cdn-update-check.example',
@@ -206,7 +206,7 @@ export function factoryConfig(): FirewallConfig {
     },
     backups: [],
     branch: {
-      hostname: 'KGI-BR-FW', wanIp: LAB.branchWan, wanMask: '255.255.255.248', wanGw: '198.51.100.17', lanIp: '192.168.20.1', lanMask: '255.255.255.0',
+      hostname: 'AERO-BR-FW', wanIp: LAB.branchWan, wanMask: '255.255.255.248', wanGw: '198.51.100.17', lanIp: '192.168.20.1', lanMask: '255.255.255.0',
       addresses: [], ipsec: [],
     },
   };

@@ -1,4 +1,4 @@
-// The NovaCart target application: a pure request handler over TargetState.
+// The AeroCart target application: a pure request handler over TargetState.
 // handle(target, req) returns a response, detection events and any Set-Cookie jar updates.
 // It performs NO real I/O: "injection", "traversal", "SSRF" etc. are resolved against the
 // synthetic data model only. Nothing is ever executed, fetched or read for real.
@@ -7,17 +7,17 @@ import crypto from 'node:crypto';
 import { HttpRequest, HttpResponse, resp, json, parseBody, parseQuery } from './http';
 import { TargetState, NcUser, NcOrder, metadataResponse } from './fixture';
 
-export const TARGET_HOST = 'shop.novacart.lab';
+export const TARGET_HOST = 'shop.aerocart.lab';
 
 export interface TargetEvent { type: string; data: Record<string, any> }
 export interface HandleResult { res: HttpResponse; events: TargetEvent[]; setCookies: Record<string, string> }
 
 // ---------- HTML helpers ----------
 const esc = (s: string) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-const page = (title: string, bodyHtml: string, user?: NcUser | null) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)} · NovaCart</title></head>
+const page = (title: string, bodyHtml: string, user?: NcUser | null) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${esc(title)} · AeroCart</title></head>
 <body style="font-family:system-ui,Arial,sans-serif;margin:0;background:#f6f7fb;color:#1a2234">
 <header style="background:#101828;color:#fff;padding:12px 20px;display:flex;gap:18px;align-items:center">
-<strong style="font-size:18px">🛒 NovaCart</strong>
+<strong style="font-size:18px">🛒 AeroCart</strong>
 <a href="/products" style="color:#cdd4e3">Shop</a><a href="/search" style="color:#cdd4e3">Search</a>
 <a href="/account" style="color:#cdd4e3">Account</a><a href="/support" style="color:#cdd4e3">Support</a>
 <span style="margin-left:auto;color:#9aa4bd">${user ? 'Signed in: ' + esc(user.username) + (user.role === 'admin' ? ' (admin)' : '') : '<a href="/login" style="color:#cdd4e3">Sign in</a>'}</span>
@@ -52,7 +52,7 @@ function sqliProbe(input: string): { injected: boolean; comment: boolean; tautol
 }
 
 const sessionUser = (t: TargetState, req: HttpRequest): NcUser | null => {
-  const tok = req.cookies['nc_session'];
+  const tok = req.cookies['ac_session'];
   const s = tok ? t.sessions[tok] : null;
   return s ? t.users.find(u => u.id === s.userId) || null : null;
 };
@@ -71,7 +71,7 @@ export function handle(t: TargetState, req: HttpRequest): HandleResult {
 
   // ---- public pages ----
   if (req.method === 'GET' && (path === '/' || path === '/home'))
-    return done(resp(200, page('Home', `<h1>Welcome to NovaCart</h1><p>India's fastest-growing electronics store.</p>
+    return done(resp(200, page('Home', `<h1>Welcome to AeroCart</h1><p>India's fastest-growing electronics store.</p>
       <p><a href="/products">Browse products →</a></p>`, user), 'text/html', secHeaders(t), timed()));
 
   if (req.method === 'GET' && path === '/robots.txt')
@@ -136,7 +136,7 @@ export function handle(t: TargetState, req: HttpRequest): HandleResult {
     if (!authed) return done(resp(401, page('Sign in', `<h1>Sign in</h1><p style="color:#b4231c">Invalid credentials.</p>`, user), 'text/html', secHeaders(t), timed(20)));
     const tok = 'ncs_' + crypto.randomBytes(9).toString('hex');
     t.sessions[tok] = { userId: authed.id, createdAt: new Date().toISOString() };
-    setCookies['nc_session'] = tok;
+    setCookies['ac_session'] = tok;
     return done(resp(200, page('Account', `<h1>Welcome, ${esc(authed.fullName)}</h1><p>You are signed in${bypass ? ' (authentication bypassed)' : ''}.</p><p><a href="/account">Your account</a></p>`, authed), 'text/html', secHeaders(t), timed()));
   }
 
@@ -209,7 +209,7 @@ export function handle(t: TargetState, req: HttpRequest): HandleResult {
   // ---- admin SSO (broken JWT) ----
   if (path.startsWith('/admin')) {
     const admin = adminFromJwt(t, req, emit);
-    if (!admin) return done(resp(403, page('Admin', `<h1>403</h1><p>Admin SSO token required (cookie <code>nc_admin</code>).</p>`, user), 'text/html', secHeaders(t), timed()));
+    if (!admin) return done(resp(403, page('Admin', `<h1>403</h1><p>Admin SSO token required (cookie <code>ac_admin</code>).</p>`, user), 'text/html', secHeaders(t), timed()));
     if (req.method === 'GET' && (path === '/admin' || path === '/admin/')) {
       return done(resp(200, page('Admin', `<h1>Admin console</h1><p>Signed in as ${esc(admin.username)}.</p>
         <ul><li><a href="/admin/tickets">All support tickets</a></li><li><code>/admin/ping?host=</code> — host health check</li><li><code>/admin/fetch?url=</code> — partner integration fetch</li></ul>`, user), 'text/html', secHeaders(t), timed()));
@@ -238,7 +238,7 @@ export function handle(t: TargetState, req: HttpRequest): HandleResult {
       const url = q.url ?? '';
       const internal = /169\.254\.169\.254|localhost|127\.0\.0\.1|\[::1\]|metadata|0\.0\.0\.0|\.internal/i.test(url);
       if (t.fixes.ssrf) {
-        if (!/^https?:\/\/partners\.novacart\.example\//i.test(url)) return done(resp(400, 'Blocked: URL not on the integration allowlist.', 'text/plain', secHeaders(t), timed(10)));
+        if (!/^https?:\/\/partners\.aerocart\.example\//i.test(url)) return done(resp(400, 'Blocked: URL not on the integration allowlist.', 'text/plain', secHeaders(t), timed(10)));
         return done(resp(200, 'partner ok', 'text/plain', secHeaders(t), timed()));
       }
       if (internal) { emit('web.ssrf', { url }); return done(resp(200, metadataResponse(t), 'text/plain', secHeaders(t), timed(40))); }
@@ -251,7 +251,7 @@ export function handle(t: TargetState, req: HttpRequest): HandleResult {
 
 // Emit web.jwtForged when a valid admin token is presented that the server never issued.
 function adminFromJwt(t: TargetState, req: HttpRequest, emit: (type: string, data?: any) => void): { username: string } | null {
-  const tok = req.cookies['nc_admin'];
+  const tok = req.cookies['ac_admin'];
   if (!tok) return null;
   const secret = t.fixes.jwtAuth ? strongSecret(t) : t.jwtSecret;
   const payload = verifyJwt(tok, secret);
@@ -272,8 +272,8 @@ function orderDto(t: TargetState, o: NcOrder) {
 
 function normaliseTraversal(file: string): string {
   let f = file.replace(/%2e/gi, '.').replace(/%2f/gi, '/').replace(/%5c/gi, '/').replace(/\\/g, '/');
-  // Resolve ../ against an assumed document root of /var/www/novacart/docs/
-  const base = '/var/www/novacart/docs/'.split('/').filter(Boolean);
+  // Resolve ../ against an assumed document root of /var/www/aerocart/docs/
+  const base = '/var/www/aerocart/docs/'.split('/').filter(Boolean);
   for (const seg of f.split('/')) {
     if (seg === '' || seg === '.') continue;
     if (seg === '..') base.pop();
@@ -284,5 +284,5 @@ function normaliseTraversal(file: string): string {
 
 // Security headers are deliberately weak (misconfiguration folded into the report, not a graded finding).
 function secHeaders(t: TargetState): Record<string, string> {
-  return { 'server': 'NovaCart/1.4', 'x-powered-by': 'Express' };
+  return { 'server': 'AeroCart/1.4', 'x-powered-by': 'Express' };
 }

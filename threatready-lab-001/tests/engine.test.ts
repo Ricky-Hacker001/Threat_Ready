@@ -13,9 +13,9 @@ describe('policy evaluation', () => {
     expect(authorize(s, q).allowed).toBe(true);
     const t = structuredClone(s); t.s3.buckets[DOCS].policy = null;
     expect(authorize(t, q).allowed).toBe(false);
-    expect(authorize(t, { ...q, resource: arn.object(DOCS, 'hr/offer-letters/offer-NC-0113.pdf') }).allowed).toBe(true); // ACL path
+    expect(authorize(t, { ...q, resource: arn.object(DOCS, 'hr/offer-letters/offer-AC-0113.pdf') }).allowed).toBe(true); // ACL path
     t.s3.buckets[DOCS].blockPublicAccess.ignorePublicAcls = true;
-    expect(authorize(t, { ...q, resource: arn.object(DOCS, 'hr/offer-letters/offer-NC-0113.pdf') }).allowed).toBe(false);
+    expect(authorize(t, { ...q, resource: arn.object(DOCS, 'hr/offer-letters/offer-AC-0113.pdf') }).allowed).toBe(false);
   });
   it('inactive access keys are rejected', () => { const t = structuredClone(s); t.iam.users['svc-storefront-app'].accessKeys[1].status = 'Inactive'; expect(authorize(t, { principal: SVC, action: 's3:ListBucket', resource: '*', accessKeyId: fx.KEY_OLD }).reason).toMatch(/InvalidAccessKeyId/); });
   it('KMS needs the key policy; root delegation defers to IAM', () => {
@@ -36,13 +36,13 @@ describe('user-driven state transitions', () => {
   it('finding reports need evidence and the right resource', () => {
     const l = new Lab();
     expect(l.do('finding.report', { findingId: 'V2', resource: `s3/bucket/${DOCS}` }).code).toBe('EvidenceRequired');
-    expect(l.do('finding.report', { findingId: 'V2', resource: 's3/bucket/novacart-product-assets' }).code).toBe('NotSupportedByEvidence');
+    expect(l.do('finding.report', { findingId: 'V2', resource: 's3/bucket/aerocart-product-assets' }).code).toBe('NotSupportedByEvidence');
     l.report('V2', `s3/bucket/${DOCS}#permissions`, `s3/bucket/${DOCS}`); expect(l.finding('V2').status).toBe('Open'); expect(l.finding('V2').severity).toBe('High');
   });
   it('a fix is not verified until the learner tests it', () => {
     const l = new Lab(); l.report('V2', `s3/bucket/${DOCS}#permissions`, `s3/bucket/${DOCS}`);
     l.ok('s3.putBucketPolicy', { bucket: DOCS, document: null }); expect(l.finding('V2').status).toBe('Open'); // ACL path still public
-    l.ok('s3.putObjectAcl', { bucket: DOCS, key: 'hr/offer-letters/offer-NC-0113.pdf', acl: 'private' });
+    l.ok('s3.putObjectAcl', { bucket: DOCS, key: 'hr/offer-letters/offer-AC-0113.pdf', acl: 'private' });
     expect(l.finding('V2').status).toBe('Remediated — unverified'); expect(l.obj('V2.fix').done).toBe(false); expect(l.obj('V2.fix').awarded).toBe(12);
     l.ok('s3.accessTest', { bucket: DOCS, key: 'finance/payroll-2026-09.csv', principal: ANON, operation: 'GET' }); l.ok('s3.accessTest', { bucket: DOCS, key: 'invoices/INV-2026-10-0001.json', principal: R_APP, operation: 'GET' });
     expect(l.finding('V2').status).toBe('Verified'); expect(l.finding('V2').explanation).toBeTruthy();
@@ -84,7 +84,7 @@ describe('cross-service dependencies', () => {
     expect(l.state.cloudtrail.events.some((e: any) => e.name === 'PutBucketPublicAccessBlock')).toBe(false);
   });
   it('CloudWatch alarm only fires when CloudTrail is delivering', () => {
-    const l = new Lab(); l.ok('cloudwatch.putAlarm', { name: 'a1', metric: 'UnauthorizedAPICalls', comparison: '>=', threshold: 5, period: 300, topic: 'nc-security-alerts' });
+    const l = new Lab(); l.ok('cloudwatch.putAlarm', { name: 'a1', metric: 'UnauthorizedAPICalls', comparison: '>=', threshold: 5, period: 300, topic: 'ac-security-alerts' });
     expect(l.ok('cloudwatch.sendTestEvents', { metric: 'UnauthorizedAPICalls', count: 9 }).result.delivered).toBe(false); expect(l.state.cloudwatch.alarms.a1.state).toBe('INSUFFICIENT_DATA');
     l.ok('cloudtrail.startLogging', { name: fx.TRAIL }); expect(l.ok('cloudwatch.sendTestEvents', { metric: 'UnauthorizedAPICalls', count: 3 }).result.fired).toEqual([]);
     expect(l.ok('cloudwatch.sendTestEvents', { metric: 'UnauthorizedAPICalls', count: 9 }).result.fired).toEqual(['a1']); expect(l.state.cloudwatch.notifications).toHaveLength(1);
@@ -100,7 +100,7 @@ describe('cross-service dependencies', () => {
   it('a mistyped secret cannot be rotated', () => { const l = new Lab(); l.ok('secrets.create', { name: 'x/pg', value: 'wrong' }); expect(l.do('secrets.rotate', { name: 'x/pg' }).code).toBe('RotationFailed'); });
   it('SSE-KMS makes S3 access depend on the key policy', () => {
     const l = new Lab(); steps.v5(l); expect(l.finding('V5').status).toBe('Verified');
-    l.ok('kms.putKeyPolicy', { keyId: fx.DATA_KEY, document: { Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { AWS: arn.role('nc-kms-admin-role') }, Action: 'kms:*', Resource: '*' }] } });
+    l.ok('kms.putKeyPolicy', { keyId: fx.DATA_KEY, document: { Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { AWS: arn.role('ac-kms-admin-role') }, Action: 'kms:*', Resource: '*' }] } });
     expect(l.ok('s3.accessTest', { bucket: DOCS, key: 'invoices/t.json', principal: R_APP, operation: 'PUT' }).result.reason).toMatch(/GenerateDataKey/); expect(l.status.health.find((h: any) => h.id === 'invoices').ok).toBe(false);
   });
   it('an SCP overrides administrator permissions; a harmful SCP breaks production', () => {

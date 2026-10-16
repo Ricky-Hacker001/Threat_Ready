@@ -61,7 +61,7 @@ export const LESSONS: Record<string, Lesson> = {
       'The Setup Guide is a wizard that forces the essentials in one pass: a strong password, the device name and the time zone. Interfaces are left as they are on purpose: changing X0 now would cut the cable you are using to manage the box.',
     ],
     how: [
-      'You sign in with `admin / password`. The wizard refuses to continue until the new password meets the policy (12+ characters with upper case, lower case, digits and a symbol). The firewall name `KGI-HQ-FW` will appear in logs, alerts and backups, so every record says which box it came from.',
+      'You sign in with `admin / password`. The wizard refuses to continue until the new password meets the policy (12+ characters with upper case, lower case, digits and a symbol). The firewall name `AERO-HQ-FW` will appear in logs, alerts and backups, so every record says which box it came from.',
       'The time zone matters more than it looks: log timestamps, schedules (task 2.1) and one-time codes (tasks 3.3 and 4.4) all depend on the clock. When you click Apply the settings are written and your old session ends, so you sign in again with the new password.',
     ],
     terms: [['Default credentials', 'The factory username and password, public for every unit.'], ['Hostname', 'The device name used in logs, alerts and backups.'], ['Password policy', 'Rules a password must meet: length and character types.']],
@@ -75,7 +75,7 @@ export const LESSONS: Record<string, Lesson> = {
       'The GUI is split into six views across the top. HOME is the overview, MONITOR is what is happening now (charts, logs, packet capture), DEVICE is the box itself (settings, users, HA), NETWORK is how it connects (interfaces, DHCP, VPN, SD-WAN), OBJECT is the named building blocks, and POLICY is the decisions: access, NAT, routing and security services.',
     ],
     how: [
-      'Every page shows a breadcrumb such as `KGI-HQ-FW › Network › System › Interfaces`. Use it to tell someone exactly where to look. Changes are not live until you click Accept (settings pages) or OK (dialogs). Navigating away discards them.',
+      'Every page shows a breadcrumb such as `AERO-HQ-FW › Network › System › Interfaces`. Use it to tell someone exactly where to look. Changes are not live until you click Accept (settings pages) or OK (dialogs). Navigating away discards them.',
       'A common surprise: routes are not under NETWORK. In this classic layout they are under POLICY › Rules and Policies › Routing Rules, because a route is a decision about where traffic goes.',
     ],
     terms: [['View', 'One of the six top-level areas.'], ['Breadcrumb', 'The path to the current page.'], ['Accept / OK', 'The buttons that actually save a change.']],
@@ -425,7 +425,7 @@ export const LESSONS: Record<string, Lesson> = {
       'Auditors and attackers read the same checklist. Each item here is a finding in a real assessment.',
     ],
     how: [
-      'Rename the admin (`kgi-fwadmin`) so the account name is not guessable, require TOTP, and lock out after 5 failures for 30 minutes. Move HTTPS management to 4443 with a certificate from the internal CA, so the browser trusts it and the warning from task 0.2 is gone. Your session ends when the port changes; browse to `https://192.168.10.1:4443`.',
+      'Rename the admin (`aero-fwadmin`) so the account name is not guessable, require TOTP, and lock out after 5 failures for 30 minutes. Move HTTPS management to 4443 with a certificate from the internal CA, so the browser trusts it and the warning from task 0.2 is gone. Your session ends when the port changes; browse to `https://192.168.10.1:4443`.',
       'Ship logs to syslog (`192.168.10.250:514`) so evidence survives if the box is wiped, schedule weekly exports, check firmware, and review the audit log. The audit sheet turns green item by item.',
     ],
     terms: [['Hardening', 'Reducing attack surface and adding evidence.'], ['Syslog', 'Sending logs to a central server.'], ['Account lockout', 'Blocking login after repeated failures.']],

@@ -432,7 +432,7 @@ export function dockerRun(img: ImageInfo): { ok: boolean; log: string[] } {
   for (const r of [...img.files[rel].matchAll(/require\(['"]([^./'"][^'"]*)['"]\)/g)].map((m) => m[1]))
     if (!img.installed[r]) return { ok: false, log: [`Error: Cannot find module '${r}'`, `Require stack:`, `- /app/${rel}`] };
   const warn = !img.user || img.user === 'root' || img.user === '0' ? ['(warning) container process is running as uid 0 (root)'] : [];
-  return { ok: true, log: [...warn, 'ShopFlow API listening on 3000', 'GET /health 200 2ms'] };
+  return { ok: true, log: [...warn, 'AeroShop API listening on 3000', 'GET /health 200 2ms'] };
 }
 
 // ---------- trivy image ----------

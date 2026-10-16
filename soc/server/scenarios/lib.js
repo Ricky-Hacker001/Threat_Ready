@@ -18,7 +18,7 @@ export const opt = (value, label) => ({ value, label });
 const opts = (list) => list.map(([v, l]) => opt(v, l));
 
 // --- checks: "<tool> run on <input>" -------------------------------------
-const norm = (s) => String(s || '').toLowerCase().replace(/^meridian\\/, '').trim();
+const norm = (s) => String(s || '').toLowerCase().replace(/^aerofreight\\/, '').trim();
 export function ran(tool, inputs) {
   const want = inputs === undefined ? null : [].concat(inputs).map(norm);
   return (c) => c.toolRuns.some((t) => t.tool === tool && (!want || want.some((w) => norm(t.input) === w || norm(t.input).includes(w))));
@@ -240,7 +240,7 @@ export function defineScenario(def) {
       tiers: { foundations: 'L1', intermediate: def.benign ? 'L1 (L2 if escalated)' : 'L1, L2', expert: 'L1, L2, L3' }[level],
       sources: def.sources,
       sourceGroups: def.sourceGroups,
-      environment: def.environment || 'Meridian Freight Systems, a simulated company. All logs are synthetic. All times are UTC.',
+      environment: def.environment || 'Aero Freight Systems, a simulated company. All logs are synthetic. All times are UTC.',
     },
     skills: def.skills,
     meta: { verdictField: 'verdict', severityField: 'severity', routeField: 'route', benign: !!def.benign },

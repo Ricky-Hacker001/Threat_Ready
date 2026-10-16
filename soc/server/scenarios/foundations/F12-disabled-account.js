@@ -30,7 +30,7 @@ export default defineScenario({
     guidance: ['Read why the logon failed and how it was attempted.', 'Find out who the account belongs to and what runs on the host.'],
   }),
   accountNotes: { 'g.harlow': ['Leaver: account disabled 21 days ago.', 'The same failed logon was recorded on APP02 at 02:00 on each of the last 3 nights.'] },
-  assetNotes: { APP02: ['Scheduled task "NightlyReportExport" runs daily at 02:00 as MERIDIAN\\g.harlow (configured last year).'] },
+  assetNotes: { APP02: ['Scheduled task "NightlyReportExport" runs daily at 02:00 as AEROFREIGHT\\g.harlow (configured last year).'] },
   triage: {
     checks: [
       { id: 'dir', label: 'Account looked up in the directory', test: ran('user', LEAVER.sam) },

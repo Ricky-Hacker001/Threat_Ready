@@ -183,7 +183,7 @@ const D: Record<string, () => ReactElement> = {
       { id: 'inet', x: 290, y: 6, w: 140, label: 'Internet', sub: 'simulated', tone: 'net' },
       { id: 'isp1', x: 110, y: 82, w: 140, label: 'ISP-1 router', sub: '203.0.113.9', tone: 'net' },
       { id: 'isp2', x: 470, y: 82, w: 140, label: 'ISP-2 router', sub: '198.51.100.33', tone: 'net' },
-      { id: 'fw', x: 265, y: 166, w: 190, h: 54, label: 'KGI-HQ-FW', sub: 'ThreatWall (fictional) · HQ', tone: 'fw' },
+      { id: 'fw', x: 265, y: 166, w: 190, h: 54, label: 'AERO-HQ-FW', sub: 'ThreatWall (fictional) · HQ', tone: 'fw' },
       { id: 'rem', x: 8, y: 170, w: 150, label: 'REMOTE-LAPTOP', sub: 'SSL VPN 192.168.50.x', tone: 'host' },
       { id: 'br', x: 562, y: 170, w: 150, label: 'Branch firewall', sub: '198.51.100.20', tone: 'fw' },
       { id: 'sw', x: 110, y: 268, w: 150, label: 'LAN switch', sub: 'X0 192.168.10.1/24', tone: 'plain' },
@@ -240,7 +240,7 @@ const D: Record<string, () => ReactElement> = {
       { id: 'n', x: 10, y: 190, w: 190, label: 'Stop and investigate', sub: 'possible interception', tone: 'bad' },
     ]} edges={[{ from: 'b', to: 'f', label: 'TLS hello' }, { from: 'f', to: 'c', label: 'who signed it?' }, { from: 'c', to: 'q', label: 'warning' }, { from: 'q', to: 'y', label: 'yes', tone: 'ok' }, { from: 'q', to: 'n', label: 'no / unsure', tone: 'bad' }]} />
   ),
-  setup: () => <Chain title="Setup Guide flow" cols={4} items={[['Factory login', 'admin / password', 'warn'], ['Welcome'], ['New password', '12+ chars, mixed'], ['Name + time zone', 'KGI-HQ-FW'], ['WAN', 'keep DHCP for now'], ['LAN', 'keep for now'], ['Apply', 'settings written'], ['Sign in again', 'new password', 'ok']]} />,
+  setup: () => <Chain title="Setup Guide flow" cols={4} items={[['Factory login', 'admin / password', 'warn'], ['Welcome'], ['New password', '12+ chars, mixed'], ['Name + time zone', 'AERO-HQ-FW'], ['WAN', 'keep DHCP for now'], ['LAN', 'keep for now'], ['Apply', 'settings written'], ['Sign in again', 'new password', 'ok']]} />,
   gui: () => (
     <Flow title="The six views of the GUI" h={150} nodes={[
       { id: 'h', x: 0, y: 6, w: 228, h: 60, label: 'HOME', sub: 'Dashboard · Topology', tone: 'fw' },
@@ -389,7 +389,7 @@ const D: Record<string, () => ReactElement> = {
     ]} edges={[{ from: 'l', to: 'w' }, { from: 'w', to: 'a' }, { from: 'a', to: 'p' }, { from: 'p', to: 'r' }, { from: 'r', to: 'h', tone: 'ok' }, { from: 'r', to: 'd', tone: 'bad', dash: true }]} />
   ),
   ipsec: () => (
-    <Sequence title="IKEv2 negotiation between HQ and Branch" actors={['KGI-HQ-FW 203.0.113.10', 'Branch FW 198.51.100.20']} msgs={[
+    <Sequence title="IKEv2 negotiation between HQ and Branch" actors={['AERO-HQ-FW 203.0.113.10', 'Branch FW 198.51.100.20']} msgs={[
       { from: 0, to: 1, label: 'IKE_SA_INIT: proposals (DH 14, AES-256, SHA256)' },
       { from: 1, to: 0, label: 'IKE_SA_INIT: same proposal chosen' },
       { from: 0, to: 1, label: 'IKE_AUTH: proof of the pre-shared key + networks' },
@@ -432,7 +432,7 @@ const D: Record<string, () => ReactElement> = {
     ]} edges={[{ from: 'p', to: 's', label: 'config + state sync' }, { from: 'i', to: 'p' }, { from: 'p', to: 'l' }, { from: 'i', to: 's', dash: true }, { from: 's', to: 'l', dash: true }, { from: 'f', to: 'p', tone: 'bad', dash: true }, { from: 's', to: 'k', tone: 'ok' }]} />
   ),
   troubleshoot: () => <Chain title="Evidence-led troubleshooting" cols={3} items={[['Reproduce', 'FIN-PC → ERP HTTPS'], ['Capture', 'dst 192.0.2.20 : 443'], ['Read the drop', 'route next hop dead', 'bad'], ['Fix the cause', 'route, not a new rule'], ['Capture again', 'FORWARDED', 'ok'], ['Write the RCA', 'cause · fix · prevention', 'fw']]} />,
-  hardening: () => <Chain title="Hardening checklist" cols={4} items={[['Rename admin', 'kgi-fwadmin'], ['TOTP + lockout', '5 tries / 30 min'], ['Port 4443', 'internal-CA cert'], ['No WAN mgmt', 'Ping only on X1'], ['Syslog', '192.168.10.250:514'], ['Weekly export', 'config off-box'], ['Firmware review', 'check for updates'], ['Audit sheet green', 'every item verified', 'ok']]} />,
+  hardening: () => <Chain title="Hardening checklist" cols={4} items={[['Rename admin', 'aero-fwadmin'], ['TOTP + lockout', '5 tries / 30 min'], ['Port 4443', 'internal-CA cert'], ['No WAN mgmt', 'Ping only on X1'], ['Syslog', '192.168.10.250:514'], ['Weekly export', 'config off-box'], ['Firmware review', 'check for updates'], ['Audit sheet green', 'every item verified', 'ok']]} />,
   incident: () => <Chain title="Incident response on the firewall" cols={3} items={[['Detect', 'SOC beacon alert', 'warn'], ['Identify', 'logs: one host every 5 min'], ['Contain (everyone)', 'deny C2 at the top', 'fw'], ['Contain (host)', 'quarantine its MAC', 'fw'], ['Preserve evidence', 'capture + exported logs'], ['Report', 'timeline · actions · cause', 'ok']]} />,
 };
 

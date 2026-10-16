@@ -3,7 +3,7 @@ import type { LabDef } from '../../engine/lab';
 import { revOf } from '../../engine/shell';
 import { checkov, ingressRules } from '../../engine/iac';
 import { findBlocks, hBool, hStr, refName, resourcesOf, type Resource } from '../../engine/hcl';
-import { baseFiles, TEAM } from '../shopflow';
+import { baseFiles, TEAM } from '../aeroshop';
 import { headFiles, isPushed } from './common';
 
 const MAIN_TF = `terraform {
@@ -21,7 +21,7 @@ provider "aws" {
 
 # Customer invoices (PDF) - contains personal data
 resource "aws_s3_bucket" "invoices" {
-  bucket = "shopflow-invoices-prod"
+  bucket = "aeroshop-invoices-prod"
 }
 
 resource "aws_s3_bucket_acl" "invoices" {
@@ -31,7 +31,7 @@ resource "aws_s3_bucket_acl" "invoices" {
 
 # Static website assets (logos, product photos) loaded by browsers
 resource "aws_s3_bucket" "assets" {
-  bucket = "shopflow-public-assets"
+  bucket = "aeroshop-public-assets"
 }
 
 resource "aws_s3_bucket_acl" "assets" {
@@ -40,8 +40,8 @@ resource "aws_s3_bucket_acl" "assets" {
 }
 
 resource "aws_security_group" "app" {
-  name        = "shopflow-app"
-  description = "ShopFlow API servers"
+  name        = "aeroshop-app"
+  description = "AeroShop API servers"
 
   ingress {
     description = "HTTPS from the internet"
@@ -68,12 +68,12 @@ resource "aws_security_group" "app" {
 }
 
 resource "aws_db_instance" "orders" {
-  identifier                  = "shopflow-orders"
+  identifier                  = "aeroshop-orders"
   engine                      = "postgres"
   engine_version              = "16.4"
   instance_class              = "db.t4g.medium"
   allocated_storage           = 50
-  username                    = "shopflow"
+  username                    = "aeroshop"
   manage_master_user_password = true
   publicly_accessible         = true
   storage_encrypted           = false
@@ -129,7 +129,7 @@ export const iacLab: LabDef = {
   openFile: 'infra/main.tf',
   seed: () => ({
     history: [
-      { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 100, files: baseFiles() },
+      { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 100, files: baseFiles() },
       { message: 'Add production infrastructure', author: TEAM.dana, daysAgo: 4, files: baseFiles({ 'infra/main.tf': MAIN_TF }) },
     ],
   }),

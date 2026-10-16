@@ -107,7 +107,7 @@ function Catalog({ def, start, starting }: { def: any; start: (mode?: string) =>
     <div className="cat-grid" style={{ marginTop: 20 }}>
       <div className="cat-card" style={{ borderColor: 'var(--accent)' }}>
         <div className="row"><span className="badge st-Confirmed">TR-RED-001</span><span className="badge sev-High">Advanced</span><span className="grow" /><span className="muted small">~150 min</span></div>
-        <strong style={{ fontSize: 16 }}>{def?.title || 'The Breach Files — NovaCart'}</strong>
+        <strong style={{ fontSize: 16 }}>{def?.title || 'The Breach Files — AeroCart'}</strong>
         <p className="small muted">{def?.subtitle || 'Investigate, exploit, remediate and report on a vulnerable e-commerce application.'}</p>
         <div className="small muted">9 vulnerability classes · recon → exploit → remediate → report</div>
         <div style={{ marginTop: 4 }}>
@@ -122,7 +122,7 @@ function Catalog({ def, start, starting }: { def: any; start: (mode?: string) =>
         <button className="wl-btn primary" onClick={() => start(mode)} disabled={starting}>{starting ? 'Starting…' : `Start engagement · ${modes.find((m: any) => m.id === mode)?.label || 'Beginner'}`}</button>
         <span className="small muted">You can change the mode any time from the top bar.</span>
       </div>
-      {['PayFlow — FinTech SaaS', 'TeamDesk — Enterprise SaaS'].map(t => <div key={t} className="cat-card" style={{ opacity: .6 }}>
+      {['AeroPay — FinTech SaaS', 'AeroDesk — Enterprise SaaS'].map(t => <div key={t} className="cat-card" style={{ opacity: .6 }}>
         <div className="row"><span className="badge st-none">Coming soon</span></div>
         <strong style={{ fontSize: 16 }}>{t}</strong>
         <p className="small muted">Access-control, business-logic and multi-tenant isolation testing. Built on the same engine.</p>
@@ -349,7 +349,7 @@ function ContextRail({ status, view, act, def, gotoTab, defaultGuideOpen }: { st
 }
 
 function GuideBody({ def, gotoTab }: { def: any; gotoTab: (t: string) => void }) {
-  const host = def?.target?.host || 'shop.novacart.lab';
+  const host = def?.target?.host || 'shop.aerocart.lab';
   const cmds = (def?.terminalCommands || []) as string[];
   const jump = (t: string) => gotoTab(t);
   return <div className="guide-inline">

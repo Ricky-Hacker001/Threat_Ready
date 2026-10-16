@@ -284,8 +284,8 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
                   execute={execute}
                   files={Object.keys(s.files)}
                   initial={[
-                    `\x1b[1mShopFlow DevSecOps workstation\x1b[0m — lab: ${def.title}`,
-                    `\x1b[90mRepository cloned to /workspace/shopflow-api · type \x1b[0mhelp\x1b[90m for available tools · ↑/↓ history · Tab completion\x1b[0m`,
+                    `\x1b[1mAeroShop DevSecOps workstation\x1b[0m — lab: ${def.title}`,
+                    `\x1b[90mRepository cloned to /workspace/aeroshop-api · type \x1b[0mhelp\x1b[90m for available tools · ↑/↓ history · Tab completion\x1b[0m`,
                     '',
                   ]}
                 />

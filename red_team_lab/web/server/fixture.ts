@@ -1,10 +1,10 @@
-// Initial seeded state of the NovaCart target — the vulnerable configuration a run starts from.
+// Initial seeded state of the AeroCart target — the vulnerable configuration a run starts from.
 // SIMULATION ONLY: every identity, order, address, credential, secret and file here is synthetic.
 // A per-run seed substitutes the JWT secret and the canary flag values so answers can't be shared.
 
 import crypto from 'node:crypto';
 
-export const TARGET_NAME = 'NovaCart';
+export const TARGET_NAME = 'AeroCart';
 
 export interface NcUser { id: number; username: string; password: string; email: string; role: 'customer' | 'admin'; fullName: string; address: string; phone: string }
 export interface NcProduct { id: number; name: string; price: number; category: string; description: string }
@@ -33,7 +33,7 @@ export interface TargetState {
   orders: NcOrder[];
   tickets: NcTicket[];
   nextTicketId: number;
-  sessions: Record<string, { userId: number; createdAt: string }>;  // nc_session token -> user
+  sessions: Record<string, { userId: number; createdAt: string }>;  // ac_session token -> user
   files: Record<string, string>;   // virtual document/file store (path -> contents)
   fixes: Fixes;
 }
@@ -44,7 +44,7 @@ export interface BrowserState {
   history: string[];
 }
 
-const SECRETS = ['novacart', 'changeme', 'secret', 's3cr3t', 'password', 'nc-dev'];
+const SECRETS = ['aerocart', 'changeme', 'secret', 's3cr3t', 'password', 'ac-dev'];
 
 export function createTargetState(seedInput?: string): TargetState {
   const seed = seedInput || crypto.randomBytes(6).toString('hex');
@@ -53,7 +53,7 @@ export function createTargetState(seedInput?: string): TargetState {
   const flag = (tag: string) => `TR-${tag}-${h.slice(0, 8)}`;
 
   const users: NcUser[] = [
-    { id: 1, username: 'admin', password: 'Nc@dmin!' + h.slice(2, 6), email: 'admin@novacart.example', role: 'admin', fullName: 'Priya Nair', address: '4th Flr, Prestige Tower, Bengaluru 560001', phone: '+91-80-5550-0101' },
+    { id: 1, username: 'admin', password: 'Nc@dmin!' + h.slice(2, 6), email: 'admin@aerocart.example', role: 'admin', fullName: 'Priya Nair', address: '4th Flr, Prestige Tower, Bengaluru 560001', phone: '+91-80-5550-0101' },
     { id: 2, username: 'rahul', password: 'hunter2-' + h.slice(4, 8), email: 'rahul@example.test', role: 'customer', fullName: 'Rahul Verma', address: '12 MG Road, Pune 411001', phone: '+91-98-7650-0022' },
     { id: 3, username: 'meera', password: 'letmein-' + h.slice(6, 10), email: 'meera@example.test', role: 'customer', fullName: 'Meera Iyer', address: '88 Residency Rd, Chennai 600028', phone: '+91-99-4410-7781' },
     { id: 4, username: 'daniel', password: 'qwerty-' + h.slice(8, 12), email: 'daniel@example.test', role: 'customer', fullName: 'Daniel Fernandes', address: '5 Hill View, Goa 403001', phone: '+91-91-2233-4455' },
@@ -82,17 +82,17 @@ export function createTargetState(seedInput?: string): TargetState {
   const jwtSecret = pick(0, SECRETS);
 
   const files: Record<string, string> = {
-    'invoices/INV-5001.txt': `NovaCart Invoice INV-5001\nOrder 5001 — Rahul Verma\nAether Wireless Earbuds x1 — ₹3,499\nTotal: ₹3,499\n`,
-    'invoices/INV-5002.txt': `NovaCart Invoice INV-5002\nOrder 5002 — Meera Iyer\nLumen 4K Action Camera x1 — ₹8,999\nOrbit USB-C Hub x1 — ₹2,299\nTotal: ₹11,298\n`,
+    'invoices/INV-5001.txt': `AeroCart Invoice INV-5001\nOrder 5001 — Rahul Verma\nAether Wireless Earbuds x1 — ₹3,499\nTotal: ₹3,499\n`,
+    'invoices/INV-5002.txt': `AeroCart Invoice INV-5002\nOrder 5002 — Meera Iyer\nLumen 4K Action Camera x1 — ₹8,999\nOrbit USB-C Hub x1 — ₹2,299\nTotal: ₹11,298\n`,
     'brochure.pdf': '%PDF-1.4 (synthetic product brochure)\n',
     // Sensitive artefacts that should not be reachable (V-FILE, V-TRAVERSAL):
-    'backups/novacart-db.sql.bak': `-- NovaCart DB backup (SIMULATED)\n-- EXPOSED SECRET FLAG: ${backupFlag}\nINSERT INTO users VALUES (1,'admin','Nc@dmin!...','admin');\nJWT_SIGNING_SECRET='${jwtSecret}';\n`,
-    '.env': `# NovaCart service config (SIMULATED)\nNODE_ENV=production\nJWT_SECRET=${jwtSecret}\nDB_PASSWORD=nc_pg_synthetic\nTRAVERSAL_FLAG=${travFlag}\n`,
+    'backups/aerocart-db.sql.bak': `-- AeroCart DB backup (SIMULATED)\n-- EXPOSED SECRET FLAG: ${backupFlag}\nINSERT INTO users VALUES (1,'admin','Nc@dmin!...','admin');\nJWT_SIGNING_SECRET='${jwtSecret}';\n`,
+    '.env': `# AeroCart service config (SIMULATED)\nNODE_ENV=production\nJWT_SECRET=${jwtSecret}\nDB_PASSWORD=ac_pg_synthetic\nTRAVERSAL_FLAG=${travFlag}\n`,
   };
   // Host files reachable only via path traversal out of the document root (V-TRAVERSAL):
   const hostFiles: Record<string, string> = {
-    '/etc/passwd': `root:x:0:0:root:/root:/bin/bash\nnovacart:x:1000:1000::/home/novacart:/bin/bash\n# TRAVERSAL FLAG: ${travFlag}\n`,
-    '/opt/novacart/config/secrets.yml': `jwt_secret: ${jwtSecret}\nssrf_flag: ${ssrfFlag}\n`,
+    '/etc/passwd': `root:x:0:0:root:/root:/bin/bash\naerocart:x:1000:1000::/home/aerocart:/bin/bash\n# TRAVERSAL FLAG: ${travFlag}\n`,
+    '/opt/aerocart/config/secrets.yml': `jwt_secret: ${jwtSecret}\nssrf_flag: ${ssrfFlag}\n`,
   };
   for (const [k, v] of Object.entries(hostFiles)) files['HOST:' + k] = v;
 
@@ -109,8 +109,8 @@ export function createTargetState(seedInput?: string): TargetState {
 // The internal metadata service reachable only through the SSRF-able integration endpoint (V-SSRF).
 export function metadataResponse(t: TargetState): string {
   return [
-    '# NovaCart internal metadata service (169.254.169.254) — SIMULATED, not a real cloud endpoint',
-    'iam/role: nc-order-processor',
+    '# AeroCart internal metadata service (169.254.169.254) — SIMULATED, not a real cloud endpoint',
+    'iam/role: ac-order-processor',
     `iam/credentials/access-key: AKIA_SYNTHETIC_${t.seed.toUpperCase()}`,
     `iam/credentials/secret-key: ${t.flags.ssrf}`,
   ].join('\n');

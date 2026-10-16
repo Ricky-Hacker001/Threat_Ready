@@ -1,7 +1,7 @@
 # Threatready | DevSecOps Lab
 
 A hands-on DevSecOps training lab that runs entirely in the browser. No login and no backend.
-Learners work as the DevSecOps engineer at **ShopFlow**, a fictional online shop. They configure
+Learners work as the DevSecOps engineer at **AeroShop**, a fictional online shop. They configure
 pipelines, run security scanners, fix vulnerabilities, re-verify and ship to a simulated staging
 cluster. Objectives are graded by checking the resulting state of the repository, pipeline and
 environment, not by quizzes.
@@ -44,7 +44,7 @@ The workspace has:
 | 2 | Harden the container image | `hadolint`, `docker build/run`, `trivy image`, minimal pinned base, non-root user, `.dockerignore`, no secrets in layers, container must still start |
 | 3 | Terraform misconfigurations | `terraform init/validate/plan`, `checkov -d infra`, private and KMS-encrypted invoices bucket, SSH only from the VPN, private and encrypted DB, documented `#checkov:skip` for the intentionally public bucket |
 | 3 | Build the security gate | edit `.github/workflows/ci.yml`, add gitleaks/semgrep/trivy gates, prove deploy is skipped, remove bypasses, remediate, ship green to staging |
-| 4 | Capstone: ship ShopFlow securely | ZAP full scan of staging, close pipeline bypasses (`\|\| true`, exit-code 0, `fail_action`), helmet + cookie flags, image hardening, Kyverno-compliant manifest, green deploy, clean DAST evidence |
+| 4 | Capstone: ship AeroShop securely | ZAP full scan of staging, close pipeline bypasses (`\|\| true`, exit-code 0, `fail_action`), helmet + cookie flags, image hardening, Kyverno-compliant manifest, green deploy, clean DAST evidence |
 
 ## How it works
 

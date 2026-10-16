@@ -2,7 +2,7 @@ import type { LabDef } from '../../engine/lab';
 import { testsGreenNow } from '../../engine/lab';
 import { auditInstalled, lockInSync, readLock, readPkg } from '../../engine/sca';
 import { cmpVer } from '../../engine/util';
-import { baseFiles, CART_TESTS, npmFiles, SERVER_TEST, TEAM } from '../shopflow';
+import { baseFiles, CART_TESTS, npmFiles, SERVER_TEST, TEAM } from '../aeroshop';
 import { headFiles, isPushed, requiredModulesInstalled } from './common';
 
 const DEPS = { express: '^4.17.1', lodash: '4.17.15', jsonwebtoken: '^8.5.1', axios: '^0.21.0', minimist: '^1.2.5', pg: '^8.13.1' };
@@ -48,7 +48,7 @@ export const scaLab: LabDef = {
   minutes: 30,
   summary: 'Audit npm dependencies with Trivy and npm audit, upgrade safely (watch for breaking majors), keep the lockfile in sync and publish a CycloneDX SBOM.',
   story:
-    "Release 1.4.0 is blocked: the security team's weekly report shows a CRITICAL and several HIGH vulnerabilities in shopflow-api's dependencies. Upgrade what is needed without breaking the service, and hand over an SBOM for the release record.",
+    "Release 1.4.0 is blocked: the security team's weekly report shows a CRITICAL and several HIGH vulnerabilities in aeroshop-api's dependencies. Upgrade what is needed without breaking the service, and hand over an SBOM for the release record.",
   ticket: 'SEC-340 — No HIGH/CRITICAL dependency vulnerabilities allowed for release 1.4.0. Lockfile committed, service still boots, SBOM attached.',
   skills: ['Dependency auditing', 'Semantic versioning', 'Lockfiles', 'SBOM generation'],
   tools: ['trivy fs', 'npm audit', 'npm install', 'syft'],
@@ -60,7 +60,7 @@ export const scaLab: LabDef = {
   openFile: 'package.json',
   seed: () => ({
     history: [
-      { message: 'Initial ShopFlow API', author: TEAM.priya, daysAgo: 400, files: baseFiles({ ...npmFiles(DEPS, LOCK), ...extra }) },
+      { message: 'Initial AeroShop API', author: TEAM.priya, daysAgo: 400, files: baseFiles({ ...npmFiles(DEPS, LOCK), ...extra }) },
       { message: 'Add shipping quotes and admin CLI', author: TEAM.dana, daysAgo: 200, files: baseFiles({ ...npmFiles(DEPS, LOCK), ...extra }) },
     ],
   }),

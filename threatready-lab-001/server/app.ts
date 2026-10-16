@@ -27,6 +27,8 @@ export interface AppOptions {
 
 const pct = (score: number, max: number) => (max > 0 ? Math.round((score / max) * 100) : 0);
 const runStatus = (s: Session, st: any) => (st.complete ? 'Completed' : s.status === 'archived' ? 'Archived' : 'In progress');
+/** A run saved by an older build of the engine may no longer evaluate; it must not take the catalog down. */
+const safeStatus = (e: LabEngine, s: Session) => { try { return e.status(s.state); } catch (err) { console.error(`run ${s.id} (${s.labId}) cannot be evaluated: ${(err as Error).message}`); return null; } };
 
 export function createApp(store: Store, staticDir: string | undefined, opts: AppOptions) {
   const app = express();
@@ -46,7 +48,7 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     const userId = req.params.userId;
     if (!userId || userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
     const runs = store.allSessionsOf(userId).filter(s => ENGINES[s.labId]);
-    const rows = runs.map(s => { const e = ENGINES[s.labId]; const st = e.status(s.state); return { s, e, st, percent: pct(st.score.total, st.score.max) }; });
+    const rows = runs.flatMap(s => { const e = ENGINES[s.labId]; const st = safeStatus(e, s); return st ? [{ s, e, st, percent: pct(st.score.total, st.score.max) }] : []; });
     const labsStarted = new Set(rows.map(r => r.s.labId)).size;
     const labsCompleted = new Set(rows.filter(r => r.st.complete).map(r => r.s.labId)).size;
     const best = rows.length ? Math.max(...rows.map(r => r.percent)) : null;
@@ -126,7 +128,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
       const runs = store.sessionsOf(user.id, c.id);
       const latest = runs[runs.length - 1];
       if (!latest) return { ...c, available: true, progress: null };
-      const st = e.status(latest.state);
+      const st = safeStatus(e, latest);
+      if (!st) return { ...c, available: true, progress: null };
       return { ...c, available: true, progress: { runs: runs.length, status: runStatus(latest, st), level: st.level, percent: st.progress, score: st.score.total, max: st.score.max, complete: st.complete, updatedAt: latest.updatedAt } };
     }));
   });

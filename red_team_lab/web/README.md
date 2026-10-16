@@ -2,7 +2,7 @@
 
 A standalone, **story-driven, server-authoritative** web-application penetration-testing simulation.
 The learner joins a security consultancy as a junior pentester and runs an authorized engagement
-against **NovaCart**, a fictional e-commerce app: recon → exploit → remediate → verify → report,
+against **AeroCart**, a fictional e-commerce app: recon → exploit → remediate → verify → report,
 using an embedded browser, a Burp-style proxy/repeater, and a Kali-style terminal.
 
 **SIMULATION ONLY.** No real company, customer, credential, system, or network is involved. Every
@@ -80,7 +80,7 @@ remediation + re-test marks each one verified. It is never shipped to the browse
 
 ## The engagement
 
-One deeply implemented target (**NovaCart**) with **nine vulnerability classes**, each intentional,
+One deeply implemented target (**AeroCart**) with **nine vulnerability classes**, each intentional,
 reproducible, server-detected and separately remediable:
 
 | ID | Class | Where | Fix verified by |
@@ -109,7 +109,7 @@ a passing re-test of the original proof request. Re-introducing a weakness would
 
 - **Embedded browser** — address bar (GET/POST + body), sandboxed render of the server-produced HTML
   (scripts do **not** execute in-page; payloads render inert — detection is server-side), extracted
-  link chips, cookie jar + set-cookie (e.g. paste a forged `nc_admin` token), proxy intercept toggle.
+  link chips, cookie jar + set-cookie (e.g. paste a forged `ac_admin` token), proxy intercept toggle.
 - **Proxy** — full HTTP history across every tool, raw request/response viewer, per-row detection
   flags, "send to Repeater", "save to evidence".
 - **Repeater** — editable method/path/query/headers/cookies/body, send, response viewer.
@@ -126,7 +126,7 @@ a passing re-test of the original proof request. Re-introducing a weakness would
 
 ```
 server/http.ts      HTTP request/response model + parsing shared by every tool.
-server/fixture.ts   Seeded initial NovaCart state (users, products, orders, tickets, files, weak secret, canary flags).
+server/fixture.ts   Seeded initial AeroCart state (users, products, orders, tickets, files, weak secret, canary flags).
 server/target.ts    The vulnerable app: a PURE handler(state, req) -> { response, detection events, Set-Cookie }.
 server/terminal.ts  Kali-style command interpreter; security tools call the shared target handler.
 server/scenario.ts  SERVER-ONLY: findings, detection→confirmation mapping, objectives, hints, remediation answer keys, report rubric.
@@ -155,7 +155,7 @@ Rules the code enforces (asserted in tests):
 
 ## Sandbox / security boundaries
 
-- Synthetic domain (`shop.novacart.lab`) and in-memory routing; no outbound network from any tool.
+- Synthetic domain (`shop.aerocart.lab`) and in-memory routing; no outbound network from any tool.
 - "SSRF" reaches only a synthetic canary metadata response; "command injection" and "path traversal"
   reach only synthetic canary flags / a virtual file map — never the real host.
 - SQLi/XSS are resolved by deterministic detectors over the synthetic model; XSS uses inert proof
@@ -186,5 +186,5 @@ Rules the code enforces (asserted in tests):
 4. Add a solver branch in `tests/helpers.ts` and assertions in `tests/engine.test.ts` (a positive
    reachability test and a negative "no false completion" test).
 
-A second target (PayFlow, TeamDesk) is a new `TargetState` + handler + `FINDINGS`, reusing the engine,
+A second target (AeroPay, AeroDesk) is a new `TargetState` + handler + `FINDINGS`, reusing the engine,
 auth, persistence, scoring and report infrastructure.

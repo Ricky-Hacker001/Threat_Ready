@@ -29,7 +29,7 @@ export async function playInterview(agent: Agent, sessionId: string, answer: (n:
 }
 
 const STRONG = (n: number) =>
-  `In my role at Acme I handled this directly. For question ${n + 1}, I would first scope the alert using Splunk, correlate authentication logs across sources, check for password spraying patterns such as many accounts from one IP, enrich the indicators with threat intelligence, and then decide on escalation using our severity matrix. I documented the findings and the containment steps, and we tuned the detection afterwards to reduce false positives.`;
+  `In my role at Aero Fintech I handled this directly. For question ${n + 1}, I would first scope the alert using Splunk, correlate authentication logs across sources, check for password spraying patterns such as many accounts from one IP, enrich the indicators with threat intelligence, and then decide on escalation using our severity matrix. I documented the findings and the containment steps, and we tuned the detection afterwards to reduce false positives.`;
 
 describe('InterviewPrep end to end (fake LLM through LlmPort)', () => {
   let t: TestApp;

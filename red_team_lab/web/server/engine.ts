@@ -1,4 +1,4 @@
-// Server-authoritative LabEngine for TR-RED-001 (NovaCart web pentest). The browser never decides
+// Server-authoritative LabEngine for TR-RED-001 (AeroCart web pentest). The browser never decides
 // state, findings, objectives or scores. Predicates, hints-not-yet-requested, remediation answer
 // keys and canary flag values stay here; only public projections (view/status/report) reach clients.
 
@@ -93,11 +93,11 @@ const H: Record<string, Handler> = {
     const method = oneOf((p.method || 'GET').toUpperCase(), ['GET', 'POST'] as const, 'method');
     const { path, query } = parseUrlArg(str(p.url, 'url', 2000));
     if (s.proxy.intercepting) {
-      const held: HttpRequest = { method, path, query, headers: { 'user-agent': 'NovaCart-Browser/1.0', ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, cookies: { ...s.browser.cookies }, body: p.body ? str(p.body, 'body', 8000) : '' };
+      const held: HttpRequest = { method, path, query, headers: { 'user-agent': 'AeroCart-Browser/1.0', ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, cookies: { ...s.browser.cookies }, body: p.body ? str(p.body, 'body', 8000) : '' };
       s.proxy.held = { request: held, from: 'browser' };
       return { message: 'Request intercepted — held in the proxy. Forward or drop it.', result: { intercepted: true, held } };
     }
-    const req: HttpRequest = { method, path, query, headers: { 'user-agent': 'NovaCart-Browser/1.0', ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, cookies: {}, body: p.body ? str(p.body, 'body', 8000) : '' };
+    const req: HttpRequest = { method, path, query, headers: { 'user-agent': 'AeroCart-Browser/1.0', ...(method === 'POST' ? { 'content-type': 'application/x-www-form-urlencoded' } : {}) }, cookies: {}, body: p.body ? str(p.body, 'body', 8000) : '' };
     const { res, historyId } = processRequest(s, req, 'browser', true);
     s.browser.url = path + (query ? `?${query}` : '');
     s.browser.history.push(s.browser.url); if (s.browser.history.length > 100) s.browser.history.shift();
@@ -300,9 +300,9 @@ function buildGuidance(s: any) {
 }
 
 export const webLab: LabEngine = {
-  labId: 'TR-RED-001', title: 'The Breach Files — NovaCart',
+  labId: 'TR-RED-001', title: 'The Breach Files — AeroCart',
   definition: () => ({
-    id: 'TR-RED-001', title: 'The Breach Files — NovaCart',
+    id: 'TR-RED-001', title: 'The Breach Files — AeroCart',
     subtitle: 'Investigate, exploit, remediate and report on a vulnerable e-commerce application.',
     category: 'Red Team / Web Application Security',
     briefing: BRIEFING,
@@ -393,8 +393,8 @@ export const webLab: LabEngine = {
     const s = state; const sc = score(s);
     const ev = (id: string) => { const h = s.history.find((x: any) => x.id === id); return h ? { id, tool: h.tool, at: h.at, method: h.request.method, path: h.request.path + (h.request.query ? '?' + h.request.query : ''), status: h.response.status } : null; };
     return {
-      meta: { ...meta, lab: 'TR-RED-001 — The Breach Files (NovaCart)', generatedAt: new Date().toISOString(), simulatedTime: simTime(s), final: !!s.sim.report, simulatedMinutes: s.clock.minutes, level: s.level },
-      disclosure: 'This assessment was performed in a controlled ThreatReady training simulation against a synthetic target (NovaCart). No real company, customer, credential or production system was involved.',
+      meta: { ...meta, lab: 'TR-RED-001 — The Breach Files (AeroCart)', generatedAt: new Date().toISOString(), simulatedTime: simTime(s), final: !!s.sim.report, simulatedMinutes: s.clock.minutes, level: s.level },
+      disclosure: 'This assessment was performed in a controlled ThreatReady training simulation against a synthetic target (AeroCart). No real company, customer, credential or production system was involved.',
       scope: BRIEFING.scope, outOfScope: BRIEFING.outOfScope, methodology: ['Reconnaissance & attack-surface mapping', 'Exploitation & proof of impact', 'Remediation & verification re-testing', 'Reporting'],
       summary: {
         learnerText: s.sim.report?.input.summary || null,

@@ -34,7 +34,7 @@ export default defineScenario({
     return {
       description: `Account ${U.sam} was locked out on DC01 after ${f.length} failed logons.`,
       entity: { host: null, ip: null, user: U.sam },
-      details: [['Account', `MERIDIAN\\${U.sam}`], ['Failed logons before lockout', String(f.length)], ['Lockout recorded', utc(tagged('lockout')[0].ts)], ['Rule logic', 'Event 4740 (account locked out) for any user account']],
+      details: [['Account', `AEROFREIGHT\\${U.sam}`], ['Failed logons before lockout', String(f.length)], ['Lockout recorded', utc(tagged('lockout')[0].ts)], ['Rule logic', 'Event 4740 (account locked out) for any user account']],
       guidance: ['Identify the computer that sent the bad passwords.', 'Read why the logons failed.', 'Check what changed for this account recently.'],
     };
   },

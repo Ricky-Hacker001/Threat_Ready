@@ -10,7 +10,7 @@ One sign-in, separate apps. Each app keeps its own overview, management, reports
 | `labs.threatready.io/labs/soc/` | `soc/` | **Blue Team**: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
 | `labs.threatready.io/labs/devsecops/` | `DevSecOps-Simulation/` | **Cloud Security**: DevSecOps lab (scanners, fixes and a gated pipeline), runs in the browser |
 | `labs.threatready.io/labs/threatwall/` | `ThreatWall/` | **Network Security**: ThreatReady Firewall, firewall administration from first cable to incident containment, runs in the browser |
-| `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: NovaCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
+| `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: AeroCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
 | `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning **scenario list** at `/`, each scenario's own page at `/scenarios/<id>`. Behind sign-in; the scenarios are "coming soon" until the reasoning engine ships (V1.0) |
 | `threatready.io` | `Landing_Page-main/` | Public marketing site and the **source of the design system** every app follows |
 

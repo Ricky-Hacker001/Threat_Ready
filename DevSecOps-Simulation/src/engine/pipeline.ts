@@ -33,7 +33,7 @@ function interpolate(s: string, commit: string): string {
   return s.replace(/\$\{\{\s*([^}]+?)\s*\}\}/g, (_, expr: string) => {
     if (expr === 'github.sha') return commit;
     if (expr === 'github.ref_name') return 'main';
-    if (expr === 'github.repository') return 'shopflow/shopflow-api';
+    if (expr === 'github.repository') return 'aeroshop/aeroshop-api';
     const sec = /^secrets\.(\w+)$/.exec(expr);
     if (sec) return KNOWN_SECRETS.has(sec[1]) ? '***' : '';
     return '';
@@ -205,7 +205,7 @@ export function runPipeline(s: LabState, commitId: string, tests: TestCase[]): P
         for (const cmd of a.cmds) {
           if (cmd === '__checkout') {
             Object.assign(fs, commit.files);
-            step.log.push('Syncing repository: shopflow/shopflow-api', `HEAD is now at ${commitId.slice(0, 7)} ${commit.message}`);
+            step.log.push('Syncing repository: aeroshop/aeroshop-api', `HEAD is now at ${commitId.slice(0, 7)} ${commit.message}`);
             continue;
           }
           code = exec(cmd);

@@ -4,7 +4,7 @@
 //   "net group"                   quoted phrase
 //   dest_host:telemetry.*         field match, * is a wildcard
 //   event_id:4624 logon_type:3    terms are ANDed
-//   -user:MERIDIAN\svc_backup     leading - negates a term
+//   -user:AEROFREIGHT\svc_backup     leading - negates a term
 //   bytes_out>100000              numeric comparison (>, >=, <, <=)
 //   event_id:(4624|4625)          any of several values
 

@@ -54,7 +54,7 @@ npm run dev        # http://localhost:5173
 | 3 Advanced | 3.1 IPS + gateway AV + false positive · 3.2 DPI-SSL · 3.3 SSL VPN (NetExtender + TOTP) · 3.4 site-to-site IPsec HQ ↔ Branch · 3.5 dual WAN SD-WAN failover |
 | 4 Expert | 4.1 HA Active/Standby · 4.2 packet-flow troubleshooting · 4.3 IPsec troubleshooting (3 faults) · 4.4 hardening + audit sheet · 4.5 capstone: contain a beaconing host |
 
-Exact lab values (KGI-HQ-FW, H_WEB-01, N_LAN-Staff, FQDN_update-site, G_Finance-PCs, LAN-Web-Out, TCP-8443, SG_SaaS, Office-Hours,
+Exact lab values (AERO-HQ-FW, H_WEB-01, N_LAN-Staff, FQDN_update-site, G_Finance-PCs, LAN-Web-Out, TCP-8443, SG_SaaS, Office-Hours,
 webserver_public_ip, webserver_private_ip, SSLVPN_Pool, N_Branch-LAN, HQ-to-Branch …) are in `src/state/baseline.ts` (`LAB`) and in each task's *Expected values*.
 
 ## Architecture
