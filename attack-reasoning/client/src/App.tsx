@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, BASE } from './api';
-import { Shell } from './shell';
+import { Shell, PlatformLoading, platformApps } from './shell';
 import './app.css';
 
 interface Technique { id: string; name: string }
@@ -14,12 +14,13 @@ interface Catalog { levels: { level: string; minutes: string; hints: string }[];
 export function App() {
   const [user, setUser] = useState<any>(null); const [err, setErr] = useState('');
   const [path, setPath] = useState(location.pathname);
-  const load = useCallback(() => { setErr(''); api('/me').then(setUser, (e: ApiError) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
+  // The session and the app list together (the list capped at 1.5 s), so the header never renders half-filled.
+  const load = useCallback(() => { setErr(''); Promise.all([api('/me'), Promise.race([platformApps(), new Promise((r) => setTimeout(r, 1500))])]).then(([u]) => setUser(u), (e: ApiError) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
   useEffect(() => { load(); const h = () => setPath(location.pathname); addEventListener('popstate', h); return () => removeEventListener('popstate', h); }, [load]);
   const go = (to: string) => { history.pushState(null, '', to); setPath(to); scrollTo(0, 0); };
 
   if (err) return <div className="tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
-  if (!user) return <div className="tr-center"><div className="tr-note"><span className="tr-spinner" aria-hidden="true" />Checking your ThreatReady sign-in…</div></div>;
+  if (!user) return <PlatformLoading app="Attack Reasoning Lab" />;
   const m = new RegExp(`^${BASE}scenarios/([\\w-]{1,40})/?$`).exec(path);
   return <Shell current="reasoning" user={user}>{m ? <ScenarioPage id={m[1]!} back={() => go(BASE)} /> : <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />}</Shell>;
 }

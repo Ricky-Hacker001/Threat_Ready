@@ -45,6 +45,37 @@ export function BrandLink({ to = "/app", sub }: { to?: string; sub?: string }) {
   );
 }
 
+/** The last app list seen, shared with every ThreatReady app so each header is complete on first paint. */
+const APPS_KEY = "tr-platform-apps";
+export const rememberApps = (apps: AppInfo[]) => {
+  try {
+    localStorage.setItem(APPS_KEY, JSON.stringify({ at: Date.now(), apps }));
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+/**
+ * The one loading screen every ThreatReady app shows while it opens. It never mentions sign-in:
+ * a signed-out visitor is redirected to the auth page, never shown a form here.
+ */
+export function PlatformLoading({ app = "ThreatReady" }: { app?: string }) {
+  return (
+    <div className="trp tr-loading" role="status" aria-live="polite">
+      <div className="tr-loading-in">
+        <span className="tr-loading-mark">
+          <img src="/logo-sm.png" alt="" />
+          ThreatReady
+        </span>
+        <span className="tr-loading-bar" aria-hidden="true">
+          <i />
+        </span>
+        <p>Opening {app}…</p>
+      </div>
+    </div>
+  );
+}
+
 // Relative to each app's base URL, which may include a path (https://host/labs/) in a single-origin deployment.
 const APP_PATH: Record<AppKey, string> = { interview: "interview-prep", labs: "", reasoning: "" };
 

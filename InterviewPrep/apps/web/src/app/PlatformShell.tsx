@@ -19,6 +19,27 @@ const APP_PATH: Record<AppKey, string> = { interview: 'interview-prep', labs: ''
 const href = (a: App) => new URL(APP_PATH[a.key], a.url).toString();
 const BASE = import.meta.env.BASE_URL;
 
+/** The last app list seen (shared with every ThreatReady app), so the header is complete on first paint. */
+const APPS_KEY = 'tr-platform-apps';
+const cachedApps = (): App[] => { try { const v = JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); return Array.isArray(v?.apps) ? v.apps : []; } catch { return []; } };
+const rememberApps = (apps: App[]) => { try { localStorage.setItem(APPS_KEY, JSON.stringify({ at: Date.now(), apps })); } catch { /* storage unavailable */ } };
+
+/**
+ * The one loading screen every ThreatReady app shows while it opens. It never mentions sign-in:
+ * a signed-out visitor is redirected to onboard and brought back, never shown a form here.
+ */
+export function PlatformLoading({ app = 'InterviewPrep' }: { app?: string }) {
+  return (
+    <div className="trp tr-loading" role="status" aria-live="polite">
+      <div className="tr-loading-in">
+        <span className="tr-loading-mark"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady</span>
+        <span className="tr-loading-bar" aria-hidden="true"><i /></span>
+        <p>Opening {app}…</p>
+      </div>
+    </div>
+  );
+}
+
 export function ThemeToggle() {
   const [light, setLight] = useState(() => document.documentElement.getAttribute('data-theme') === 'light');
   const toggle = () => {
@@ -100,8 +121,9 @@ function AccountMenu({ user, apps }: { user: Me; apps: App[] }) {
 }
 
 export function PlatformHeader({ user }: { user: Me }) {
-  const platform = useQuery({ queryKey: ['platform'], queryFn: api.platform, staleTime: 300_000 });
+  const platform = useQuery({ queryKey: ['platform'], queryFn: api.platform, staleTime: 300_000, placeholderData: () => { const apps = cachedApps(); return apps.length ? ({ apps } as PlatformApps) : undefined; } });
   const apps = platform.data?.apps ?? [];
+  useEffect(() => { if (!platform.isPlaceholderData && apps.length) rememberApps(apps); }, [platform.isPlaceholderData, apps]);
   const title = apps.find((a) => a.key === 'interview')?.title ?? 'InterviewPrep';
   return (
     <header className="tr-nav">

@@ -5,7 +5,7 @@ import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
 import { appForUrl, clearNext, pendingNext, takeNext } from "../lib/platform";
-import { AppSwitcher, BrandLink, PlatformFooter, PlatformHeader, ThemeToggle, type ShellLocation } from "./Platform";
+import { AppSwitcher, BrandLink, PlatformFooter, PlatformHeader, PlatformLoading, rememberApps, ThemeToggle, type ShellLocation } from "./Platform";
 import { ProfileMenu } from "./ProfileMenu";
 import { Button, Notice } from "./ui";
 
@@ -43,6 +43,7 @@ export function AppShell() {
       const [m, c] = await Promise.all([api.me(), api.config()]);
       setMe(m);
       setConfig(c);
+      rememberApps(c.apps);
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -116,6 +117,9 @@ export function AppShell() {
     );
   }
 
+  // The shared loading screen until the session and config are known, and while leaving for another app.
+  if (!error && (leaving || !me || !config)) return <PlatformLoading app={leaving ?? "ThreatReady"} />;
+
   return (
     <>
       <a className="skip-link" href="#main">
@@ -144,10 +148,6 @@ export function AppShell() {
               </Button>
             </div>
           </div>
-        ) : leaving ? (
-          <p className="quota" role="status">
-            Taking you to {leaving}…
-          </p>
         ) : me && config ? (
           <Ctx.Provider value={{ me, refresh, apps: config.apps }}>
             {flash ? (
@@ -157,11 +157,7 @@ export function AppShell() {
             ) : null}
             <Outlet />
           </Ctx.Provider>
-        ) : (
-          <p className="quota" role="status">
-            Loading your workspace…
-          </p>
-        )}
+        ) : null}
       </main>
       <PlatformFooter />
     </>
@@ -170,8 +166,6 @@ export function AppShell() {
 
 export function Loading() {
   return (
-    <div className="center-screen" role="status">
-      Loading…
-    </div>
+    <PlatformLoading />
   );
 }

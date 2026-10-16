@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, newRequestId, onConnection, store, fmt, signOut, onboardLinks, BASE } from './api';
 import { Catalog, TrackPage, trackBySlug } from './catalog';
+import { PlatformLoading, platformApps } from './shell';
 import { Ctx, Modal, Badge, Tabs, Note, Field, StatusDot, useLab as useLabCtx } from './ui';
 import { IamConsole, S3Console, Ec2Console, VpcConsole } from './services1';
 import { CloudTrailConsole, CloudWatchConsole, LambdaConsole, KmsConsole, SecretsConsole, OrgConsole } from './services2';
@@ -34,11 +35,12 @@ const toHash = (r: any) => '#/' + [r.service, r.type, r.id, r.tab].map(x => enco
 export function App() {
   const [user, setUser] = useState<any>(null); const [err, setErr] = useState('');
   const [path, setPath] = useState(location.pathname);
-  const load = useCallback(() => { setErr(''); api('/me').then(setUser, (e: any) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
+  // The session and the app list together (the list capped at 1.5 s), so the header never renders half-filled.
+  const load = useCallback(() => { setErr(''); Promise.all([api('/me'), Promise.race([platformApps(), new Promise((r) => setTimeout(r, 1500))])]).then(([u]) => setUser(u), (e: any) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
   useEffect(() => { load(); const h = () => setPath(location.pathname); window.addEventListener('popstate', h); return () => window.removeEventListener('popstate', h); }, []);
   const go = (to: string) => { history.pushState(null, '', to); setPath(to); window.scrollTo(0, 0); };
-  if (err) return <div className="gate"><div className="gate-card"><h1>Cannot reach ThreatReady Labs</h1><Note tone="bad">{err}</Note><button className="btn primary" onClick={load}>Retry</button></div></div>;
-  if (!user) return <div className="gate"><div className="gate-card"><div className="spinner" aria-label="Loading" /><p className="muted">Checking your ThreatReady sign-in…</p></div></div>;
+  if (err) return <div className="trp tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
+  if (!user) return <PlatformLoading app="Lab Simulations" />;
   const open = (id: string) => go(`${BASE}${encodeURIComponent(id)}`);
   const t = new RegExp(`^${BASE}tracks/([\\w-]{1,40})/?$`).exec(path);
   if (t && trackBySlug(t[1])) return <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} />;

@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { History, LayoutDashboard, Plus } from 'lucide-react';
-import { lazy, Suspense, useEffect } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes } from 'react-router';
 import { api, ApiError, messageFor } from '../lib/api';
 import { redirectToSignIn, redirectToSignUp, useMe } from '../lib/auth';
-import { PlatformFooter, PlatformHeader } from './PlatformShell';
+import { PlatformFooter, PlatformHeader, PlatformLoading } from './PlatformShell';
 import { CardSkeleton, RouteErrorBoundary, ToastProvider } from '../ui/components';
 
 const Dashboard = lazy(() => import('../features/interview-prep/pages/DashboardPage'));
@@ -31,7 +31,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (isPending || !data) return <div className="page"><CardSkeleton /></div>;
+  if (isPending || !data) return <PlatformLoading />;
   return <>{children}</>;
 }
 
@@ -68,7 +68,12 @@ function SubNav() {
 }
 
 export function App() {
-  const { data } = useMe();
+  const { data, isPending } = useMe();
+  // The app list loads with the session check (same key as the header's query) and the loading screen waits for
+  // both, capped at 1.5 s, so the app switcher is never half-filled on first render.
+  const platform = useQuery({ queryKey: ['platform'], queryFn: api.platform, staleTime: 300_000 });
+  const [capped, setCapped] = useState(false);
+  useEffect(() => { const t = window.setTimeout(() => setCapped(true), 1500); return () => window.clearTimeout(t); }, []);
   useEffect(() => {
     // Session ended mid-use (signed out in another app, expired): sign in on onboard and return here.
     window.addEventListener('tr:auth-required', redirectToSignIn);
@@ -78,6 +83,9 @@ export function App() {
       window.removeEventListener('tr:account-required', redirectToSignUp);
     };
   }, []);
+
+  // One loading screen, shared with every ThreatReady app, until the session is known.
+  if (isPending || (platform.isPending && !capped)) return <PlatformLoading />;
 
   return (
     <ToastProvider>

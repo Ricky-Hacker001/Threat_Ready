@@ -68,9 +68,31 @@ function AccountMenu({ user, apps, current }: { user: { name: string; email?: st
   </div>;
 }
 
+/** The last app list seen, so the header is complete on first paint (refreshed from /platform after). */
+const APPS_KEY = 'tr-platform-apps';
+export const cachedApps = (): PlatformApp[] => { try { const v = JSON.parse(localStorage.getItem(APPS_KEY) || 'null'); return Array.isArray(v?.apps) ? v.apps : []; } catch { return []; } };
+export const rememberApps = (apps: PlatformApp[]) => { try { localStorage.setItem(APPS_KEY, JSON.stringify({ at: Date.now(), apps })); } catch { /* storage unavailable */ } };
+/** Fetched once, started by App alongside the session check so the header is complete when it first renders. */
+let platformFetch: Promise<PlatformApp[]> | null = null;
+export const platformApps = () => (platformFetch ??= api('/platform').then((p: any) => { const list = Array.isArray(p?.apps) ? p.apps : []; if (list.length) rememberApps(list); return list.length ? list : cachedApps(); }, () => cachedApps()));
+
+/**
+ * The one loading screen every ThreatReady app shows while it opens. It never mentions sign-in:
+ * a signed-out visitor is redirected to onboard and brought back, never shown a form here.
+ */
+export function PlatformLoading({ app }: { app: string }) {
+  return <div className="trp tr-loading" role="status" aria-live="polite">
+    <div className="tr-loading-in">
+      <span className="tr-loading-mark"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady</span>
+      <span className="tr-loading-bar" aria-hidden="true"><i /></span>
+      <p>Opening {app}…</p>
+    </div>
+  </div>;
+}
+
 export function PlatformHeader({ current, user }: { current: AppKey; user: any }) {
-  const [apps, setApps] = useState<PlatformApp[]>([]);
-  useEffect(() => { api('/platform').then((p: any) => setApps(p.apps ?? []), () => undefined); }, []);
+  const [apps, setApps] = useState<PlatformApp[]>(cachedApps);
+  useEffect(() => { let on = true; platformApps().then((list) => { if (on && list.length) setApps(list); }); return () => { on = false; }; }, []);
   const title = apps.find(a => a.key === current)?.title ?? FALLBACK_TITLE[current];
   return <header className="tr-nav"><div className="tr-wrap tr-nav-in">
     <a className="tr-brand" href={BASE} aria-label={`ThreatReady ${title} home`}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady<small>{title}</small></a>
