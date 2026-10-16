@@ -9,7 +9,8 @@
   function show(why) {
     var css = document.createElement('style');
     css.textContent = '.tr-browser-notice{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px var(--gutter,16px);background:var(--warn-soft,#fff4d6);border-bottom:1px solid var(--warn,#e0a43b);color:var(--text,#111);font:500 14px/1.45 var(--font,system-ui,sans-serif)}.tr-browser-notice p{margin:0;flex:1 1 320px}.tr-browser-notice p strong{font-weight:700}.tr-browser-notice button{font:inherit;font-weight:600;padding:6px 12px;border-radius:var(--r1,6px);border:1px solid var(--border-strong,#999);background:var(--surface,#fff);color:var(--text,#111);cursor:pointer}';
-    var box = el('div', null, 'tr-browser-notice');
+    // Carries the platform's design tokens itself (.trp), so it looks the same whatever page hosts it.
+    var box = el('div', null, 'trp tr-browser-notice');
     box.setAttribute('role', 'alert');
     var p = el('p');
     p.appendChild(el('strong', 'You’re using a browser ThreatReady doesn’t fully support. '));
