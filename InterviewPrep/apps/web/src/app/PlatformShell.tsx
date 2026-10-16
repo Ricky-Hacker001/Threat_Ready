@@ -32,9 +32,13 @@ export function PlatformLoading({ app = 'InterviewPrep' }: { app?: string }) {
   return (
     <div className="trp tr-loading" role="status" aria-live="polite">
       <div className="tr-loading-in">
-        <span className="tr-loading-mark"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady</span>
-        <span className="tr-loading-bar" aria-hidden="true"><i /></span>
-        <p>Opening {app}…</p>
+        <div className="tr-loading-radar" aria-hidden="true">
+          <span className="tr-loading-ping" />
+          <svg className="tr-loading-ring" viewBox="0 0 100 100"><circle className="tr-loading-track" cx="50" cy="50" r="46" /><circle className="tr-loading-sweep" cx="50" cy="50" r="46" /></svg>
+          <img src={`${BASE}logo-sm.png`} alt="" />
+        </div>
+        <span className="tr-loading-mark">ThreatReady</span>
+        <p className="tr-loading-line"><span className="tr-loading-prompt">›</span>opening {app}<span className="tr-loading-cursor" /></p>
       </div>
     </div>
   );
