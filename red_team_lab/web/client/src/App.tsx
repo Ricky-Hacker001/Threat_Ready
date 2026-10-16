@@ -82,7 +82,7 @@ function Authed({ user, onOut }: { user: any; onOut: () => void }) {
 
 function TopBar({ user, logout, extra }: { user: any; logout: () => void; extra?: React.ReactNode }) {
   return <div className="wl-top">
-    <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady <span className="muted" style={{ fontWeight: 400 }}>Web Pentest Lab</span></span>
+    {user.onboardUrl ? <span className="brand">Web Pentest Lab</span> : <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady <span className="muted" style={{ fontWeight: 400 }}>Web Pentest Lab</span></span>}
     <span className="simbadge">Simulation environment</span>
     {extra}
     <span className="spacer" />
@@ -173,7 +173,7 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
 
   return <div className="trp wl">
     <div className="wl-top">
-      <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady<span className="brandsub"> · Web Pentest Lab</span></span>
+      {user.onboardUrl ? <span className="brand">Web Pentest Lab</span> : <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady<span className="brandsub"> · Web Pentest Lab</span></span>}
       <span className="simbadge">Simulation</span>
       <span className="lvlpill">L{status.level}/4 · {LEVEL_NAMES[status.level - 1]}</span>
       <span className="scorepill hide-sm">{status.score.total}/{status.score.max} pts</span>

@@ -7,6 +7,8 @@ import { stamp, ErrorNote } from './components/bits.jsx';
 import { Shield } from './components/Badge.jsx';
 
 export function Brand() {
+  // Inside ThreatReady the platform strip above the page carries the mark and wordmark.
+  if (session.homeUrl) return <p className="brand"><span className="brand-product">SOC Simulation</span></p>;
   return (
     <p className="brand" aria-label="ThreatReady, by Aerovant Technologies">
       <img src={`${import.meta.env.BASE_URL}logo-sm.png`} alt="" width="26" height="25" />

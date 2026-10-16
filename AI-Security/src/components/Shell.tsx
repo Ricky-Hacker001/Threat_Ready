@@ -12,9 +12,14 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="app">
       <header className="hdr">
         <div className="container hdr-row">
-          <img className="hdr-logo" src={BRAND.logoWhite} alt="" width="26" height="25" />
-          <span className="hdr-title">{BRAND.productFamily}</span>
-          <span className="hdr-sep" />
+          {/* Inside ThreatReady the platform strip above carries the mark and wordmark. */}
+          {!user && (
+            <>
+              <img className="hdr-logo" src={BRAND.logoWhite} alt="" width="26" height="25" />
+              <span className="hdr-title">{BRAND.productFamily}</span>
+              <span className="hdr-sep" />
+            </>
+          )}
           <div>
             <div className="hdr-title">{BRAND.productName}</div>
             <div className="hdr-sub hide-sm">{BRAND.poweredByLine}</div>

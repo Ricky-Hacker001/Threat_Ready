@@ -15,7 +15,6 @@ export function Entry() {
   if (user !== null) {
     return (
       <div className="card pad-lg" style={{ maxWidth: 520, margin: "40px auto" }} role="status">
-        <img src={BRAND.logoWhite} alt="" width="26" height="25" style={{ marginBottom: 18 }} />
         <h1>{BRAND.productName}</h1>
         <p className="muted">{user ? `Opening as ${user.name}…` : "Opening…"}</p>
       </div>
