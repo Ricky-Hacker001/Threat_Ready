@@ -28,7 +28,7 @@ export function Findings({ s, onJump }: { s: LabState; onJump: (file: string, li
               <span className="chip">{r.target}</span>
               <span className="chip">{new Date(r.at).toLocaleTimeString()}</span>
               {r.rev === rev ? <span className="fresh">● current code</span> : <span className="stale">● stale — code changed since this scan, re-run to verify</span>}
-              <span style={{ marginLeft: 'auto', color: r.findings.length ? 'var(--high)' : 'var(--accent)', fontSize: 12.5 }}>{r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : 'clean ✓'}</span>
+              <span style={{ marginLeft: 'auto', color: r.findings.length ? 'var(--high)' : 'var(--ok)', fontSize: 12.5 }}>{r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : 'clean ✓'}</span>
             </div>
             {[...r.findings]
               .sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity))

@@ -1,4 +1,4 @@
-# Threatready | DevSecOps Lab
+# ThreatReady | DevSecOps Lab
 
 A hands-on DevSecOps training lab that runs entirely in the browser. No login and no backend.
 Learners work as the DevSecOps engineer at **AeroShop**, a fictional online shop. They configure

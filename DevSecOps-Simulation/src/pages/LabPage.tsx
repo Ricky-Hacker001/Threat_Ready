@@ -409,7 +409,7 @@ function GitPanel({ s, onOpen }: { s: LabState; onOpen: (p: string) => void }) {
       ) : (
         st.map((e) => (
           <div key={e.path} style={{ fontFamily: 'var(--mono)', fontSize: 12.5, cursor: 'pointer' }} onClick={() => s.files[e.path] !== undefined && onOpen(e.path)}>
-            <span style={{ color: e.staged ? 'var(--accent)' : 'var(--high)', display: 'inline-block', width: 90 }}>{e.untracked ? 'untracked' : e.staged ? `staged ${e.staged}` : `modified`}</span>
+            <span style={{ color: e.staged ? 'var(--ok)' : 'var(--high)', display: 'inline-block', width: 90 }}>{e.untracked ? 'untracked' : e.staged ? `staged ${e.staged}` : `modified`}</span>
             {e.path}
           </div>
         ))

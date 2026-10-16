@@ -44,7 +44,7 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
           <div>
             <span className="chip green">Hands-on · no theory quizzes · runs in your browser</span>
             <h1>
-              Welcome to the <span>Threatready DevSecOps Lab</span>
+              Welcome to the <span>ThreatReady DevSecOps Lab</span>
             </h1>
             <p className="lead">
               Work as the DevSecOps engineer at AeroShop, a (fictional) online shop. Configure pipelines, run security scanners, investigate findings,

@@ -9,9 +9,10 @@ import { Shield } from './components/Badge.jsx';
 export function Brand() {
   return (
     <p className="brand" aria-label="ThreatReady, by Aerovant Technologies">
-      <img src={`${import.meta.env.BASE_URL}aerovant-logo-light.png`} alt="Aerovant Technologies" height="30" />
+      <img src={`${import.meta.env.BASE_URL}logo-sm.png`} alt="" width="26" height="25" />
+      <span className="brand-name">ThreatReady</span>
       <span className="brand-sep" aria-hidden="true" />
-      <span className="brand-product">ThreatReady</span>
+      <span className="brand-product">SOC Simulation</span>
     </p>
   );
 }

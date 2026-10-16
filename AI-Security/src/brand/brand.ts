@@ -8,8 +8,8 @@
  *
  * Nothing here refers to a real company. AeroPay is invented for training.
  */
-import logoNavy from "@/assets/aerovant-logo.png";
-import logoWhite from "@/assets/aerovant-logo-white.png";
+import logoNavy from "@/assets/threatready-mark.png";
+import logoWhite from "@/assets/threatready-mark.png";
 
 export const BRAND = {
   /** The training product name (configurable). */
@@ -26,7 +26,7 @@ export const BRAND = {
   targetOrgDescriptor: "a fictional Indian fintech (training environment)",
   assistantName: "Aero",
 
-  /** Asset paths (logo already background-removed to transparent PNG). */
+  /** The ThreatReady mark (the platform's logo); the same file on dark and light. */
   logoNavy,
   logoWhite,
 

@@ -12,7 +12,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
     <div className="app">
       <header className="hdr">
         <div className="container hdr-row">
-          <img className="hdr-logo" src={BRAND.logoWhite} alt={`${BRAND.company} logo`} />
+          <img className="hdr-logo" src={BRAND.logoWhite} alt="" width="26" height="25" />
+          <span className="hdr-title">{BRAND.productFamily}</span>
           <span className="hdr-sep" />
           <div>
             <div className="hdr-title">{BRAND.productName}</div>

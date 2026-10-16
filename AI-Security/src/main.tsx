@@ -4,6 +4,8 @@ import { AppProvider } from "@/state/store";
 import App from "@/App";
 import { setProgressNamespace } from "@/engine/progress";
 import { platformUser } from "@/platform";
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "@/styles/theme.css";
 
 // Inside ThreatReady, progress is kept per signed-in account; the namespace must be known before
