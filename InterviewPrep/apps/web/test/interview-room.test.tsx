@@ -67,7 +67,13 @@ describe('interview room', () => {
     expect(screen.getByText('Text-only mode')).toBeInTheDocument();
     expect(screen.getAllByText('Listening').length).toBeGreaterThan(0);
     expect(screen.getByRole('timer')).toHaveTextContent('29:00');
-    expect(screen.getByLabelText('Progress')).toHaveTextContent('1 / 8');
+    // The current question only: the planned total is never shown to the candidate.
+    const progress = screen.getByLabelText('Progress');
+    expect(progress.querySelector('strong')).toHaveTextContent(/^1$/);
+    expect(progress).toHaveTextContent('Question');
+    expect(progress).toHaveTextContent('0 answered');
+    expect(progress).not.toHaveTextContent('/');
+    expect(progress).not.toHaveTextContent('8');
     expect(screen.getByLabelText('Your answer')).toBeEnabled();
   });
 

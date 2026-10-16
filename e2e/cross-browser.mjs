@@ -4,6 +4,7 @@
 //
 //   E2E_USER=asha.rao E2E_PASSWORD=… node cross-browser.mjs            # all installed browsers
 //   E2E_BROWSERS=firefox node cross-browser.mjs                         # one browser
+//   E2E_BROWSERS=chromium E2E_BROWSER_PATH=/usr/bin/brave-browser …      # Brave/Edge/Chrome itself
 //   E2E_BASE=… E2E_INTERVIEW=… E2E_LABS=… E2E_AR=…                    # other hosts (defaults: local dev)
 //
 // The account must exist and be verified; give it the admin role to cover the admin console.
@@ -48,7 +49,8 @@ async function noOverflow(page) {
 async function run(name, engine) {
   let browser;
   try {
-    browser = await engine.launch();
+    // E2E_BROWSER_PATH: a Chromium-based browser installed on this machine (Brave, Edge, Chrome).
+    browser = await engine.launch(name === 'chromium' && process.env.E2E_BROWSER_PATH ? { executablePath: process.env.E2E_BROWSER_PATH } : {});
   } catch (err) {
     console.log(`\n${name}: could not launch (${String(err.message).split('\n')[0]}) — skipped`);
     results.push({ browser: name, viewport: '-', name: 'launch', ok: false, detail: 'browser could not start on this host' });

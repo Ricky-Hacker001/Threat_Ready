@@ -353,7 +353,6 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
   const lowTime = remaining <= 120 && session.state === 'awaiting_answer';
   const speaking = phase === 'streaming' || phase === 'replying' || speech.speaking;
   const words = wordsIn(answer);
-  const planned = session.progress.plannedQuestions;
   const answeredCount = session.transcript.filter((t) => t.answer).length;
   const stageStatus = rec.listening && !speaking ? 'listening' : status;
   const stage = { status: stageStatus, speaking, speechLevel: speech.speaking ? speech.level : undefined, candidateTyping: typing || Boolean(rec.interim) };
@@ -374,13 +373,9 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
         </div>
         <div className="row wrap">
           <div className="progress-box" aria-label="Progress">
-            <span className="muted">Question</span>
-            <strong className="tabular">{qNumber} <span className="muted">/ {planned}</span></strong>
-            <div className="q-dots" aria-hidden>
-              {Array.from({ length: planned }, (_, i) => (
-                <i key={i} className={i + 1 < qNumber ? 'done' : i + 1 === qNumber && session.state !== 'planned' ? 'current' : ''} />
-              ))}
-            </div>
+            <span className="muted">{isFollowUp ? 'Follow-up to' : 'Question'}</span>
+            <strong className="tabular">{qNumber}</strong>
+            <span className="muted">{answeredCount} answered</span>
           </div>
           <TimerRing remaining={remaining} total={session.timing.durationSec} low={lowTime} />
           {(config?.speakQuestions || config?.voiceAnswers) && speech.supported && (
@@ -441,7 +436,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
                 <div className="stack" style={{ gap: 6, flex: 1, minWidth: 260 }}>
                   <h2>Your interview is ready</h2>
                   <p className="subtle">
-                    {planned} planned questions with follow-ups when useful, about {config?.durationMin} minutes.{' '}
+                    About {config?.durationMin} minutes. Alex's questions follow your answers, with follow-ups when useful.{' '}
                     {config?.voiceAnswers ? 'Alex will speak each question and listen for your answer; your words appear on screen so you can edit them. ' : ''}
                     The timer runs only while you are answering, and you can pause at any time.
                   </p>

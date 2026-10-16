@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isBrave } from '../hooks/useVoice';
 import type { Briefing, Difficulty, DurationMin, InterviewConfig, InterviewMode, InterviewType, SkillLevel, Track } from '@threatready/contracts';
 import {
   BadgeCheck,
@@ -58,15 +59,9 @@ const TRACKS: { id: Track; label: string }[] = [
 ];
 const LEVELS: SkillLevel[] = ['aware', 'working', 'proficient', 'expert'];
 
-/** Browser speech recognition (Chrome, Edge, Safari) is required for voice answers. */
-const voiceSupported = () => typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
-
-/** Mirrors the planner's sizing rule (apps/api planner.questionBudget) for a live preview. */
-function preview(durationMin: number, difficulty: Difficulty) {
-  const per = { beginner: 2.5, intermediate: 3, advanced: 3.5 }[difficulty];
-  const core = Math.max(2, Math.min(10, Math.round(((durationMin - 4) * 0.8) / per)));
-  return { main: core + 2, followUps: Math.max(1, Math.min(6, Math.ceil(core * 0.5))) };
-}
+/** Browser speech recognition (Chrome, Edge, Safari) is required for voice answers; Brave has none. */
+const voiceSupported = () => typeof window !== 'undefined' && !isBrave && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+const voiceHint = () => (voiceSupported() ? 'Alex speaks; you answer out loud, like a real interview' : isBrave ? 'Brave blocks speech recognition. For voice answers use Chrome, Edge or Safari' : 'Speaking answers isn’t supported in this browser (try Chrome, Edge or Safari)');
 
 export function ConfigureView({ sessionId }: { sessionId: string }) {
   const qc = useQueryClient();
@@ -89,7 +84,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
     mutationFn: () => api.plan(sessionId, { config: config!, corrections: { removeCandidateSkills: removeC, removeRequiredSkills: removeJ, candidateSkillLevels: levels } }),
     onSuccess: (s) => {
       qc.setQueryData(['session', sessionId], s);
-      toast({ tone: 'ok', title: 'Your interview is ready', body: `${s.progress.plannedQuestions} personalised questions planned.` });
+      toast({ tone: 'ok', title: 'Your interview is ready', body: 'Alex has prepared questions from your resume and the role.' });
     },
   });
   const cancel = useMutation({ mutationFn: () => api.cancel(sessionId), onSuccess: (s) => qc.setQueryData(['session', sessionId], s) });
@@ -100,7 +95,6 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
   const rec = b.recommendation;
   const set = <K extends keyof InterviewConfig>(k: K, v: InterviewConfig[K]) => setConfig({ ...config, [k]: v });
   const isRecommended = config.interviewType === rec.interviewType && config.difficulty === rec.difficulty && config.durationMin === rec.durationMin && config.track === rec.track;
-  const est = preview(config.durationMin, config.difficulty);
   const typeMeta = TYPES.find((t) => t.id === config.interviewType)!;
 
   return (
@@ -207,7 +201,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
           <div className="field" role="radiogroup" aria-label="Interview style">
             <span>Interview style</span>
             <div className="choices cols-3">
-              <Choice icon={Mic} checked={config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: true })} title="Voice" hint={voiceSupported() ? 'Alex speaks; you answer out loud, like a real interview' : 'Speaking answers isn’t supported in this browser (try Chrome, Edge or Safari)'} recommended={voiceSupported()} disabled={!voiceSupported()} compact />
+              <Choice icon={Mic} checked={config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: true })} title="Voice" hint={voiceHint()} recommended={voiceSupported()} disabled={!voiceSupported()} compact />
               <Choice icon={Volume2} checked={config.speakQuestions && !config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: true, voiceAnswers: false })} title="Spoken questions" hint="Alex speaks; you type" compact />
               <Choice icon={Keyboard} checked={!config.speakQuestions && !config.voiceAnswers} onClick={() => setConfig({ ...config, speakQuestions: false, voiceAnswers: false })} title="Text only" hint="Read and type, no audio" compact />
             </div>
@@ -228,9 +222,8 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
             </div>
           </div>
           <div className="summary-stats">
-            <div><strong className="tabular">{est.main}</strong><span>questions</span></div>
-            <div><strong className="tabular">≤{est.followUps}</strong><span>follow-ups</span></div>
             <div><strong className="tabular">{config.durationMin}</strong><span>minutes</span></div>
+            <div><strong>Adaptive</strong><span>questions follow your answers</span></div>
           </div>
           <ul className="summary-list">
             <li><Briefcase className="icon sm" aria-hidden /> {b.jobProfile.title}</li>

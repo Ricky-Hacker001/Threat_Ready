@@ -7,6 +7,15 @@ import { speechBus } from '../avatar/speechBus';
  * candidate's speech into the same text answer the API already accepts (ADD L14 voice note).
  */
 
+/**
+ * Brave ships `webkitSpeechRecognition` but no speech backend (it strips the Google service), so
+ * recognition always ends in a network error there. Treat it as unsupported up front.
+ */
+export const isBrave = typeof navigator !== 'undefined' && 'brave' in navigator;
+
+/** How long Alex may stay silent after speak() before the room carries on without audio. */
+const SPEAK_START_TIMEOUT_MS = 3000;
+
 // ---------- Speech synthesis (Alex speaking) ----------
 
 /** Prefer natural, neural voices and a male voice to match the avatar; fall back to any English voice. */
@@ -58,11 +67,25 @@ export function useSpeech(enabled: boolean) {
       const my = ++token.current;
       const parts = sentences(text);
       setSpeaking(true);
+      // Some browsers accept the utterance and never start it (no voices installed, synthesis
+      // disabled). Carry on as if Alex had finished, so the mic still opens and nothing waits forever.
+      let started = false;
+      const giveUp = () => {
+        if (token.current !== my) return;
+        token.current++;
+        window.speechSynthesis.cancel();
+        speechBus.emit(null);
+        setSpeaking(false);
+        setLevel(0);
+        onEnd?.();
+      };
+      const watchdog = window.setTimeout(() => { if (!started) giveUp(); }, SPEAK_START_TIMEOUT_MS);
       parts.forEach((part, i) => {
         const u = new SpeechSynthesisUtterance(part);
         if (voice.current) u.voice = voice.current;
         u.rate = 1.02;
         u.pitch = 0.95;
+        if (i === 0) u.onstart = () => { started = true; window.clearTimeout(watchdog); };
         u.onboundary = (e) => {
           // word starts drive the avatar's lip sync
           if (e.name === 'word' || e.name === undefined) {
@@ -83,10 +106,10 @@ export function useSpeech(enabled: boolean) {
             onEnd?.();
           };
         }
-        u.onerror = () => {
-          if (token.current !== my) return;
-          setSpeaking(false);
-          setLevel(0);
+        u.onerror = (e) => {
+          if (token.current !== my || e.error === 'interrupted' || e.error === 'canceled') return;
+          window.clearTimeout(watchdog);
+          giveUp();
         };
         window.speechSynthesis.speak(u);
       });
@@ -195,7 +218,7 @@ function saveVoicePrefs(p: VoicePrefs) {
  */
 export function useSpeechRecognition(opts: { phrases?: string[] } = {}) {
   const Impl = RecognitionImpl();
-  const supported = Boolean(Impl);
+  const supported = Boolean(Impl) && !isBrave;
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [error, setError] = useState<RecognitionError | null>(null);
