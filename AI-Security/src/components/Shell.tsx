@@ -38,11 +38,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               {state.progress.learnerName} ▾
             </button>
           ))}
-          {user && (
-            <a className="btn sm ghost" href={user.catalogUrl}>
-              All labs
-            </a>
-          )}
+
           {state.view !== "entry" && state.view !== "mission" && (
             <button className="btn sm ghost" onClick={() => dispatch({ t: "mission" })}>
               Exit to Mission Control

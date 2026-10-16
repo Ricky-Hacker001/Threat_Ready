@@ -50,6 +50,11 @@ export function App() {
 }
 
 function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any; logout: () => void; backToCatalog: () => void }) {
+  // The ThreatReady strip (mark, Back, All labs) shared with every hosted lab console.
+  useEffect(() => {
+    const tag = document.createElement('script'); tag.src = `${BASE}lab-nav.js`; tag.defer = true; document.head.appendChild(tag);
+    return () => { tag.remove(); document.querySelector('.tr-labnav')?.remove(); document.documentElement.classList.remove('tr-has-labnav'); };
+  }, []);
   const [def, setDef] = useState<any>(null); const [snap, setSnap] = useState<any>(null); const [loadErr, setLoadErr] = useState('');
   const [route, setRoute] = useState(parseHash()); const [region, setRegion] = useState('ap-south-1');
   const [busy, setBusy] = useState(false); const busyRef = useRef(false);

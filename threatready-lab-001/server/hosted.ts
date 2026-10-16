@@ -25,7 +25,21 @@ export interface HostedOptions {
 
 const wantsJson = (req: express.Request) => req.method !== 'GET' || /\/api\//.test(req.originalUrl) || !(req.headers.accept ?? '').includes('text/html');
 
-/** A single-page app: real files first, otherwise index.html. Hashed assets are cached for good. */
+/** The lab's page with the ThreatReady strip (lab-nav.js: mark, Back, All labs) added, or null if not built. */
+const NAV_TAG = '<script src="/labs/lab-nav.js" defer></script>';
+export function pageWithNav(index: string): string | null {
+  if (!fs.existsSync(index)) return null;
+  const html = fs.readFileSync(index, 'utf8');
+  if (html.includes('lab-nav.js')) return html;
+  return html.includes('</head>') ? html.replace('</head>', `${NAV_TAG}</head>`) : NAV_TAG + html;
+}
+const sendPage = (res: express.Response, index: string) => {
+  const html = pageWithNav(index);
+  if (html === null) { res.status(503).type('text').send('This lab is not built yet.'); return; }
+  res.set('Cache-Control', 'no-cache').type('html').send(html);
+};
+
+/** A single-page app: real files first, otherwise index.html (with the ThreatReady strip). Hashed assets are cached for good. */
 function spa(dir: string, allowEval: boolean): Handler {
   const index = path.join(dir, 'index.html');
   const router = express.Router();
@@ -41,7 +55,7 @@ function spa(dir: string, allowEval: boolean): Handler {
     index: false,
     setHeaders: (res, file) => res.setHeader('Cache-Control', file.includes(`${path.sep}assets${path.sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache'),
   }));
-  router.get(/.*/, (_req, res) => (fs.existsSync(index) ? res.sendFile(index, { headers: { 'Cache-Control': 'no-cache' } }) : res.status(503).type('text').send('This lab is not built yet.')));
+  router.get(/.*/, (_req, res) => sendPage(res, index));
   return router;
 }
 
@@ -93,8 +107,10 @@ export function hostedLabs(labs: HostedLab[], opts: HostedOptions) {
  * The SOC simulation's Express app, signed in as the platform user. Its own name sign-in and
  * session cookie are bypassed: records belong to the ThreatReady account.
  */
-export function socHandler(socApp: Handler): Handler {
+export function socHandler(socApp: Handler, index: string): Handler {
   return (req, res, next) => {
+    // The page itself gets the ThreatReady strip; the SOC app serves everything else (API, assets).
+    if (req.method === 'GET' && !req.path.startsWith('/api') && !/\.[a-z0-9]+$/i.test(req.path) && (req.headers.accept ?? '').includes('text/html')) { sendPage(res, index); return; }
     const u = (req as any).platformUser as PlatformUser;
     req.headers.cookie = (req.headers.cookie ?? '').split(';').filter((c) => c.trim().split('=')[0] !== 'soc_session').join(';');
     (req as any).user = { uid: `tr_${u.id}`, name: u.name };
@@ -137,7 +153,7 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
     process.env.TR_HOME_URL = opts.catalogUrl;
     if (opts.socDataFile) process.env.SOC_SIM_DATA = opts.socDataFile;
     const mod = await import(pathToFileURL(soc).href);
-    labs.push({ slug: 'soc', handler: socHandler(mod.app) });
+    labs.push({ slug: 'soc', handler: socHandler(mod.app, path.join(root, 'soc', 'client', 'dist', 'index.html')) });
   }
   const red = path.join(root, 'red_team_lab', 'web');
   if (fs.existsSync(path.join(red, 'dist', 'index.html'))) {
@@ -149,7 +165,11 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
     const app = createApp(new Store(opts.redTeamDataFile ?? path.join(red, 'data', 'store.json')), path.join(red, 'dist'), {
       identity: opts.identity, appOrigin: opts.appOrigin, onboardUrl: opts.onboardUrl, devLogin: false,
     });
-    labs.push({ slug: 'redteam', handler: (req, res, next) => app(req, res, next) });
+    const redIndex = path.join(red, 'dist', 'index.html');
+    labs.push({ slug: 'redteam', handler: (req, res, next) => {
+      if (req.method === 'GET' && !req.path.startsWith('/api') && !/\.[a-z0-9]+$/i.test(req.path) && (req.headers.accept ?? '').includes('text/html')) { sendPage(res, redIndex); return; }
+      app(req, res, next);
+    } });
   }
   return labs;
 }

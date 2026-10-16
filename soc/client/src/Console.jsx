@@ -29,8 +29,8 @@ export function NameChip() {
     <p className="name-chip" data-tour="home-analyst">
       <span className="muted">Signed in as</span> <strong>{me.name}</strong>
       {session.homeUrl
-        // Inside ThreatReady the platform owns sign-in; go back to the lab catalog instead.
-        ? <a className="link signout" href={session.homeUrl}>All labs</a>
+        // Inside ThreatReady the platform owns sign-in, and its strip above the page links to the catalog.
+        ? null
         : <button type="button" className="link signout" onClick={signOut} title="Signing out ends this session. Your records stay only until the daily reset and cannot be reopened under a new sign-in.">Sign out</button>}
     </p>
   );

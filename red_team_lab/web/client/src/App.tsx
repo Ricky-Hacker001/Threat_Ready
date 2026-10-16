@@ -9,7 +9,7 @@ type User = { id: string; name: string; onboardUrl?: string | null } | null;
 // is one level up from this app's base (/labs/redteam/ → /labs/).
 const LABS_HOME = BASE.replace(/[^/]+\/$/, '');
 const platformSignOut = (onboardUrl: string) => location.assign(`${onboardUrl}/signout?next=${encodeURIComponent(location.origin + LABS_HOME)}`);
-const AllLabs = ({ user }: { user: any }) => (user.onboardUrl ? <a className="wl-btn sm" href={LABS_HOME}>All labs</a> : null);
+// The ThreatReady strip above the page links to the catalog; nothing in-app duplicates it.
 type Snap = { session: any; view: any; status: any } | null;
 
 export function App() { return <ToastHost><Root /></ToastHost>; }
@@ -87,7 +87,6 @@ function TopBar({ user, logout, extra }: { user: any; logout: () => void; extra?
     {extra}
     <span className="spacer" />
     <span className="muted small">{user.name}</span>
-    <AllLabs user={user} />
     <button className="wl-btn sm" onClick={logout}>Sign out</button>
   </div>;
 }
@@ -187,7 +186,6 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
       <button className="wl-btn sm hide-sm" onClick={() => setShowBrief(true)}>Brief</button>
       <button className="wl-btn sm hide-sm" onClick={() => setConfirmReset(true)}>Reset</button>
       <span className="muted small hide-sm">{user.name}</span>
-      <AllLabs user={user} />
       <button className="wl-btn sm" onClick={logout}>Sign out</button>
     </div>
 
