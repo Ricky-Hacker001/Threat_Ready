@@ -200,7 +200,7 @@ async function run(name, engine) {
       await page.locator('.top').waitFor({ timeout: 20000 }); // the AWS-style console (kept as is by design)
     });
 
-    await c('Lab Simulations: SOC, DevSecOps, Firewall and Red Team labs open signed in', async () => {
+    await c('Lab Simulations: SOC, DevSecOps, Firewall, AI Security and Red Team labs open signed in', async () => {
       // DevSecOps and SOC sit on the main Labs page; the others inside their track.
       const open = async (slug, lab) => {
         await page.goto(slug ? `${LABS}tracks/${slug}` : LABS);
@@ -214,6 +214,8 @@ async function run(name, engine) {
       await page.waitForFunction(() => document.title.includes('DevSecOps') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
       await open('network-security', 'ThreatReady Firewall');
       await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
+      await open(null, 'AI Security Lab');
+      await page.waitForFunction(() => document.title.includes('AI Security') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
       await open('red-team', 'AeroCart');
       await page.getByRole('link', { name: 'All labs' }).first().waitFor({ timeout: 20000 });
     });

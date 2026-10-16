@@ -7,7 +7,7 @@ The whole platform runs as **one free Render web service** at one URL:
 | `/` | onboard: sign-in, home, profile, admin console |
 | `/interview-prep/` | InterviewPrep |
 | `/labs/` | Lab Simulations: tracks, and the AWS lab at `/labs/TR-CLOUD-001` |
-| `/labs/soc/`, `/labs/devsecops/`, `/labs/threatwall/`, `/labs/redteam/` | SOC simulation, DevSecOps lab, ThreatReady Firewall, Red Team web pentest lab (built from `soc/`, `DevSecOps-Simulation/`, `ThreatWall/`, `red_team_lab/web/`; same sign-in) |
+| `/labs/soc/`, `/labs/devsecops/`, `/labs/threatwall/`, `/labs/redteam/`, `/labs/aisec/` | SOC simulation, DevSecOps lab, ThreatReady Firewall, Red Team web pentest lab, AI Security Lab (built from `soc/`, `DevSecOps-Simulation/`, `ThreatWall/`, `red_team_lab/web/`, `AI-Security/`; same sign-in) |
 | `/ar/` | Attack Reasoning Lab |
 
 One URL means one session cookie, so signing in once works in every app. (`onrender.com` is on the

@@ -14,10 +14,11 @@ echo "==> InterviewPrep"
 echo "==> Lab Simulations"
 (cd threatready-lab-001 && npm ci --no-audit --no-fund && npm run build)
 
-echo "==> hosted labs (SOC simulation, DevSecOps lab, ThreatReady Firewall, Red Team web pentest), served under /labs/<slug>/"
+echo "==> hosted labs (SOC simulation, DevSecOps lab, ThreatReady Firewall, Red Team web pentest, AI Security), served under /labs/<slug>/"
 (cd soc && npm ci --no-audit --no-fund && npm run build -- --base /labs/soc/)
 (cd DevSecOps-Simulation && npm ci --no-audit --no-fund && npm run build -- --base /labs/devsecops/)
 (cd ThreatWall && npm ci --no-audit --no-fund && npm run build -- --base /labs/threatwall/)
+(cd AI-Security && npm ci --no-audit --no-fund && npm run build -- --base /labs/aisec/)
 (cd red_team_lab/web && npm ci --no-audit --no-fund && npm run build -- --base /labs/redteam/)
 
 echo "==> Attack Reasoning Lab"

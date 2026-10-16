@@ -107,7 +107,7 @@ export function socHandler(socApp: Handler): Handler {
 
 /**
  * The hosted labs found next to this app in the ThreatReady checkout (root = the folder holding
- * soc/, DevSecOps-Simulation/, ThreatWall/ and red_team_lab/). A lab that isn't built is left out (shown as coming soon).
+ * soc/, DevSecOps-Simulation/, ThreatWall/, AI-Security/ and red_team_lab/). A lab that isn't built is left out (shown as coming soon).
  */
 export interface HostedLoadOptions {
   catalogUrl: string;
@@ -127,6 +127,8 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
   if (fs.existsSync(path.join(devsecops, 'index.html'))) labs.push({ slug: 'devsecops', dir: devsecops, allowEval: true });
   const threatwall = path.join(root, 'ThreatWall', 'dist');
   if (fs.existsSync(path.join(threatwall, 'index.html'))) labs.push({ slug: 'threatwall', dir: threatwall });
+  const aisec = path.join(root, 'AI-Security', 'dist');
+  if (fs.existsSync(path.join(aisec, 'index.html'))) labs.push({ slug: 'aisec', dir: aisec });
   const soc = path.join(root, 'soc', 'server', 'index.js');
   if (fs.existsSync(soc) && fs.existsSync(path.join(root, 'soc', 'client', 'dist', 'index.html'))) {
     // Read once when the module loads: mounted here (no listener of its own), records kept, a link back.

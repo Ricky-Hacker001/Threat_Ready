@@ -20,9 +20,9 @@
     setTimeout(function () { location.href = url.href; }, 170);
   }, true);
   // The browser's own cross-fade only makes sense between pages that opt in (the platform apps). A hosted
-  // lab console (SOC, DevSecOps, Firewall, Red Team) is its own app, so the transition is skipped there;
+  // lab console (SOC, DevSecOps, Firewall, Red Team, AI Security) is its own app, so the transition is skipped there;
   // without this Chrome reports "ViewTransition opt-in disabled" on the page being left.
-  var standalone = /^\/labs\/(soc|devsecops|threatwall|redteam)(\/|$)/;
+  var standalone = /^\/labs\/(soc|devsecops|threatwall|redteam|aisec)(\/|$)/;
   window.addEventListener('pageswap', function (e) {
     if (!e.viewTransition) return;
     var to = e.activation && e.activation.entry && e.activation.entry.url;
