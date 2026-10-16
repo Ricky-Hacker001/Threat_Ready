@@ -10,6 +10,8 @@ import { CardSkeleton, RouteErrorBoundary, ToastProvider } from '../ui/component
 const Dashboard = lazy(() => import('../features/interview-prep/pages/DashboardPage'));
 const CreateInterview = lazy(() => import('../features/interview-prep/pages/CreateInterviewPage'));
 const SessionPage = lazy(() => import('../features/interview-prep/pages/SessionPage'));
+// Development only: photographs the 3D interviewer for the 2D photo fallback (see avatar/CapturePage.tsx).
+const CapturePage = import.meta.env.DEV ? lazy(() => import('../features/interview-prep/avatar/CapturePage')) : null;
 const ReportPage = lazy(() => import('../features/interview-prep/pages/ReportPage'));
 const HistoryPage = lazy(() => import('../features/interview-prep/pages/HistoryPage'));
 
@@ -104,6 +106,7 @@ export function App() {
                   <Route path="/interview-prep/history" element={<RequireAuth><HistoryPage /></RequireAuth>} />
                   <Route path="/interview-prep/sessions/:id" element={<RequireAuth><SessionPage /></RequireAuth>} />
                   <Route path="/interview-prep/sessions/:id/report" element={<RequireAuth><ReportPage /></RequireAuth>} />
+                  {CapturePage && <Route path="/interview-prep/__capture" element={<CapturePage />} />}
                   <Route path="*" element={<Navigate to="/interview-prep" replace />} />
                 </Routes>
               </Suspense>

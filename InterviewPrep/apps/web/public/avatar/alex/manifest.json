@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "width": 600,
+  "height": 800,
+  "yaws": 3,
+  "mouths": 5,
+  "blinks": 2,
+  "smile": true
+}

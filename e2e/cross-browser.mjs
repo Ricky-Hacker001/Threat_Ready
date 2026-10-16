@@ -165,15 +165,19 @@ async function run(name, engine) {
       await page.addInitScript(() => sessionStorage.setItem('tr-ivw-model-unavailable', '1'));
       await page.goto(INTERVIEW);
       // The dashboard shows the interviewer as decoration (aria-hidden), so select the element itself.
-      await page.locator('svg.ivw-portrait').first().waitFor({ timeout: 20000 });
+      // Photographs of Alex when deployed (canvas), the illustrated portrait otherwise (SVG).
+      await page.locator('canvas.ivw-photo, svg.ivw-portrait').first().waitFor({ timeout: 20000 });
       if (await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)) return 'reduced motion: static';
-      const sample = () => page.evaluate(() => ['.ivw-p-head', '.ivw-p-lids', '.ivw-p-lips'].map((s) => {
-        const el = document.querySelector(s);
-        return `${el?.style.transform ?? ''}${el?.getAttribute('d') ?? ''}`;
-      }).join('|'));
+      const kind = await page.evaluate(() => (document.querySelector('canvas.ivw-photo') ? 'photo' : 'portrait'));
+      const sample = () => page.evaluate(() => {
+        const photo = document.querySelector('canvas.ivw-photo');
+        if (photo) return photo.style.transform + '|' + photo.getContext('2d')?.getImageData(300, 380, 1, 1).data.join(',');
+        return ['.ivw-p-head', '.ivw-p-lids', '.ivw-p-lips'].map((s) => { const el = document.querySelector(s); return `${el?.style.transform ?? ''}${el?.getAttribute('d') ?? ''}`; }).join('|');
+      });
       const seen = new Set([await sample()]);
       for (let i = 0; i < 6 && seen.size < 2; i++) { await page.waitForTimeout(300); seen.add(await sample()); }
       assert(seen.size > 1, 'no motion in the 2D interviewer');
+      return kind;
     });
 
     await c('InterviewPrep: new-interview flow opens', async () => {

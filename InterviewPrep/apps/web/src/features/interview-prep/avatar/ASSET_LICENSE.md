@@ -52,6 +52,16 @@ The result is about 4.6 MB.
 What this model does not have: blendshape visemes. The mouth opens with the jaw while Alex speaks,
 but phoneme lip sync needs a model with visemes; Rocketbox has them.
 
+## The 2D photographs (`apps/web/public/avatar/alex/`)
+
+When the 3D model cannot load (a server without the GLB, a browser without WebGL), the interviewer
+is shown as **photographs of the same model**: 31 transparent WebP stills (three head angles × five
+mouth openings × eyes open/closed, plus a smile) that `InterviewerPhoto.tsx` animates with lip
+sync, blinks and head turns. They are made by `e2e/capture-alex.mjs` from the dev-only
+`/interview-prep/__capture` page. They are **renders** (2D images produced by the real-time
+rendering §4.1b allows), not the 3D data; no mesh, rig or texture can be recovered from them, so
+§4.2b/§4.3b are not engaged. They are ordinary public files and may be cached.
+
 ## Alternatives
 
 - **Microsoft Rocketbox Business_Male_01** (MIT): less photoreal, but with 15 visemes for lip sync
