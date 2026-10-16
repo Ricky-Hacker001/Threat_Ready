@@ -201,15 +201,16 @@ async function run(name, engine) {
     });
 
     await c('Lab Simulations: SOC, DevSecOps, Firewall and Red Team labs open signed in', async () => {
+      // DevSecOps and SOC sit on the main Labs page; the others inside their track.
       const open = async (slug, lab) => {
-        await page.goto(`${LABS}tracks/${slug}`);
+        await page.goto(slug ? `${LABS}tracks/${slug}` : LABS);
         await page.locator('.tr-card', { hasText: lab }).getByRole('link', { name: 'Open lab' }).click();
         await page.waitForLoadState('load');
       };
-      await open('blue-team', 'SOC Simulation');
+      await open(null, 'SOC Simulation');
       // Signed in with the ThreatReady account (no name sign-in), with a way back to the catalog.
       await page.locator('.name-chip').getByRole('link', { name: 'All labs' }).waitFor({ timeout: 20000 });
-      await open('cloud-security', 'DevSecOps Lab');
+      await open(null, 'DevSecOps Lab');
       await page.waitForFunction(() => document.title.includes('DevSecOps') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });
       await open('network-security', 'ThreatReady Firewall');
       await page.waitForFunction(() => document.title.includes('Firewall') && document.getElementById('root')?.childElementCount, null, { timeout: 20000 });

@@ -4,7 +4,7 @@ import { Shell } from './shell';
 
 interface Progress { runs: number; status: string; level: number; percent: number; score: number; max: number; complete: boolean; updatedAt: string }
 type TrackKey = 'cloud' | 'blue' | 'red' | 'network';
-interface Entry { id: string; title: string; subtitle: string; track: TrackKey; difficulty: string; minutes?: number; scope?: string; release: string; href?: string; available: boolean; progress: Progress | null }
+interface Entry { id: string; title: string; subtitle: string; track: TrackKey; difficulty: string; minutes?: number; scope?: string; release: string; href?: string; home?: boolean; available: boolean; progress: Progress | null }
 
 /** The four tracks, in catalog order. `slug` is the URL: /labs/tracks/<slug>. */
 export const TRACKS: { key: TrackKey; slug: string; title: string; blurb: string; icon: string }[] = [
@@ -57,7 +57,7 @@ const Status = ({ err, labs, load }: { err: string; labs: Entry[] | null; load: 
 </>;
 
 /** /labs/: the four tracks, each with its labs and this learner's progress. */
-export function Catalog({ user, go }: { user: any; go: (to: string) => void }) {
+export function Catalog({ user, go, open }: { user: any; go: (to: string) => void; open: (id: string) => void }) {
   const { labs, err, load } = useLabs();
   const live = labs?.filter(l => l.available) ?? [];
   const inProgress = live.filter(l => l.progress && !l.progress.complete).length;
@@ -74,15 +74,16 @@ export function Catalog({ user, go }: { user: any; go: (to: string) => void }) {
     </div></section>
     <div className="tr-wrap tr-section">
       <Status err={err} labs={labs} load={load} />
+      {labs && labs.some(l => l.home) && <><h2 className="tr-section-title">Labs</h2><ul className="tr-grid">{labs.filter(l => l.home).map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
       {labs && <><h2 className="tr-section-title">Choose a track</h2><ul className="tr-grid lab-tracks">
         {TRACKS.map((t) => {
-          const mine = labs.filter(l => l.track === t.key); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
+          const mine = labs.filter(l => l.track === t.key && !l.home); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
           const href = `${BASE}tracks/${t.slug}`;
           return <li key={t.key} className="tr-card lab-track">
             <div className="tr-card-top"><span className="lab-track-icon"><TrackIcon d={t.icon} /></span>{n ? <span className="tr-tag tr-tag-live">{n} live</span> : <span className="tr-tag tr-tag-soon">Coming soon</span>}</div>
             <h3 className="tr-h3"><a className="lab-card-link" href={href} onClick={(e) => { e.preventDefault(); go(href); }}>{t.title}</a></h3>
             <p>{t.blurb}</p>
-            <ul className="lab-track-list">{mine.map(l => <li key={l.id}><span>{l.title}</span>{!l.available && <span className="tr-small tr-muted">{l.release}</span>}</li>)}</ul>
+            <ul className="lab-track-list">{mine.length ? mine.map(l => <li key={l.id}><span>{l.title}</span>{!l.available && <span className="tr-small tr-muted">{l.release}</span>}</li>) : <li className="tr-muted">Labs for this track are being prepared.</li>}</ul>
             <div className="tr-card-foot"><span className="tr-small tr-muted">{n} available{soon ? ` · ${soon} coming soon` : ''}</span><span className="tr-small lab-track-go" aria-hidden="true">View labs →</span></div>
           </li>;
         })}
@@ -95,7 +96,7 @@ export function Catalog({ user, go }: { user: any; go: (to: string) => void }) {
 export function TrackPage({ user, slug, go, open }: { user: any; slug: string; go: (to: string) => void; open: (id: string) => void }) {
   const { labs, err, load } = useLabs();
   const t = trackBySlug(slug)!;
-  const mine = labs?.filter(l => l.track === t.key) ?? [];
+  const mine = labs?.filter(l => l.track === t.key && !l.home) ?? [];
   const live = mine.filter(l => l.available); const soon = mine.filter(l => !l.available);
   useEffect(() => { document.title = `${t.title} · Lab Simulations · ThreatReady`; return () => { document.title = 'Lab Simulations · ThreatReady'; }; }, [t.title]);
   return <Shell current="labs" user={user}>

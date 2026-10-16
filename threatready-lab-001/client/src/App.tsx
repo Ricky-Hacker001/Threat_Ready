@@ -46,7 +46,7 @@ export function App() {
   if (t && trackBySlug(t[1])) return <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} />;
   const m = new RegExp(`^${BASE}([\\w-]{1,40})/?$`).exec(path);
   if (m && m[1] !== 'tracks') return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
-  return <Catalog user={user} go={go} />;
+  return <Catalog user={user} go={go} open={open} />;
 }
 
 function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any; logout: () => void; backToCatalog: () => void }) {

@@ -12,12 +12,14 @@ export interface CatalogEntry {
   release: string;
   /** Relative to /labs/: a lab that is its own app. */
   href?: string;
+  /** Listed on the main Labs page itself rather than inside its track. */
+  home?: boolean;
 }
 
 export const CATALOG: CatalogEntry[] = [
   { id: 'TR-CLOUD-001', title: 'The Compromised Startup', subtitle: 'Investigate, contain and secure a vulnerable AWS environment while an intruder is active.', track: 'cloud', difficulty: 'Intermediate', minutes: 120, release: 'V1.0' },
-  { id: 'TR-DEVSECOPS-001', title: 'DevSecOps Lab', subtitle: 'Run secrets, SAST, dependency, container and IaC scanners on a real-looking repo, fix what they find and ship through a gated pipeline.', track: 'cloud', difficulty: 'Guided to Expert', scope: '8 labs', release: 'V1.0', href: 'devsecops/' },
-  { id: 'TR-SOC-001', title: 'SOC Simulation', subtitle: 'Watch a live log stream, pick up an alert and work the ticket from L1 triage through L3 response to closure.', track: 'blue', difficulty: 'Foundation to Expert', scope: '36 scenarios', release: 'V1.0', href: 'soc/' },
+  { id: 'TR-DEVSECOPS-001', title: 'DevSecOps Lab', subtitle: 'Run secrets, SAST, dependency, container and IaC scanners on a real-looking repo, fix what they find and ship through a gated pipeline.', track: 'cloud', difficulty: 'Guided to Expert', scope: '8 labs', release: 'V1.0', href: 'devsecops/', home: true },
+  { id: 'TR-SOC-001', title: 'SOC Simulation', subtitle: 'Watch a live log stream, pick up an alert and work the ticket from L1 triage through L3 response to closure.', track: 'blue', difficulty: 'Foundation to Expert', scope: '36 scenarios', release: 'V1.0', href: 'soc/', home: true },
   { id: 'TR-NET-001', title: 'ThreatReady Firewall', subtitle: 'Administer a training firewall from first cable to incident containment: zones, NAT, VPN, IPS and high availability.', track: 'network', difficulty: 'Fresher to Expert', scope: '30 tasks', release: 'V1.0', href: 'threatwall/' },
   { id: 'TR-NET-002', title: 'Flat Network', subtitle: 'Map an exposed network, spot the lateral-movement paths and segment it.', track: 'network', difficulty: 'Intermediate', minutes: 90, release: 'V1.2' },
   { id: 'TR-RED-001', title: 'The Breach Files: AeroCart', subtitle: 'Run an authorised web pentest against a vulnerable shop: recon, exploit, remediate, verify and report, with a browser, proxy, repeater and terminal.', track: 'red', difficulty: 'Beginner to Advanced', minutes: 150, release: 'V1.0', href: 'redteam/' },

@@ -7,8 +7,8 @@ One sign-in, separate apps. Each app keeps its own overview, management, reports
 | `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
 | `interviewprep.threatready.io` | `InterviewPrep/` | AI mock interviews: its own dashboard, history and reports |
 | `labs.threatready.io` | `threatready-lab-001/` | Lab **catalog** at `/labs/`, grouped into four tracks (Cloud Security, Blue Team, Red Team, Network Security); each track lists its labs at `/labs/tracks/<track>`. `TR-CLOUD-001` runs in this app at `/labs/TR-CLOUD-001`; the labs below are their own apps, served by this one behind the platform sign-in |
-| `labs.threatready.io/labs/soc/` | `soc/` | **Blue Team**: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
-| `labs.threatready.io/labs/devsecops/` | `DevSecOps-Simulation/` | **Cloud Security**: DevSecOps lab (scanners, fixes and a gated pipeline), runs in the browser |
+| `labs.threatready.io/labs/soc/` | `soc/` | On the main Labs page: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
+| `labs.threatready.io/labs/devsecops/` | `DevSecOps-Simulation/` | On the main Labs page: DevSecOps lab (scanners, fixes and a gated pipeline), runs in the browser |
 | `labs.threatready.io/labs/threatwall/` | `ThreatWall/` | **Network Security**: ThreatReady Firewall, firewall administration from first cable to incident containment, runs in the browser |
 | `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: AeroCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
 | `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning **scenario list** at `/`, each scenario's own page at `/scenarios/<id>`. Behind sign-in; the scenarios are "coming soon" until the reasoning engine ships (V1.0) |
