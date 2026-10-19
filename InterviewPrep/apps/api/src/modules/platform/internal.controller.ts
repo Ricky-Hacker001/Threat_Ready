@@ -9,6 +9,14 @@ import { Public } from '../../platform/http/route.decorator.js';
 import { PlatformService } from './platform.service.js';
 
 const DAY = 86_400_000;
+
+/** Constant-time check of `Authorization: Bearer <INTERNAL_API_TOKEN>`; shared by every internal controller. */
+export function assertInternalCaller(req: Request, token: string): void {
+  const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
+  const a = createHash('sha256').update(m?.[1] ?? '').digest();
+  const b = createHash('sha256').update(token).digest();
+  if (!m || !timingSafeEqual(a, b)) throw new DomainError('AUTH_REQUIRED');
+}
 const UsageQuery = z.object({
   from: z.iso.datetime({ offset: true }),
   to: z.iso.datetime({ offset: true }),
@@ -28,10 +36,7 @@ export class InternalController {
   ) {}
 
   private assertCaller(req: Request): void {
-    const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
-    const a = createHash('sha256').update(m?.[1] ?? '').digest();
-    const b = createHash('sha256').update(this.cfg.INTERNAL_API_TOKEN).digest();
-    if (!m || !timingSafeEqual(a, b)) throw new DomainError('AUTH_REQUIRED');
+    assertInternalCaller(req, this.cfg.INTERNAL_API_TOKEN);
   }
 
   @Get('users/:userId/summary')
@@ -51,6 +56,6 @@ export class InternalController {
     const from = new Date(q.data.from);
     const to = new Date(q.data.to);
     if (from >= to || to.getTime() - from.getTime() > 400 * DAY) throw new DomainError('VALIDATION_FAILED', { message: 'Invalid range' });
-    return this.platform.aiUsage(from, to, q.data.userId ?? null);
+    return this.platform.aiUsage(from, to, q.data.userId ?? null, 'interview');
   }
 }

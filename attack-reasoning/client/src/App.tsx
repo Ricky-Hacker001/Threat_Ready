@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, BASE } from './api';
 import { Shell, PlatformLoading, platformApps } from './shell';
+import { AttemptPage, DomainPage, DomainsPage, HistoryPage } from './reasoning/pages';
 import './app.css';
 
 interface Technique { id: string; name: string }
@@ -8,8 +9,10 @@ interface Scenario { id: string; title: string; track: string; summary: string; 
 interface Catalog { levels: { level: string; minutes: string; hints: string }[]; dimensions: { code: string; name: string }[]; scenarios: Scenario[] }
 
 /**
- * Attack Reasoning Lab, served under /ar/. `/ar/` lists the scenarios; `/ar/scenarios/<id>` is one scenario's
- * dedicated page. Sign-in happens on onboard.threatready.io (401 → there and back).
+ * Attack Reasoning Lab, served under /ar/. `/ar/` lists the domains; `/ar/domains/<key>` is a domain's entry
+ * point, `/ar/attempts/<id>` one assessment (scenario, diagram, decision, reasoning, result), `/ar/history`
+ * the learner's attempts and analytics. `/ar/scenarios/<id>` keeps the hand-authored scenario briefs.
+ * Sign-in happens on onboard.threatready.io (401 → there and back).
  */
 export function App() {
   const [user, setUser] = useState<any>(null); const [err, setErr] = useState('');
@@ -21,8 +24,20 @@ export function App() {
 
   if (err) return <div className="tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
   if (!user) return <PlatformLoading app="Attack Reasoning Lab" />;
-  const m = new RegExp(`^${BASE}scenarios/([\\w-]{1,40})/?$`).exec(path);
-  return <Shell current="reasoning" user={user}>{m ? <ScenarioPage id={m[1]!} back={() => go(BASE)} /> : <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />}</Shell>;
+  const route = (re: string) => new RegExp(`^${BASE}${re}/?$`).exec(path);
+  const scenario = route('scenarios/([\\w-]{1,40})');
+  const domain = route('domains/([a-z0-9-]{1,40})');
+  const attempt = route('attempts/([0-9a-f-]{36})');
+  const historyRoute = route('history');
+  const legacy = route('scenarios');
+  return <Shell current="reasoning" user={user}>
+    {scenario ? <ScenarioPage id={scenario[1]!} back={() => go(`${BASE}scenarios`)} />
+      : legacy ? <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />
+      : domain ? <DomainPage slug={domain[1]!} go={go} />
+      : attempt ? <AttemptPage id={attempt[1]!} go={go} />
+      : historyRoute ? <HistoryPage go={go} />
+      : <DomainsPage go={go} />}
+  </Shell>;
 }
 
 function Techniques({ list }: { list: Technique[] }) {
@@ -45,7 +60,7 @@ function ScenarioList({ open }: { open: (id: string) => void }) {
       </div>
       {data && <div className="tr-meta"><span><b className="tr-h3">{data.scenarios.length}</b>&nbsp;scenarios</span><span><b className="tr-h3">{live}</b>&nbsp;available now</span><span><b className="tr-h3">{data.levels.length}</b>&nbsp;levels</span></div>}
     </div></section>
-    {data && live === 0 && <div className="tr-strip"><div className="tr-wrap"><b>Opening with release V1.0.</b> Browse the scenarios now; each one opens for practice when the reasoning engine launches. Your results will show on your ThreatReady profile.</div></div>}
+    {data && live === 0 && <div className="tr-strip"><div className="tr-wrap"><b>Hand-authored scenario briefs.</b> These multi-question scenarios open in a later release. AI-generated assessments are live now: <a className="ar-link" href={BASE} onClick={e => { e.preventDefault(); history.pushState(null, '', BASE); dispatchEvent(new PopStateEvent('popstate')); }}>choose a domain</a>.</div></div>}
     <div className="tr-wrap tr-section">
       {err && <div className="tr-note tr-note-bad" role="alert">{err}</div>}
       {!data && !err && <div className="tr-note"><span className="tr-spinner" aria-hidden="true" />Loading scenarios…</div>}
@@ -84,7 +99,7 @@ function ScenarioPage({ id, back }: { id: string; back: () => void }) {
   const s = data?.scenario;
   return <>
     <section className="tr-page-head"><div className="tr-wrap">
-      <nav className="ar-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={e => { e.preventDefault(); back(); }}>All scenarios</a><span aria-hidden="true">/</span><span>{s?.title ?? id}</span></nav>
+      <nav className="ar-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={e => { e.preventDefault(); history.pushState(null, '', BASE); dispatchEvent(new PopStateEvent('popstate')); }}>All domains</a><span aria-hidden="true">/</span><a href={`${BASE}scenarios`} onClick={e => { e.preventDefault(); back(); }}>Scenario briefs</a><span aria-hidden="true">/</span><span>{s?.title ?? id}</span></nav>
       {s && <div className="tr-page-head-in">
         <div>
           <span className="tr-eyebrow">{s.track} · <span className="tr-mono">{s.id}</span></span>

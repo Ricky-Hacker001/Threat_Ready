@@ -116,7 +116,9 @@ describe('authorization, ownership and RLS', () => {
                 ? { turnId: '00000000-0000-4000-8000-000000000000', message: 'Could you repeat that?' }
               : r.id === 'endInterview'
                 ? { reason: 'candidate_ended' }
-                : undefined;
+                : r.id === 'submitReasoningAnswer'
+                  ? { selectedOption: 'B', justification: 'x'.repeat(60), clientSubmissionId: '00000000-0000-4000-8000-000000000002' }
+                  : undefined;
       const req = other[r.method](path).set('Origin', ORIGIN);
       const res = await (body ? req.send(body) : req);
       expect(res.status, `${r.method.toUpperCase()} ${r.path}`).toBe(404);

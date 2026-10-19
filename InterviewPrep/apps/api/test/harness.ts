@@ -16,6 +16,8 @@ import { JOBS } from '../src/platform/ports/queue.port.js';
 import { DocumentsService } from '../src/modules/documents/documents.service.js';
 import { AnalysisService } from '../src/modules/interview/analysis.service.js';
 import { JobsService } from '../src/modules/jobs/jobs.service.js';
+import { EvaluationService } from '../src/modules/reasoning/evaluation.service.js';
+import { GenerationService } from '../src/modules/reasoning/generation.service.js';
 import { ReportsService } from '../src/modules/reports/reports.service.js';
 import { SkillsService } from '../src/modules/skills/skills.service.js';
 
@@ -134,6 +136,8 @@ export async function drainJobs(t: TestApp, opts: { only?: string[]; maxRounds?:
     [JOBS.reportPdf]: (d) => t.app.get(ReportsService).runPdf(d.evaluationId!),
     [JOBS.emailSend]: (d) => t.app.get(ReportsService).runEmail(d.evaluationId!),
     [JOBS.skillsRecalculate]: (d) => t.app.get(SkillsService).recalculate(d.userId!),
+    [JOBS.reasoningGenerate]: (d) => t.app.get(GenerationService).runGeneration(d.attemptId!),
+    [JOBS.reasoningEvaluate]: (d) => t.app.get(EvaluationService).runEvaluation(d.attemptId!),
     [JOBS.deadLetter]: (d) => t.app.get(JobsService).onDeadLetter(d),
   };
   for (let round = 0; round < (opts.maxRounds ?? 10); round++) {

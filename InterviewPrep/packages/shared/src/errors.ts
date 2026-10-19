@@ -37,6 +37,15 @@ export const ERROR_CATALOGUE = {
   INTERVIEW_ANSWER_TOO_LONG: { http: 422, retryable: false, message: 'Answers are limited to 4,000 characters' },
   REPORT_NOT_READY: { http: 409, retryable: true, message: 'The report is not ready yet' },
 
+  REASONING_ATTEMPT_NOT_FOUND: { http: 404, retryable: false, message: 'Assessment attempt not found' },
+  REASONING_DOMAIN_UNAVAILABLE: { http: 404, retryable: false, message: 'This domain is not available yet' },
+  REASONING_INVALID_STATE: { http: 409, retryable: false, message: 'That action is not available at this point in the assessment' },
+  REASONING_LIMIT_REACHED: { http: 409, retryable: false, message: 'Finish your open assessment before starting another' },
+  REASONING_JUSTIFICATION_REQUIRED: { http: 422, retryable: false, message: 'Explain why you chose that option before submitting' },
+  REASONING_ANSWER_TOO_LONG: { http: 422, retryable: false, message: 'Justifications are limited to 4,000 characters' },
+  REASONING_GENERATION_FAILED: { http: 502, retryable: true, message: 'We could not generate a valid scenario this time; retry to generate another' },
+  REASONING_EVALUATION_FAILED: { http: 502, retryable: true, message: 'Your answer is saved but could not be evaluated yet; retry the evaluation' },
+
   ENTITLEMENT_REQUIRED: { http: 402, retryable: false, message: 'Your plan does not include this feature' },
   ENTITLEMENT_QUOTA_EXCEEDED: { http: 403, retryable: false, message: 'Your plan quota for this period is used up' },
 

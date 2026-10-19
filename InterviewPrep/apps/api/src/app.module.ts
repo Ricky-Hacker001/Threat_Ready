@@ -28,6 +28,10 @@ import { AnalysisService } from './modules/interview/analysis.service.js';
 import { InterviewService } from './modules/interview/interview.service.js';
 import { TurnService } from './modules/interview/turn.service.js';
 import { JobsService } from './modules/jobs/jobs.service.js';
+import { EvaluationService } from './modules/reasoning/evaluation.service.js';
+import { GenerationService } from './modules/reasoning/generation.service.js';
+import { ReasoningController, ReasoningInternalController } from './modules/reasoning/reasoning.controller.js';
+import { ReasoningService } from './modules/reasoning/reasoning.service.js';
 import { ReportsService } from './modules/reports/reports.service.js';
 import { SkillsService } from './modules/skills/skills.service.js';
 
@@ -85,7 +89,7 @@ export class PlatformModule {
   }
 }
 
-const domainProviders: Provider[] = [LlmService, DocumentsService, AnalysisService, InterviewService, TurnService, ReportsService, SkillsService, AssetsService];
+const domainProviders: Provider[] = [LlmService, DocumentsService, AnalysisService, InterviewService, TurnService, ReportsService, SkillsService, AssetsService, ReasoningService, GenerationService, EvaluationService];
 
 @Module({})
 export class AppModule {
@@ -93,7 +97,7 @@ export class AppModule {
     if (role === 'worker') {
       return { module: AppModule, imports: [PlatformModule.forRole(role, cfg)], providers: [...domainProviders, JobsService] };
     }
-    const controllers: DynamicModule['controllers'] = [DocumentsController, InterviewsController, ProgressController, AssetsController, HealthController, MeController, InternalController];
+    const controllers: DynamicModule['controllers'] = [DocumentsController, InterviewsController, ProgressController, AssetsController, HealthController, MeController, InternalController, ReasoningController, ReasoningInternalController];
     if (cfg.STORAGE_DRIVER === 'fs') controllers.push(DevStorageController);
     return {
       module: AppModule,

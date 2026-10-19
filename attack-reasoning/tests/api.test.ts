@@ -1,4 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { createApp } from '../server/app';
 import type { IdentityResolver } from '../server/identity';
@@ -55,11 +57,98 @@ describe('internal API for onboard', () => {
     expect((await request(app).get('/internal/v1/users/u_asha/summary')).status).toBe(401);
     expect((await request(app).get('/internal/v1/users/u_asha/summary').set(as('asha'))).status).toBe(401);
   });
-  it('reports the summary and no AI usage yet', async () => {
+  it('without an engine configured: reports the catalogue and no AI usage, and /v1 answers 503', async () => {
     const s = await request(app).get('/internal/v1/users/u_asha/summary').set(bearer);
     expect(s.body).toMatchObject({ app: 'reasoning', items: [] });
     expect(s.body.aiUsage.calls).toBe(0);
     const u = await request(app).get('/internal/v1/ai-usage?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z').set(bearer);
     expect(u.body).toEqual({ app: 'reasoning', users: [], byModel: [], byFeature: [] });
+    const v1 = await request(app).get('/v1/reasoning/domains').set(as('asha'));
+    expect(v1.status).toBe(503);
+    expect(v1.body.error.code).toBe('REASONING_ENGINE_UNAVAILABLE');
+  });
+});
+
+/** Stand-in for the monolith (InterviewPrep API): records what it received and answers like the reasoning module. */
+function startEngineStub(): Promise<{ url: string; calls: { method: string; url: string; headers: http.IncomingHttpHeaders; body: string }[]; close: () => void }> {
+  const calls: { method: string; url: string; headers: http.IncomingHttpHeaders; body: string }[] = [];
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', (c: Buffer) => (body += c.toString()));
+      req.on('end', () => {
+        calls.push({ method: req.method!, url: req.url!, headers: req.headers, body });
+        if (req.url!.startsWith('/internal/v1/reasoning/')) {
+          if (req.headers.authorization !== `Bearer ${TOKEN}`) return void res.writeHead(401, { 'content-type': 'application/json' }).end('{"error":{"code":"AUTH_REQUIRED"}}');
+          if (req.url!.includes('/summary')) return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ app: 'reasoning', stats: [{ label: 'Assessments completed', value: 2 }], items: [{ id: 'a1', title: 'Kestrel Payments', status: 'Evaluated', score: 88, at: '2026-10-19T10:00:00Z', url: 'http://localhost:5176/ar/attempts/a1' }], aiUsage: { calls: 4, inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.02 } }));
+          return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ app: 'reasoning', users: [], byModel: [], byFeature: [{ feature: 'reasoning.generate', calls: 1, inputTokens: 1, outputTokens: 1, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0.01 }] }));
+        }
+        if (req.url === '/v1/reasoning/attempts/x/events') {
+          res.writeHead(200, { 'content-type': 'text/event-stream' });
+          res.write('event: state\ndata: {"type":"state","state":"ready","version":1}\n\n');
+          return void res.end();
+        }
+        res.writeHead(req.method === 'POST' ? 202 : 200, { 'content-type': 'application/json', 'x-request-id': 'req_engine' });
+        res.end(JSON.stringify({ echo: { method: req.method, url: req.url, cookie: req.headers.cookie ?? null, origin: req.headers.origin ?? null, body } }));
+      });
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, calls, close: () => server.close() }));
+  });
+}
+
+describe('gateway to the reasoning engine (the monolith)', () => {
+  let engine: Awaited<ReturnType<typeof startEngineStub>>;
+  let gw: ReturnType<typeof createApp>;
+  const setup = async () => {
+    engine ??= await startEngineStub();
+    gw ??= createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine.url } });
+    return gw;
+  };
+  afterAll(() => engine?.close());
+
+  it('proxies /v1 with the session cookie, Origin and body intact, and relays the engine response and status', async () => {
+    const app = await setup();
+    const get = await request(app).get('/v1/reasoning/domains?x=1').set(as('asha'));
+    expect(get.status).toBe(200);
+    expect(get.body.echo).toMatchObject({ method: 'GET', url: '/v1/reasoning/domains?x=1', cookie: 'tr.session_token=asha' });
+    expect(get.headers['x-request-id']).toBe('req_engine');
+    const post = await request(app).post('/v1/reasoning/attempts').set(as('asha')).send({ domain: 'cloud_security' });
+    expect(post.status).toBe(202);
+    expect(post.body.echo).toMatchObject({ method: 'POST', origin: ORIGIN, body: JSON.stringify({ domain: 'cloud_security' }) });
+    const last = engine.calls.at(-1)!;
+    expect(last.headers['x-forwarded-host']).toBeDefined();
+  });
+  it('refuses a state change from another origin before it reaches the engine', async () => {
+    const app = await setup();
+    const n = engine.calls.length;
+    expect((await request(app).post('/v1/reasoning/attempts').set({ ...as('asha'), Origin: 'https://evil.example' }).send({})).status).toBe(403);
+    expect(engine.calls.length).toBe(n);
+  });
+  it('streams server-sent events through unchanged', async () => {
+    const app = await setup();
+    const r = await request(app).get('/v1/reasoning/attempts/x/events').set(as('asha')).buffer(true).parse((res, cb) => { let d = ''; res.setEncoding('utf8'); res.on('data', (c: string) => (d += c)); res.on('end', () => cb(null, d)); });
+    expect(r.headers['content-type']).toMatch(/text\/event-stream/);
+    expect(String(r.body)).toContain('"state":"ready"');
+  });
+  it("answers onboard from the engine: the reasoning summary with this app's URLs, and AI usage", async () => {
+    const app = await setup();
+    const bearer = { Authorization: `Bearer ${TOKEN}` };
+    const s = await request(app).get('/internal/v1/users/u_asha/summary').set(bearer);
+    expect(s.status).toBe(200);
+    expect(s.body).toMatchObject({ app: 'reasoning', stats: [{ label: 'Assessments completed', value: 2 }] });
+    expect(s.body.items[0].url).toBe('http://localhost:5176/ar/attempts/a1');
+    const call = engine.calls.find((c) => c.url.includes('/internal/v1/reasoning/users/u_asha/summary'))!;
+    expect(call.headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(call.url).toContain(`appOrigin=${encodeURIComponent(`${ORIGIN}/ar`)}`);
+    const u = await request(app).get('/internal/v1/ai-usage?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z').set(bearer);
+    expect(u.body.byFeature[0].feature).toBe('reasoning.generate');
+    expect(engine.calls.at(-1)!.url).toBe('/internal/v1/reasoning/ai-usage?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z');
+    expect((await request(app).get('/internal/v1/users/u_asha/summary')).status).toBe(401);
+  });
+  it('reports the engine as unavailable instead of hanging when it is down', async () => {
+    const dead = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: 'http://127.0.0.1:1' } });
+    const r = await request(dead).get('/v1/reasoning/domains').set(as('asha'));
+    expect(r.status).toBe(502);
+    expect(r.body.error.code).toBe('UPSTREAM_UNAVAILABLE');
   });
 });

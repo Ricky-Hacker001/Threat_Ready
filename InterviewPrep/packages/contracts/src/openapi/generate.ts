@@ -1,6 +1,7 @@
 import { OpenApiGeneratorV31, OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { ErrorEnvelopeSchema } from '../errors.js';
 import { TurnStreamEvent } from '../interviews.js';
+import { ReasoningStateEvent } from '../reasoning.js';
 import { z } from '../zod.js';
 import { ROUTES } from './routes.js';
 
@@ -8,6 +9,7 @@ export function buildOpenApiDocument() {
   const registry = new OpenAPIRegistry();
   registry.register('ErrorEnvelope', ErrorEnvelopeSchema);
   registry.register('TurnStreamEvent', TurnStreamEvent);
+  registry.register('ReasoningStateEvent', ReasoningStateEvent);
   registry.registerComponent('securitySchemes', 'session', { type: 'apiKey', in: 'cookie', name: 'better-auth.session_token' });
 
   for (const r of ROUTES) {
@@ -18,13 +20,13 @@ export function buildOpenApiDocument() {
       path: r.path,
       operationId: r.id,
       summary: r.summary,
-      tags: [r.path.startsWith('/v1/documents') ? 'documents' : r.path.startsWith('/v1/skills') ? 'skills' : r.path.startsWith('/v1/assets') ? 'assets' : 'interviews'],
+      tags: [r.path.startsWith('/v1/documents') ? 'documents' : r.path.startsWith('/v1/skills') ? 'skills' : r.path.startsWith('/v1/assets') ? 'assets' : r.path.startsWith('/v1/reasoning') ? 'reasoning' : 'interviews'],
       security: [{ session: [] }],
       'x-permission': r.permission,
       'x-rate-class': r.rateClass,
       request: {
         params: pathParams.length ? z.object(Object.fromEntries(pathParams.map((p) => [p, z.uuid()]))) : undefined,
-        query: r.id === 'listInterviews' ? z.object({ cursor: z.string().optional(), limit: z.coerce.number().int().min(1).max(50).optional() }) : undefined,
+        query: r.id === 'listInterviews' || r.id === 'listReasoningAttempts' ? z.object({ cursor: z.string().optional(), limit: z.coerce.number().int().min(1).max(50).optional() }) : undefined,
         body: r.body ? { content: { 'application/json': { schema: r.body } } } : undefined,
       },
       responses: {

@@ -68,6 +68,9 @@ log(`hosted labs: ${hosted.map((h) => h.slug).join(', ') || 'none'}`);
 const arApp = arMod.createApp(path.join(ROOT, 'attack-reasoning/dist'), {
   identity: arId.onboardIdentity({ identityUrl, internalToken: INTERNAL_TOKEN }),
   internalToken: INTERNAL_TOKEN, appOrigin: new URL(PUBLIC_URL).origin, onboardUrl: PUBLIC_URL, apps: arId.onboardApps(identityUrl),
+  // The reasoning engine is the InterviewPrep API's `reasoning` module (same origin here: the gateway
+  // already routes /v1/* to it; this is for onboard's /ar/internal summary and AI-usage calls).
+  reasoningApi: { url: `http://127.0.0.1:${INTERVIEW_PORT}`, clientIpHeader: CLIENT_IP_HEADER },
 });
 const gateway = await createGateway({ onboardPort: ONBOARD_PORT, interviewPort: INTERVIEW_PORT, ready: () => ({ ...ready }), labsApp, arApp });
 gateway.listen(PORT, () => log(`gateway listening on :${PORT} for ${PUBLIC_URL}`));

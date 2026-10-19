@@ -18,6 +18,15 @@ import {
 } from '../interviews.js';
 import { InterviewDashboard, InterviewReport, SignedDownload, SkillProgress } from '../reports.js';
 import { Me, PlatformApps } from '../platform.js';
+import {
+  CreateReasoningAttemptRequest,
+  ReasoningAttemptList,
+  ReasoningAttemptView,
+  ReasoningDashboard,
+  ReasoningDomainView,
+  ReasoningResult,
+  SubmitReasoningRequest,
+} from '../reasoning.js';
 import { z } from '../zod.js';
 
 export type Permission =
@@ -27,10 +36,12 @@ export type Permission =
   | 'interview:read'
   | 'interview:take'
   | 'report:read'
-  | 'skills:read';
+  | 'skills:read'
+  | 'reasoning:take'
+  | 'reasoning:read';
 
 /** Rate-limit classes for the tier-2 token buckets (ADD L12). */
-export type RateClass = 'general' | 'upload' | 'interview_turn' | 'interview_create';
+export type RateClass = 'general' | 'upload' | 'interview_turn' | 'interview_create' | 'reasoning_create';
 
 export interface RouteContract {
   id: string;
@@ -81,6 +92,17 @@ export const ROUTES: RouteContract[] = [
   { id: 'getPlatform', method: 'get', path: '/v1/platform', summary: 'Every ThreatReady app (names, URLs, status) for the shared header', permission: 'interview:read', rateClass: 'general', response: PlatformApps },
   { id: 'getMe', method: 'get', path: '/v1/me', summary: 'The signed-in ThreatReady user (identity from onboard.threatready.io)', permission: 'interview:read', rateClass: 'general', response: Me },
   { id: 'getMySkills', method: 'get', path: '/v1/skills/me', summary: 'Skill scores from interview evidence', permission: 'skills:read', rateClass: 'general', response: z.array(SkillProgress) },
+
+  // Attack Reasoning (ADD L17b). Served to ar.threatready.io through its gateway; same guard chain.
+  { id: 'listReasoningDomains', method: 'get', path: '/v1/reasoning/domains', summary: 'Every Attack Reasoning domain with availability and the user\'s statistics', permission: 'reasoning:read', rateClass: 'general', response: z.array(ReasoningDomainView) },
+  { id: 'createReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts', summary: 'Start an attempt in a domain; queues scenario generation', permission: 'reasoning:take', rateClass: 'reasoning_create', body: CreateReasoningAttemptRequest, response: ReasoningAttemptView, status: 202 },
+  { id: 'listReasoningAttempts', method: 'get', path: '/v1/reasoning/attempts', summary: 'Assessment history, newest first', permission: 'reasoning:read', rateClass: 'general', response: ReasoningAttemptList },
+  { id: 'getReasoningAttempt', method: 'get', path: '/v1/reasoning/attempts/{id}', summary: 'The attempt: scenario, diagram, question and options (never the answer key)', permission: 'reasoning:read', rateClass: 'general', response: ReasoningAttemptView },
+  { id: 'streamReasoningEvents', method: 'get', path: '/v1/reasoning/attempts/{id}/events', summary: 'SSE stream of attempt state changes while generation or evaluation runs', permission: 'reasoning:read', rateClass: 'general', stream: true },
+  { id: 'submitReasoningAnswer', method: 'post', path: '/v1/reasoning/attempts/{id}/submit', summary: 'Submit the selected option and the written justification; queues evaluation', permission: 'reasoning:take', rateClass: 'general', body: SubmitReasoningRequest, response: ReasoningAttemptView, status: 202 },
+  { id: 'retryReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts/{id}/retry', summary: 'Re-queue a failed generation or evaluation (idempotent)', permission: 'reasoning:take', rateClass: 'general', response: ReasoningAttemptView, status: 202 },
+  { id: 'getReasoningResult', method: 'get', path: '/v1/reasoning/attempts/{id}/result', summary: 'Score breakdown and feedback once evaluated', permission: 'reasoning:read', rateClass: 'general', response: ReasoningResult },
+  { id: 'getReasoningDashboard', method: 'get', path: '/v1/reasoning/dashboard', summary: 'Attack Reasoning progress and performance analytics', permission: 'reasoning:read', rateClass: 'general', response: ReasoningDashboard },
 ].map((r) => ({ ...r, body: r.body && json(r.body) })) as RouteContract[];
 
 export const routeById = (id: string): RouteContract => {

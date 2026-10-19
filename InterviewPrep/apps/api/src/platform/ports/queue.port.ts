@@ -8,6 +8,8 @@ export const JOBS = {
   skillsRecalculate: 'skills.recalculate',
   emailSend: 'email.send',
   interviewSweep: 'interview.sweep',
+  reasoningGenerate: 'reasoning.generate',
+  reasoningEvaluate: 'reasoning.evaluate',
   deadLetter: 'dead_letter',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];

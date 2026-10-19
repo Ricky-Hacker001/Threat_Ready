@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AiUsageTotals, AppAiUsage, AppSummary } from '@threatready/contracts';
 import { llmCallLog } from '@threatready/db';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, notLike, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { Database } from '../../platform/db/database.js';
@@ -76,7 +76,8 @@ export class PlatformService {
           cost_usd: sql<number>`coalesce(sum(${COST}), 0)`.mapWith(Number),
         })
         .from(llmCallLog)
-        .where(eq(llmCallLog.userId, userId));
+        // Attack Reasoning calls (feature reasoning.*) are reported by the reasoning app, not here.
+        .where(and(eq(llmCallLog.userId, userId), notLike(llmCallLog.feature, 'reasoning.%')));
       return totals(r ?? {});
     });
 
@@ -105,11 +106,15 @@ export class PlatformService {
     };
   }
 
-  /** Every user's LLM usage in [from, to), optionally one user. Read through platform_llm_usage() (migration 0005). */
-  async aiUsage(from: Date, to: Date, userId: string | null): Promise<AppAiUsage> {
+  /**
+   * Every user's LLM usage in [from, to), optionally one user. Read through platform_llm_usage()
+   * (migration 0005). One ledger serves two apps: `interview` reports every feature except
+   * reasoning.*, `reasoning` reports only those, so onboard's totals never double count.
+   */
+  async aiUsage(from: Date, to: Date, userId: string | null, scope: 'interview' | 'reasoning' = 'interview'): Promise<AppAiUsage> {
     const rows = await this.db.system(async ({ sql: exec }) => {
       const r = await exec.executeSql('SELECT * FROM platform_llm_usage($1, $2, $3)', [from.toISOString(), to.toISOString(), userId]);
-      return r.rows as Record<string, unknown>[];
+      return (r.rows as Record<string, unknown>[]).filter((row) => String(row.feature).startsWith('reasoning.') === (scope === 'reasoning'));
     });
 
     const users = new Map<string, AiUsageTotals & { userId: string; lastCallAt: string | null }>();
@@ -128,7 +133,7 @@ export class PlatformService {
     }
     const byCost = <T extends AiUsageTotals>(a: T, b: T) => b.costUsd - a.costUsd;
     return {
-      app: 'interview',
+      app: scope,
       users: [...users.values()].sort(byCost),
       byModel: [...byModel.values()].sort(byCost),
       byFeature: [...byFeature.values()].sort(byCost),

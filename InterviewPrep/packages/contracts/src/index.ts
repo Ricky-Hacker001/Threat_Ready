@@ -6,4 +6,5 @@ export * from './interviews.js';
 export * from './reports.js';
 export * from './errors.js';
 export * from './platform.js';
+export * from './reasoning.js';
 export * from './openapi/routes.js';

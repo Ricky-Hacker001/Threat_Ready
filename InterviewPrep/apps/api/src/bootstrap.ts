@@ -70,7 +70,7 @@ export async function createApiApp(cfg: AppConfig): Promise<NestExpressApplicati
     if (!res.hasHeader('Cache-Control')) res.setHeader('Cache-Control', 'no-store');
     requestContext.run({ requestId }, next);
   });
-  app.enableCors({ origin: cfg.APP_ORIGIN, credentials: true, exposedHeaders: ['X-Request-Id', 'Retry-After', 'X-Asset-Key', 'X-Asset-Iv'] });
+  app.enableCors({ origin: cfg.allowedOrigins, credentials: true, exposedHeaders: ['X-Request-Id', 'Retry-After', 'X-Asset-Key', 'X-Asset-Iv'] });
 
   // Sign-in lives on onboard.threatready.io (the platform identity provider); there is no
   // /api/auth here. Requests carry the shared session cookie, resolved by IdentityAdapter.

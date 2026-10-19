@@ -17,10 +17,10 @@ export interface Principal {
 
 /** Static role-to-permission map. A route that declares no permission is refused. */
 export const ROLE_PERMISSIONS: Record<MembershipRole, readonly Permission[]> = {
-  learner: ['document:write', 'document:read', 'interview:create', 'interview:read', 'interview:take', 'report:read', 'skills:read'],
-  student: ['document:write', 'document:read', 'interview:create', 'interview:read', 'interview:take', 'report:read', 'skills:read'],
-  instructor: ['document:read', 'interview:read', 'report:read', 'skills:read'],
-  org_admin: ['document:read', 'interview:read', 'report:read', 'skills:read'],
+  learner: ['document:write', 'document:read', 'interview:create', 'interview:read', 'interview:take', 'report:read', 'skills:read', 'reasoning:take', 'reasoning:read'],
+  student: ['document:write', 'document:read', 'interview:create', 'interview:read', 'interview:take', 'report:read', 'skills:read', 'reasoning:take', 'reasoning:read'],
+  instructor: ['document:read', 'interview:read', 'report:read', 'skills:read', 'reasoning:read'],
+  org_admin: ['document:read', 'interview:read', 'report:read', 'skills:read', 'reasoning:read'],
 };
 
 export const hasPermission = (p: Principal, perm: Permission): boolean => ROLE_PERMISSIONS[p.role].includes(perm);

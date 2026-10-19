@@ -1,6 +1,7 @@
 import { PortError, type PortErrorKind } from '@threatready/shared';
 import type { AppConfig } from '../../config/config.js';
 import type { LlmChunk, LlmObject, LlmPort, LlmRequest, LlmText, LlmTier, LlmUsage, StructuredSchema } from '../ports/llm.port.js';
+import { fakeReasoning } from './fake/reasoning.fake.js';
 
 /**
  * Deterministic LlmPort for automated tests and offline demos (LLM_DRIVER=fake; refused in
@@ -101,7 +102,7 @@ export class FakeLlmAdapter implements LlmPort {
       case 'report_summary':
         return fakeSummary(schema);
       default:
-        return fromSchema(schema);
+        return fakeReasoning(name, req) ?? fromSchema(schema);
     }
   }
 }

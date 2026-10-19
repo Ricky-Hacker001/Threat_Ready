@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { DocumentKind } from '@threatready/contracts';
-import { interviewSessions, jobDescriptions, llmCallLog, resumes } from '@threatready/db';
+import { interviewSessions, jobDescriptions, llmCallLog, reasoningAttempts, resumes } from '@threatready/db';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
@@ -9,6 +9,8 @@ import { DocumentsService } from '../documents/documents.service.js';
 import { AnalysisService } from '../interview/analysis.service.js';
 import { InterviewService } from '../interview/interview.service.js';
 import { IDLE_PAUSE_MS, stopClock } from '../interview/timing.js';
+import { EvaluationService } from '../reasoning/evaluation.service.js';
+import { GenerationService } from '../reasoning/generation.service.js';
 import { ReportsService } from '../reports/reports.service.js';
 import { SkillsService } from '../skills/skills.service.js';
 
@@ -28,6 +30,8 @@ export class JobsService {
     @Inject(ReportsService) private readonly reports: ReportsService,
     @Inject(SkillsService) private readonly skills: SkillsService,
     @Inject(InterviewService) private readonly interviews: InterviewService,
+    @Inject(GenerationService) private readonly generation: GenerationService,
+    @Inject(EvaluationService) private readonly evaluation: EvaluationService,
   ) {}
 
   async startWorker(): Promise<void> {
@@ -37,6 +41,8 @@ export class JobsService {
     await this.queue.work<{ evaluationId: string }>(JOBS.reportPdf, (d) => this.reports.runPdf(d.evaluationId));
     await this.queue.work<{ evaluationId: string }>(JOBS.emailSend, (d) => this.reports.runEmail(d.evaluationId));
     await this.queue.work<{ userId: string }>(JOBS.skillsRecalculate, (d) => this.skills.recalculate(d.userId));
+    await this.queue.work<{ attemptId: string }>(JOBS.reasoningGenerate, (d) => this.generation.runGeneration(d.attemptId));
+    await this.queue.work<{ attemptId: string }>(JOBS.reasoningEvaluate, (d) => this.evaluation.runEvaluation(d.attemptId));
     await this.queue.work<Record<string, unknown>>(JOBS.deadLetter, (d) => this.onDeadLetter(d));
     await this.queue.work(JOBS.interviewSweep, () => this.sweep());
     await this.queue.schedule(JOBS.interviewSweep, '*/5 * * * *');
@@ -49,6 +55,9 @@ export class JobsService {
     logger.error({ kind: d.kind }, 'job dead-lettered');
     if (d.kind === 'final_scoring' && typeof d.sessionId === 'string') await this.reports.markScoringFailed(d.sessionId, 'LLM_PROVIDER_UNAVAILABLE');
     if (d.kind === 'analyse' && typeof d.sessionId === 'string') await this.analysis.markFailed(d.sessionId, 'PARSE_FAILED');
+    // Attack Reasoning: the learner sees a failed state with a retry, never a lost attempt (spec §9).
+    if (d.kind === 'reasoning_generate' && typeof d.attemptId === 'string') await this.generation.markFailed(d.attemptId, 'REASONING_GENERATION_FAILED');
+    if (d.kind === 'reasoning_evaluate' && typeof d.attemptId === 'string') await this.evaluation.markFailed(d.attemptId, 'REASONING_EVALUATION_FAILED');
     if (typeof d.documentId === 'string') {
       for (const table of [resumes, jobDescriptions]) {
         await this.db.system(({ db }) =>
@@ -88,6 +97,15 @@ export class JobsService {
         .where(and(eq(interviewSessions.state, 'parsing'), lt(interviewSessions.updatedAt, at(20 * 60_000))));
       // budget reservations never settled (process died mid-call) -> failed
       await db.update(llmCallLog).set({ status: 'failed', errorKind: 'abandoned' }).where(and(eq(llmCallLog.status, 'reserved'), lt(llmCallLog.createdAt, at(3600_000))));
+      // Attack Reasoning: a stage left running for two hours (queue expiry plus retries) -> failed with a retry.
+      await db
+        .update(reasoningAttempts)
+        .set({ state: 'generation_failed', failureCode: 'REASONING_GENERATION_FAILED', failureStage: 'generation', updatedAt: new Date() })
+        .where(and(eq(reasoningAttempts.state, 'generating'), lt(reasoningAttempts.updatedAt, at(2 * 3600_000))));
+      await db
+        .update(reasoningAttempts)
+        .set({ state: 'evaluation_failed', failureCode: 'REASONING_EVALUATION_FAILED', failureStage: 'evaluation', updatedAt: new Date() })
+        .where(and(eq(reasoningAttempts.state, 'evaluating'), lt(reasoningAttempts.updatedAt, at(2 * 3600_000))));
     });
     const purged = await this.documents.purgeOldFiles(new Date(now - 30 * 24 * 3600_000));
     if (purged) logger.info({ purged }, 'retention: uploaded files deleted');

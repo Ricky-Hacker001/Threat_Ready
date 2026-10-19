@@ -14,6 +14,9 @@ const QUEUE_POLICY: Record<JobName, { retryLimit: number; expireInSeconds: numbe
   [JOBS.skillsRecalculate]: { retryLimit: 5, expireInSeconds: 120 },
   [JOBS.emailSend]: { retryLimit: 5, expireInSeconds: 60 },
   [JOBS.interviewSweep]: { retryLimit: 0, expireInSeconds: 120 },
+  // Attack Reasoning (L17b): generation may regenerate internally; the job retries cover provider outages.
+  [JOBS.reasoningGenerate]: { retryLimit: 3, expireInSeconds: 600 },
+  [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: 600 },
   [JOBS.deadLetter]: { retryLimit: 3, expireInSeconds: 60 },
 };
 

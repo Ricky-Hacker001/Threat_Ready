@@ -22,6 +22,12 @@ const EnvSchema = z
 
     /** This app's public origin, e.g. https://interviewprep.threatready.io */
     APP_ORIGIN: z.url(),
+    /**
+     * Other ThreatReady origins allowed to call this API with the shared session (CORS and the
+     * Origin check on state-changing requests): the Attack Reasoning app, ar.threatready.io.
+     * Comma-separated. Empty when every app shares one origin.
+     */
+    ALLOWED_APP_ORIGINS: z.string().default(''),
     API_BASE_URL: z.url(),
     /**
      * Signs local-storage download links (STORAGE_DRIVER=fs). Sign-in no longer happens here:
@@ -70,6 +76,12 @@ const EnvSchema = z
     /** Multiplies the tier-2 rate limits (load tests, staging); 1 in production. */
     RATE_LIMIT_SCALE: z.coerce.number().positive().default(1),
 
+    /** Attack Reasoning: open (unfinished) attempts a user may hold, generation retries, similarity threshold. */
+    REASONING_MAX_OPEN_ATTEMPTS: z.coerce.number().int().positive().default(3),
+    REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
+    /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
+    REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
+
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),
     EMAIL_DRIVER: z.enum(['ses', 'log']).default('log'),
@@ -101,6 +113,8 @@ const EnvSchema = z
 export type AppConfig = z.infer<typeof EnvSchema> & {
   pricing: Record<string, ModelPricing>;
   isProd: boolean;
+  /** APP_ORIGIN plus ALLOWED_APP_ORIGINS, normalised to origins. */
+  allowedOrigins: string[];
 };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -134,7 +148,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       throw new Error(`Invalid configuration: ${key}=${model} is not in the verified model registry; add LLM_PRICING_OVERRIDES after verifying it`);
     }
   }
-  return { ...cfg, pricing, isProd: cfg.NODE_ENV === 'production' };
+  const allowedOrigins = [...new Set([cfg.APP_ORIGIN, ...cfg.ALLOWED_APP_ORIGINS.split(',')].map((o) => o.trim()).filter(Boolean).map((o) => new URL(o).origin))];
+  return { ...cfg, pricing, isProd: cfg.NODE_ENV === 'production', allowedOrigins };
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');

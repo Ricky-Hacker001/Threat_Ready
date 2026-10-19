@@ -29,7 +29,7 @@ export type AiUsageTotals = z.infer<typeof AiUsageTotals>;
 
 /** GET /internal/v1/users/{userId}/summary */
 export interface AppSummary {
-  app: 'interview';
+  app: 'interview' | 'reasoning';
   stats: { label: string; value: string | number; hint?: string }[];
   items: { id: string; title: string; status: string; score: number | null; at: string; url: string }[];
   aiUsage: AiUsageTotals | null;
@@ -37,7 +37,7 @@ export interface AppSummary {
 
 /** GET /internal/v1/ai-usage?from=&to=[&userId=] */
 export interface AppAiUsage {
-  app: 'interview';
+  app: 'interview' | 'reasoning';
   users: (AiUsageTotals & { userId: string; lastCallAt: string | null })[];
   byModel: (AiUsageTotals & { model: string })[];
   byFeature: (AiUsageTotals & { feature: string })[];

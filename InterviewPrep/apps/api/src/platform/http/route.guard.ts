@@ -16,6 +16,7 @@ const RATE_LIMITS: Record<RateClass, { limit: number; windowSec: number }> = {
   upload: { limit: 10, windowSec: 3600 },
   interview_turn: { limit: 40, windowSec: 60 },
   interview_create: { limit: 10, windowSec: 3600 },
+  reasoning_create: { limit: 10, windowSec: 3600 },
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -45,7 +46,7 @@ export class RouteGuard implements CanActivate {
     const res = ctx.switchToHttp().getResponse<Response>();
 
     // State-changing requests must come from the app origin (SameSite=Lax plus Origin check).
-    if (req.method !== 'GET' && req.headers.origin !== this.cfg.APP_ORIGIN) {
+    if (req.method !== 'GET' && !this.cfg.allowedOrigins.includes(req.headers.origin ?? '')) {
       throw new DomainError('AUTH_FORBIDDEN', { message: 'Cross-origin request refused' });
     }
 
@@ -78,6 +79,9 @@ export class RouteGuard implements CanActivate {
         const details = parsed.error.issues.slice(0, 20).map((i) => ({ path: i.path.join('.'), message: i.message }));
         if (route.id === 'submitAnswer' && parsed.error.issues.some((i) => i.path[0] === 'answer' && i.code === 'too_big')) {
           throw new DomainError('INTERVIEW_ANSWER_TOO_LONG');
+        }
+        if (route.id === 'submitReasoningAnswer' && parsed.error.issues.some((i) => i.path[0] === 'justification' && i.code === 'too_big')) {
+          throw new DomainError('REASONING_ANSWER_TOO_LONG');
         }
         throw new DomainError('VALIDATION_FAILED', { details });
       }
