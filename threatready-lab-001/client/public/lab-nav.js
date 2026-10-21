@@ -6,11 +6,13 @@
   var base = '/labs/';
   var css = document.createElement('style');
   css.textContent =
-    '.tr-labnav{position:sticky;top:0;z-index:2147483000;display:flex;align-items:center;gap:10px;height:40px;padding:0 14px;background:#0b1020;border-bottom:1px solid #243047;color:#f3f5f9;font:500 13px/1 "Inter Variable",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-sizing:border-box}' +
+    '.tr-labnav{position:sticky;top:0;z-index:2147483000;height:40px;background:#0b1020;border-bottom:1px solid #243047;color:#f3f5f9;font:500 13px/1 "Inter Variable",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;box-sizing:border-box}' +
+    '.tr-labnav-in{max-width:1280px;height:100%;margin:0 auto;padding:0 32px;display:flex;align-items:center;gap:10px;box-sizing:border-box}' +
+    '@media (max-width:900px){.tr-labnav-in{padding:0 24px}}@media (max-width:600px){.tr-labnav-in{padding:0 16px}}' +
     '.tr-labnav a,.tr-labnav button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:6px;border:1px solid transparent;background:none;color:#a3acbf;font:inherit;text-decoration:none;cursor:pointer;white-space:nowrap}' +
     '.tr-labnav a:hover,.tr-labnav button:hover{color:#f3f5f9;background:#1a2234}' +
     '.tr-labnav a:focus-visible,.tr-labnav button:focus-visible{outline:2px solid #6d5dfc;outline-offset:1px}' +
-    '.tr-labnav-brand{font-weight:700;color:#f3f5f9!important;padding-left:4px!important;letter-spacing:-.01em}' +
+    '.tr-labnav-brand{font-weight:700;color:#f3f5f9!important;padding-left:0!important;letter-spacing:-.01em}' +
     '.tr-labnav-brand img{width:22px;height:21px;display:block}' +
     '.tr-labnav-sep{width:1px;height:18px;background:#243047}' +
     '.tr-labnav-spacer{flex:1}' +
@@ -51,7 +53,10 @@
   all.className = 'tr-labnav-all';
   all.href = base;
   all.textContent = 'All labs';
-  nav.appendChild(brand); nav.appendChild(sep); nav.appendChild(back); nav.appendChild(spacer); nav.appendChild(all);
+  var inner = document.createElement('div');
+  inner.className = 'tr-labnav-in';
+  inner.appendChild(brand); inner.appendChild(sep); inner.appendChild(back); inner.appendChild(spacer); inner.appendChild(all);
+  nav.appendChild(inner);
   var mount = function () {
     document.head.appendChild(css);
     document.documentElement.classList.add('tr-has-labnav');
