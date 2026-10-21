@@ -235,13 +235,19 @@ async function run(name, engine) {
       await strip();
     });
 
-    await c('Attack Reasoning: filter and scenario page', async () => {
+    await c('Attack Reasoning: domains, a domain page and history', async () => {
+      // Read-only: a domain page and the history; no assessment is started (each one costs AI calls).
       await page.goto(AR);
       await page.getByRole('heading', { name: /think like a defender/i }).waitFor({ timeout: 15000 });
-      await page.getByRole('button', { name: 'Cloud Security', exact: true }).click();
-      await page.getByText(/in Cloud Security/).waitFor();
-      await page.locator('.ar-card-link').first().click();
-      await page.getByRole('heading', { name: 'The situation' }).waitFor();
+      await page.getByRole('heading', { name: 'Domains' }).waitFor();
+      await noOverflow(page);
+      await page.getByRole('link', { name: 'Cloud Security' }).first().click();
+      await page.waitForURL(/\/ar\/domains\/cloud-security/);
+      await page.getByRole('heading', { name: 'What this domain assesses' }).waitFor({ timeout: 15000 });
+      await page.getByRole('radio', { name: 'Beginner', exact: true }).waitFor(); // the difficulty choice (a radio group)
+      await noOverflow(page);
+      await page.goto(`${AR}history`);
+      await page.getByRole('heading', { name: 'Your assessments' }).waitFor({ timeout: 15000 });
       await noOverflow(page);
     });
 

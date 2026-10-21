@@ -20,7 +20,10 @@ body { margin: 0; }
 .ar-crumbs { display: flex; flex-wrap: wrap; gap: 8px; font-size: 14px; color: var(--text-3); margin-bottom: 16px; }
 .ar-crumbs a { color: var(--text-2); text-decoration: none; }
 .ar-crumbs a:hover { color: var(--text); text-decoration: underline; }
-.ar-start { display: grid; gap: 8px; justify-items: start; max-width: 260px; }
+.ar-start { display: grid; gap: 8px; justify-items: start; max-width: 100%; }
+/* The difficulty selector sets the panel's width; only the short explanation under it stays narrow. */
+.ar-start > .tr-small { max-width: 300px; }
+.ar-levels { max-width: 100%; }
 .ar-detail { display: grid; gap: 16px; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); align-items: start; }
 .ar-main, .ar-side { display: grid; gap: 16px; min-width: 0; }
 @media (max-width: 900px) { .ar-detail { grid-template-columns: minmax(0, 1fr); } }
