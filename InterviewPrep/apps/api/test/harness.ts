@@ -138,6 +138,7 @@ export async function drainJobs(t: TestApp, opts: { only?: string[]; maxRounds?:
     [JOBS.skillsRecalculate]: (d) => t.app.get(SkillsService).recalculate(d.userId!),
     [JOBS.reasoningGenerate]: (d) => t.app.get(GenerationService).runGeneration(d.attemptId!),
     [JOBS.reasoningEvaluate]: (d) => t.app.get(EvaluationService).runEvaluation(d.attemptId!),
+    [JOBS.reasoningPoolRefill]: (d) => t.app.get(GenerationService).refillPool(d ?? {}),
     [JOBS.deadLetter]: (d) => t.app.get(JobsService).onDeadLetter(d),
   };
   for (let round = 0; round < (opts.maxRounds ?? 10); round++) {

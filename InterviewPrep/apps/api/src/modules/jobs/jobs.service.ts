@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { DocumentKind } from '@threatready/contracts';
 import { interviewSessions, jobDescriptions, llmCallLog, reasoningAttempts, resumes } from '@threatready/db';
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
 import { JOBS, QUEUE_PORT, type JobContext, type QueuePort } from '../../platform/ports/queue.port.js';
@@ -32,6 +33,7 @@ export class JobsService {
     @Inject(InterviewService) private readonly interviews: InterviewService,
     @Inject(GenerationService) private readonly generation: GenerationService,
     @Inject(EvaluationService) private readonly evaluation: EvaluationService,
+    @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
   async startWorker(): Promise<void> {
@@ -43,9 +45,15 @@ export class JobsService {
     await this.queue.work<{ userId: string }>(JOBS.skillsRecalculate, (d) => this.skills.recalculate(d.userId));
     await this.queue.work<{ attemptId: string }>(JOBS.reasoningGenerate, (d) => this.generation.runGeneration(d.attemptId));
     await this.queue.work<{ attemptId: string }>(JOBS.reasoningEvaluate, (d) => this.evaluation.runEvaluation(d.attemptId));
+    await this.queue.work<{ domain?: string; difficulty?: string; userId?: string }>(JOBS.reasoningPoolRefill, (d) => this.generation.refillPool(d ?? {}));
     await this.queue.work<Record<string, unknown>>(JOBS.deadLetter, (d) => this.onDeadLetter(d));
     await this.queue.work(JOBS.interviewSweep, () => this.sweep());
     await this.queue.schedule(JOBS.interviewSweep, '*/5 * * * *');
+    if (this.cfg.REASONING_POOL_ENABLED) {
+      // Keep every domain and difficulty stocked; fill it now on start so the first learners never wait.
+      await this.queue.schedule(JOBS.reasoningPoolRefill, '*/15 * * * *');
+      await this.queue.enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill' }, { key: `startup:${Math.floor(Date.now() / 60_000)}` });
+    }
     logger.info('worker started');
   }
 

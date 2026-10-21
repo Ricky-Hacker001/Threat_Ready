@@ -40,7 +40,7 @@ export class ReasoningController {
   @HttpCode(202)
   @Route('prefetchReasoningAttempt')
   prefetch(@Req() req: AuthedRequest, @Body() body: CreateReasoningAttemptRequest) {
-    return this.reasoning.prefetch(req.principal, body);
+    return this.reasoning.poolStatus(req.principal, body);
   }
 
   @Post('attempts/:id/abandon')

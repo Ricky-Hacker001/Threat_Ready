@@ -151,7 +151,7 @@ export const ReasoningAttemptView = z
     domain: ReasoningDomainKey,
     difficulty: ReasoningDifficulty,
     state: ReasoningAttemptState,
-    /** True when this attempt was generated ahead of time and handed over ready. */
+    /** True when the question came ready from the shared pool (no waiting for generation). */
     prefetched: z.boolean(),
     item: ReasoningItemPublic.nullable(),
     answer: z.object({ selectedOption: OptionId, justification: z.string(), submittedAt: z.iso.datetime() }).nullable(),
@@ -272,6 +272,12 @@ export const ReasoningDashboard = z
   })
   .openapi('ReasoningDashboard');
 export type ReasoningDashboard = z.infer<typeof ReasoningDashboard>;
+
+/** How many ready questions the pool holds that this learner has not been served yet, per domain and difficulty. */
+export const ReasoningPoolStatus = z
+  .object({ domain: ReasoningDomainKey, difficulty: ReasoningDifficulty, available: z.number().int(), refilling: z.boolean() })
+  .openapi('ReasoningPoolStatus');
+export type ReasoningPoolStatus = z.infer<typeof ReasoningPoolStatus>;
 
 export const ReasoningStateEvent = z
   .object({ type: z.literal('state'), state: ReasoningAttemptState, version: z.number().int() })

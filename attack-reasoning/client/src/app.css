@@ -131,3 +131,7 @@ body { margin: 0; }
 .ar-edge-label { position: absolute; pointer-events: none; padding: 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font: 500 11px/1.2 var(--font); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .ar-edge-label.is-attack { color: #ef5a6f; border-color: rgba(239,90,111,.45); font-weight: 600; }
 .ar-edge-label-auth { color: #4fb3a9; } .ar-edge-label-control { color: #c5a24e; }
+/* End assessment */
+.ar-end { margin-left: auto; }
+.ar-actions .ar-end { margin-left: 0; }
+@media (max-width: 640px) { .ar-end { margin-left: 0; } }

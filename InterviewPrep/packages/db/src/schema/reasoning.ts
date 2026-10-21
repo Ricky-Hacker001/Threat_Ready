@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, index, integer, jsonb, pgPolicy, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { organisations, users } from './auth.js';
-import { ownerPolicy } from './rls.js';
+import { appUserRole, ownerPolicy } from './rls.js';
 
 /**
  * Attack Reasoning (ADD L17b, LLD-20). One attempt is one AI-generated, architecture-based
@@ -22,11 +22,18 @@ const updated = () => timestamp('updated_at', { withTimezone: true }).notNull().
 
 export const REASONING_ATTEMPT_STATES = ['generating', 'ready', 'evaluating', 'evaluated', 'generation_failed', 'evaluation_failed', 'abandoned'] as const;
 
+/**
+ * Questions. Pool items (`pool = true`) are generated ahead of time, belong to no learner
+ * (user_id and org_id null) and are served to many learners in random order; `reasoning_served`
+ * records who has seen which, so no learner sees a question twice. Older items are per-learner.
+ */
 export const reasoningItems = pgTable(
   'reasoning_items',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    ...tenant,
+    orgId: uuid('org_id').references(() => organisations.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    pool: boolean('pool').notNull().default(false),
     domain: text('domain').notNull(),
     difficulty: text('difficulty').notNull(),
     /** Canonical variation key (domain|topology|entry|objective|technique): equal keys are the same question shape. */
@@ -44,7 +51,28 @@ export const reasoningItems = pgTable(
     tier: text('tier', { enum: ['SMALL', 'LARGE'] }).notNull(),
     createdAt: created(),
   },
-  (t) => [index('reasoning_items_user_domain_idx').on(t.userId, t.domain, t.createdAt), ownerPolicy('reasoning_items')],
+  (t) => [
+    index('reasoning_items_user_domain_idx').on(t.userId, t.domain, t.createdAt),
+    index('reasoning_items_pool_idx').on(t.pool, t.domain, t.difficulty, t.createdAt),
+    check('reasoning_items_owner_or_pool', sql`pool or user_id is not null`),
+    ownerPolicy('reasoning_items'),
+    // Pool questions are readable by any learner's transaction; the private half is still never serialised.
+    pgPolicy('reasoning_items_pool_read', { as: 'permissive', for: 'select', to: appUserRole, using: sql`pool` }),
+  ],
+).enableRLS();
+
+/** Which pool question each learner has been served: the basis for never repeating a question. */
+export const reasoningServed = pgTable(
+  'reasoning_served',
+  {
+    ...tenant,
+    itemId: uuid('item_id')
+      .notNull()
+      .references(() => reasoningItems.id, { onDelete: 'cascade' }),
+    attemptId: uuid('attempt_id'),
+    servedAt: timestamp('served_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.itemId] }), index('reasoning_served_item_idx').on(t.itemId), ownerPolicy('reasoning_served')],
 ).enableRLS();
 
 export const reasoningAttempts = pgTable(

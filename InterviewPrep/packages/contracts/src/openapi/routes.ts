@@ -24,6 +24,7 @@ import {
   ReasoningAttemptView,
   ReasoningDashboard,
   ReasoningDomainView,
+  ReasoningPoolStatus,
   ReasoningResult,
   SubmitReasoningRequest,
 } from '../reasoning.js';
@@ -95,8 +96,8 @@ export const ROUTES: RouteContract[] = [
 
   // Attack Reasoning (ADD L17b). Served to ar.threatready.io through its gateway; same guard chain.
   { id: 'listReasoningDomains', method: 'get', path: '/v1/reasoning/domains', summary: 'Every Attack Reasoning domain with availability and the user\'s statistics', permission: 'reasoning:read', rateClass: 'general', response: z.array(ReasoningDomainView) },
-  { id: 'createReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts', summary: 'Start the next attempt in a domain at a difficulty: hands over a pre-generated scenario when one is ready, otherwise queues generation; then pre-generates the one after', permission: 'reasoning:take', rateClass: 'reasoning_create', body: CreateReasoningAttemptRequest, response: ReasoningAttemptView, status: 202 },
-  { id: 'prefetchReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts/prefetch', summary: 'Generate the next scenario in the background so the next question opens instantly (idempotent per domain and difficulty; polled, so rate-limited as a read)', permission: 'reasoning:take', rateClass: 'general', body: CreateReasoningAttemptRequest, response: ReasoningAttemptView, status: 202 },
+  { id: 'createReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts', summary: 'Start the next attempt in a domain at a difficulty: serves a random pool question this learner has never seen (instant); generates one only when the pool has none left for them', permission: 'reasoning:take', rateClass: 'reasoning_create', body: CreateReasoningAttemptRequest, response: ReasoningAttemptView, status: 202 },
+  { id: 'prefetchReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts/prefetch', summary: 'Pool status for a domain and difficulty: ready questions this learner has not seen; asks for a background refill when it runs low (polled, so rate-limited as a read)', permission: 'reasoning:take', rateClass: 'general', body: CreateReasoningAttemptRequest, response: ReasoningPoolStatus, status: 202 },
   { id: 'abandonReasoningAttempt', method: 'post', path: '/v1/reasoning/attempts/{id}/abandon', summary: 'Skip an unanswered scenario', permission: 'reasoning:take', rateClass: 'general', response: ReasoningAttemptView },
   { id: 'listReasoningAttempts', method: 'get', path: '/v1/reasoning/attempts', summary: 'Assessment history, newest first', permission: 'reasoning:read', rateClass: 'general', response: ReasoningAttemptList },
   { id: 'getReasoningAttempt', method: 'get', path: '/v1/reasoning/attempts/{id}', summary: 'The attempt: scenario, diagram, question and options (never the answer key)', permission: 'reasoning:read', rateClass: 'general', response: ReasoningAttemptView },

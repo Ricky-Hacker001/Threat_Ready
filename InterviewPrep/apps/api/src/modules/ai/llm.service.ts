@@ -15,7 +15,7 @@ import { costUsd, estimateTokens } from './pricing.js';
  *    so live interviews finish when new ones are paused.
  *  - finalize: final scoring. Only the prompt ceiling applies, so a session always gets its report.
  */
-export type BudgetPolicy = 'new_interview' | 'live_turn' | 'finalize';
+export type BudgetPolicy = 'new_interview' | 'live_turn' | 'finalize' | 'pool';
 
 export interface CallMeta {
   feature: string;
@@ -120,7 +120,11 @@ export class LlmService {
 
     return this.ledger(meta.owner, async (tx) => {
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 42))', [meta.owner.userId]);
-      if (meta.budget !== 'finalize') {
+      if (meta.budget === 'pool') {
+        // Platform-owned question pool: its own daily cap instead of a learner's caps.
+        const spentToday = await this.sum(tx, sql`user_id = ${meta.owner.userId} AND created_at >= date_trunc('day', now())`);
+        if (spentToday + estimate > this.cfg.REASONING_POOL_DAILY_CAP_USD) throw new DomainError('LLM_BUDGET_EXCEEDED', { details: { scope: 'pool_day' } });
+      } else if (meta.budget !== 'finalize') {
         const spentToday = await this.sum(tx, sql`user_id = ${meta.owner.userId} AND created_at >= date_trunc('day', now())`);
         if (spentToday + estimate > this.cfg.AI_USER_DAILY_CAP_USD) throw new DomainError('LLM_BUDGET_EXCEEDED', { details: { scope: 'user_day' } });
         if (meta.sourceId) {
@@ -131,7 +135,7 @@ export class LlmService {
           }
         }
       }
-      if (meta.budget === 'new_interview') {
+      if (meta.budget === 'new_interview' || meta.budget === 'pool') {
         const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
         const global = Number((rows[0] as { total: string }).total);
         if (global >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) {

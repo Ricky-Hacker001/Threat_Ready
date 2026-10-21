@@ -17,6 +17,8 @@ const QUEUE_POLICY: Record<JobName, { retryLimit: number; expireInSeconds: numbe
   // Attack Reasoning (L17b): generation may regenerate internally; the job retries cover provider outages.
   [JOBS.reasoningGenerate]: { retryLimit: 3, expireInSeconds: 600 },
   [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: 600 },
+  // A batch is generated in parallel; one retry covers a provider blip, the schedule covers the rest.
+  [JOBS.reasoningPoolRefill]: { retryLimit: 1, expireInSeconds: 1800 },
   [JOBS.deadLetter]: { retryLimit: 3, expireInSeconds: 60 },
 };
 

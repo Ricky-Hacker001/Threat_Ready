@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, BASE } from './api';
 import { Shell, PlatformLoading, platformApps } from './shell';
-import { AttemptPage, DomainPage, DomainsPage, HistoryPage } from './reasoning/pages';
+import { AttemptPage, DomainPage, DomainsPage, HistoryPage, SummaryPage } from './reasoning/pages';
 import './app.css';
 
 interface Technique { id: string; name: string }
@@ -20,7 +20,7 @@ export function App() {
   // The session and the app list together (the list capped at 1.5 s), so the header never renders half-filled.
   const load = useCallback(() => { setErr(''); Promise.all([api('/me'), Promise.race([platformApps(), new Promise((r) => setTimeout(r, 1500))])]).then(([u]) => setUser(u), (e: ApiError) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
   useEffect(() => { load(); const h = () => setPath(location.pathname); addEventListener('popstate', h); return () => removeEventListener('popstate', h); }, [load]);
-  const go = (to: string) => { history.pushState(null, '', to); setPath(to); scrollTo(0, 0); };
+  const go = (to: string) => { history.pushState(null, '', to); setPath(new URL(to, location.href).pathname); scrollTo(0, 0); };
 
   if (err) return <div className="tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
   if (!user) return <PlatformLoading app="Attack Reasoning Lab" />;
@@ -29,6 +29,7 @@ export function App() {
   const domain = route('domains/([a-z0-9-]{1,40})');
   const attempt = route('attempts/([0-9a-f-]{36})');
   const historyRoute = route('history');
+  const summaryRoute = route('summary');
   const legacy = route('scenarios');
   return <Shell current="reasoning" user={user}>
     {scenario ? <ScenarioPage id={scenario[1]!} back={() => go(`${BASE}scenarios`)} />
@@ -36,6 +37,7 @@ export function App() {
       : domain ? <DomainPage slug={domain[1]!} go={go} />
       : attempt ? <AttemptPage id={attempt[1]!} go={go} />
       : historyRoute ? <HistoryPage go={go} />
+      : summaryRoute ? <SummaryPage go={go} />
       : <DomainsPage go={go} />}
   </Shell>;
 }

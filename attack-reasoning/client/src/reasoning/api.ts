@@ -30,6 +30,7 @@ export interface AttemptView {
   failure: { code: string; stage: 'generation' | 'evaluation' } | null;
   version: number; createdAt: string; updatedAt: string;
 }
+export interface PoolStatus { domain: DomainKey; difficulty: Difficulty; available: number; refilling: boolean }
 export interface AttemptSummary { id: string; domain: DomainKey; state: AttemptState; title: string | null; difficulty: string | null; totalScore: number | null; correct: boolean | null; createdAt: string; evaluatedAt: string | null }
 export interface DimensionResult { key: DimensionKey; label: string; weight: number; score: number; evidence: { point: string; status: 'met' | 'partial' | 'missed'; rationale: string; quote: string | null }[]; notes: string[] }
 export interface Result {
@@ -86,7 +87,8 @@ export const reasoning = {
   dashboard: () => engine<Dashboard>('GET', '/dashboard'),
   list: (cursor?: string) => engine<{ items: AttemptSummary[]; nextCursor: string | null }>('GET', `/attempts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   create: (domain: DomainKey, difficulty?: Difficulty) => engine<AttemptView>('POST', '/attempts', { domain, difficulty }),
-  prefetch: (domain: DomainKey, difficulty?: Difficulty) => engine<AttemptView>('POST', '/attempts/prefetch', { domain, difficulty }),
+  /** Ready questions in the shared pool this learner has not seen; asks the server to restock when low. */
+  pool: (domain: DomainKey, difficulty?: Difficulty) => engine<PoolStatus>('POST', '/attempts/prefetch', { domain, difficulty }),
   abandon: (id: string) => engine<AttemptView>('POST', `/attempts/${encodeURIComponent(id)}/abandon`),
   get: (id: string) => engine<AttemptView>('GET', `/attempts/${encodeURIComponent(id)}`),
   submit: (id: string, selectedOption: OptionId, justification: string, clientSubmissionId: string) => engine<AttemptView>('POST', `/attempts/${encodeURIComponent(id)}/submit`, { selectedOption, justification, clientSubmissionId }),
@@ -97,6 +99,20 @@ export const reasoning = {
 export const DIMENSION_SHORT: Record<DimensionKey, string> = { correctness: 'Decision', reasoning: 'Reasoning', architecture: 'Architecture', risk: 'Risk & trade-offs' };
 export const DOMAIN_SLUG = (key: string) => key.replace(/_/g, '-');
 export const DOMAIN_KEY = (slug: string) => slug.replace(/-/g, '_');
+
+/**
+ * An assessment session: from Start on a domain page until End. Next and Skip continue it. Kept in
+ * this tab's sessionStorage; the summary page reads its start time from the URL, so it is linkable.
+ */
+export interface AssessmentSession { domain: string; difficulty: Difficulty; startedAt: string }
+const SESSION_KEY = 'ar-assessment-session';
+export const beginSession = (domain: string, difficulty: Difficulty): AssessmentSession => {
+  const s = { domain, difficulty, startedAt: new Date(Date.now() - 1000).toISOString() };
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch { /* storage unavailable */ }
+  return s;
+};
+export const currentSession = (): AssessmentSession | null => { try { const v = JSON.parse(sessionStorage.getItem(SESSION_KEY) || 'null'); return v && typeof v.startedAt === 'string' ? v : null; } catch { return null; } };
+export const endSession = () => { try { sessionStorage.removeItem(SESSION_KEY); } catch { /* storage unavailable */ } };
 
 /** The learner's chosen difficulty per domain, remembered in this browser. */
 export const rememberedDifficulty = (domain: string): Difficulty => { try { const v = localStorage.getItem(`ar-difficulty:${domain}`); return v === 'beginner' || v === 'advanced' ? v : 'intermediate'; } catch { return 'intermediate'; } };

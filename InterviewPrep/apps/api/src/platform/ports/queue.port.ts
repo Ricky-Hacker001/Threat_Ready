@@ -10,6 +10,7 @@ export const JOBS = {
   interviewSweep: 'interview.sweep',
   reasoningGenerate: 'reasoning.generate',
   reasoningEvaluate: 'reasoning.evaluate',
+  reasoningPoolRefill: 'reasoning.pool_refill',
   deadLetter: 'dead_letter',
 } as const;
 export type JobName = (typeof JOBS)[keyof typeof JOBS];

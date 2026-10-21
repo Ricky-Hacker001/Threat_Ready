@@ -49,6 +49,14 @@ export function generationSchema(): StructuredSchema<GeneratorOutput> {
   return { name: 'reasoning_item', jsonSchema: toOutputSchema(schema), zod: schema as unknown as z.ZodType<GeneratorOutput> };
 }
 
+/** Hard shape limits per level, repeated in the request so the model counts against them. */
+const SHAPE: Record<ReasoningDifficulty, string> = {
+  beginner: 'attack_path: exactly 1 or 2 attack edges (count them; the attacker reaching the entry point counts as one). nodes: 5 to 7.',
+  intermediate: 'attack_path: exactly 2 or 3 attack edges. nodes: 7 to 10.',
+  advanced: 'attack_path: 3 to 5 attack edges. nodes: 10 to 13, at least 4 trust boundaries.',
+  expert: 'attack_path: 4 to 6 attack edges. nodes: 12 to 14, 5 trust boundaries.',
+};
+
 export interface GenerationContext {
   domain: ReasoningDomain;
   seed: VariationSeed;
@@ -105,6 +113,7 @@ Output only the JSON object described by the schema. Write in plain English; no 
 - Assessment objective: ${d.objective.label}. ${d.objective.guide} The question must be: "${d.objective.question}" adapted to the scenario.
 - Primary ATT&CK technique: ${d.technique.id} ${d.technique.name}.
 - Operational constraint: ${d.constraint.label}. ${d.constraint.guide}
+- Level ${seed.difficulty}, hard limits: ${SHAPE[seed.difficulty]} The attack edges must chain end to end in attack_path order (each edge starts where the previous one ended).
 - Vary the component vocabulary; candidates include: ${domain.variation.components.slice(0, 20).join(', ')}.
 ${ctx.avoid.length ? `\nThe learner has already seen these; make this one different in company, data, components and attack steps:\n${ctx.avoid.map((a) => `- ${a.title}: ${a.question}`).join('\n')}` : ''}${ctx.previousFailure.length ? `\n\nTry ${ctx.tryNumber}: the previous item was rejected. Fix every point:\n${ctx.previousFailure.map((e) => `- ${e}`).join('\n')}` : ''}`,
       },

@@ -10,12 +10,13 @@ import {
   type ReasoningDashboard,
   type ReasoningDomainStats,
   type ReasoningDomainView,
+  type ReasoningPoolStatus,
   type ReasoningResult,
   type SubmitReasoningRequest,
 } from '@threatready/contracts';
-import { llmCallLog, reasoningAttempts, reasoningEvaluations, reasoningItems } from '@threatready/db';
+import { llmCallLog, reasoningAttempts, reasoningEvaluations, reasoningItems, reasoningServed } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, count, desc, eq, inArray, isNotNull, isNull, like, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, like, lt, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { Database, type Tx } from '../../platform/db/database.js';
@@ -51,71 +52,98 @@ export class ReasoningService {
   ) {}
 
   /**
-   * The next question. A scenario pre-generated for this domain and difficulty is handed over (often
-   * already `ready`); otherwise a new attempt is created and generation queued. Either way the one
-   * after it starts generating now, so the learner never waits twice.
+   * The next question at the chosen difficulty. A random pool question this learner has never been
+   * served is handed over at once and recorded as served, so it never comes back to them. Only when
+   * the pool has nothing left for them is one generated on demand. Either way the bucket is topped up
+   * in the background when the learner is running low.
    */
   async create(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
     const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
     const view = await this.db.user(p, async (tx) => {
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
-      await this.assertCanOpen(tx, p);
-      const [waiting] = await tx.db
+      await this.makeRoom(tx, p);
+      const [picked] = await tx.db
         .select()
-        .from(reasoningAttempts)
-        .where(and(eq(reasoningAttempts.userId, p.userId), eq(reasoningAttempts.domain, req.domain), eq(reasoningAttempts.difficulty, difficulty), isNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, ['generating', 'ready'])))
-        .orderBy(desc(reasoningAttempts.createdAt))
+        .from(reasoningItems)
+        .where(
+          and(
+            eq(reasoningItems.pool, true),
+            eq(reasoningItems.domain, req.domain),
+            eq(reasoningItems.difficulty, difficulty),
+            sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
+          ),
+        )
+        .orderBy(sql`random()`)
         .limit(1);
-      if (waiting) {
-        const [opened] = await tx.db.update(reasoningAttempts).set({ openedAt: new Date(), updatedAt: new Date() }).where(eq(reasoningAttempts.id, waiting.id)).returning();
-        const item = opened!.itemId ? await loadItem(tx, opened!.itemId) : null;
-        return attemptView(opened!, item, null);
+      if (picked) {
+        const [a] = await tx.db
+          .insert(reasoningAttempts)
+          .values({ orgId: p.orgId, userId: p.userId, domain: req.domain, difficulty, state: 'ready', itemId: picked.id, openedAt: new Date() })
+          .returning();
+        await tx.db.insert(reasoningServed).values({ orgId: p.orgId, userId: p.userId, itemId: picked.id, attemptId: a!.id });
+        return attemptView(a!, picked, null);
       }
-      const a = await this.newAttempt(tx, p, req.domain, difficulty, new Date());
-      return attemptView(a, null, null);
+      const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
+      if (Number((rows[0] as { total: string }).total) >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) throw new DomainError('AI_SERVICE_PAUSED');
+      const [a] = await tx.db.insert(reasoningAttempts).values({ orgId: p.orgId, userId: p.userId, domain: req.domain, difficulty, state: 'generating', openedAt: new Date() }).returning();
+      await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a!.id }, { key: a!.id }, tx);
+      return attemptView(a!, null, null);
     });
-    // Pre-generate the one after; a failure here never fails the learner's request.
-    if (this.cfg.REASONING_PREFETCH_ENABLED) {
-      await this.prefetch(p, { domain: req.domain, difficulty }).catch((err: unknown) => logger.warn({ err: { message: (err as Error).message } }, 'reasoning prefetch skipped'));
-    }
+    await this.requestRefill(p.userId, req.domain, difficulty);
     return view;
   }
 
-  /** Ensures one un-opened attempt exists for the domain and difficulty, generating in the background. Idempotent. */
-  async prefetch(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
+  /** Ready pool questions this learner has not seen at this domain and difficulty; asks for a refill when low. */
+  async poolStatus(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningPoolStatus> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
-    if (!this.cfg.REASONING_PREFETCH_ENABLED) throw new DomainError('REASONING_INVALID_STATE', { message: 'Pre-generation is disabled' });
     const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
-    return this.db.user(p, async (tx) => {
-      await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
-      const [waiting] = await tx.db
-        .select()
-        .from(reasoningAttempts)
-        .where(and(eq(reasoningAttempts.userId, p.userId), eq(reasoningAttempts.domain, req.domain), eq(reasoningAttempts.difficulty, difficulty), isNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, ['generating', 'ready'])))
-        .limit(1);
-      if (waiting) return attemptView(waiting, waiting.itemId ? await loadItem(tx, waiting.itemId) : null, null);
-      const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
-      if (Number((rows[0] as { total: string }).total) >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) throw new DomainError('AI_SERVICE_PAUSED');
-      const a = await this.newAttempt(tx, p, req.domain, difficulty, null);
-      return attemptView(a, null, null);
+    const available = await this.db.user(p, async (tx) => {
+      const [{ n } = { n: 0 }] = await tx.db
+        .select({ n: count() })
+        .from(reasoningItems)
+        .where(
+          and(
+            eq(reasoningItems.pool, true),
+            eq(reasoningItems.domain, req.domain),
+            eq(reasoningItems.difficulty, difficulty),
+            sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
+          ),
+        );
+      return n;
     });
+    const refilling = this.cfg.REASONING_POOL_ENABLED && available < this.cfg.REASONING_POOL_MIN_AVAILABLE;
+    if (refilling) await this.requestRefill(p.userId, req.domain, difficulty);
+    return { domain: req.domain, difficulty, available, refilling };
   }
 
-  private async assertCanOpen(tx: Tx, p: Principal): Promise<void> {
-    const [{ n: open } = { n: 0 }] = await tx.db
-      .select({ n: count() })
+  /** Background refill of one bucket. Deduplicated per bucket per minute; never fails the caller. */
+  private async requestRefill(userId: string, domain: string, difficulty: string): Promise<void> {
+    if (!this.cfg.REASONING_POOL_ENABLED) return;
+    const minute = Math.floor(Date.now() / 60_000);
+    await this.queue
+      .enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain, difficulty, userId }, { key: `${domain}:${difficulty}:${userId}:${minute}` })
+      .catch((err: unknown) => logger.warn({ err: { message: (err as Error).message } }, 'reasoning pool refill not queued'));
+  }
+
+  /**
+   * Opening a new question while at the open-attempt cap skips the oldest unanswered question (it
+   * stays in history as Skipped and is never served again). Answers being evaluated are never touched.
+   */
+  private async makeRoom(tx: Tx, p: Principal): Promise<void> {
+    const open = await tx.db
+      .select({ id: reasoningAttempts.id, state: reasoningAttempts.state })
       .from(reasoningAttempts)
-      .where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, [...OPEN_STATES])));
-    if (open >= this.cfg.REASONING_MAX_OPEN_ATTEMPTS) throw new DomainError('REASONING_LIMIT_REACHED');
-    const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
-    if (Number((rows[0] as { total: string }).total) >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) throw new DomainError('AI_SERVICE_PAUSED');
-  }
-
-  private async newAttempt(tx: Tx, p: Principal, domain: string, difficulty: string, openedAt: Date | null): Promise<AttemptRow> {
-    const [a] = await tx.db.insert(reasoningAttempts).values({ orgId: p.orgId, userId: p.userId, domain, difficulty, state: 'generating', openedAt }).returning();
-    await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a!.id }, { key: a!.id }, tx);
-    return a!;
+      .where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, [...OPEN_STATES])))
+      .orderBy(reasoningAttempts.createdAt);
+    let excess = open.length - this.cfg.REASONING_MAX_OPEN_ATTEMPTS + 1;
+    for (const a of open) {
+      if (excess <= 0) break;
+      if (a.state !== 'ready') continue;
+      await tx.db.update(reasoningAttempts).set({ state: 'abandoned', updatedAt: new Date(), version: sql`${reasoningAttempts.version} + 1` }).where(eq(reasoningAttempts.id, a.id));
+      excess--;
+    }
+    if (excess > 0) throw new DomainError('REASONING_LIMIT_REACHED');
   }
 
   /** Skips an unanswered scenario. It leaves the open-attempt count and the history's scores. */

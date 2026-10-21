@@ -16,5 +16,5 @@ process.env.FS_STORAGE_DIR = path.join(os.tmpdir(), `tr-test-storage-${process.p
 process.env.LLM_DRIVER = 'fake';
 process.env.EMAIL_DRIVER = 'log';
 process.env.REPORT_EMAIL_ENABLED = 'true';
-// Pre-generation is exercised by its own tests; elsewhere one start means one generation.
-process.env.REASONING_PREFETCH_ENABLED = 'false';
+// The pool refill is exercised by its own test; elsewhere one start means at most one generation.
+process.env.REASONING_POOL_ENABLED = 'false';

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, BASE } from '../api';
 import { ArchitectureDiagram } from './Diagram';
-import { DIFFICULTIES, DIMENSION_SHORT, DOMAIN_SLUG, FAILURE_MESSAGE, messageFor, reasoning, rememberDifficulty, rememberedDifficulty, type AttemptSummary, type AttemptView, type Dashboard, type Difficulty, type DomainView, type OptionId, type Result } from './api';
+import { beginSession, currentSession, DIFFICULTIES, DIMENSION_SHORT, DOMAIN_SLUG, endSession, FAILURE_MESSAGE, messageFor, reasoning, rememberDifficulty, rememberedDifficulty, type AttemptSummary, type AttemptView, type Dashboard, type Difficulty, type DomainView, type OptionId, type Result } from './api';
 
 const MIN_JUSTIFICATION = 40;
 const MAX_JUSTIFICATION = 4000;
@@ -81,6 +81,7 @@ export function DomainPage({ slug, go }: { slug: string; go: (to: string) => voi
   const [starting, setStarting] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>(() => rememberedDifficulty(key));
   const [warm, setWarm] = useState<'idle' | 'generating' | 'ready'>('idle');
+  const [available, setAvailable] = useState<number | null>(null);
   const load = useCallback(() => { setErr(null); Promise.all([reasoning.domains(), reasoning.list()]).then(([ds, l]) => { setDomain(ds.find((d) => d.key === key) ?? null); setHistory(l.items.filter((a) => a.domain === key)); }, (e) => { if (!(e instanceof ApiError && e.status === 401)) setErr(e); }); }, [key]);
   useEffect(load, [load]);
   // The next scenario is generated in the background as soon as the learner is here, so Start is instant.
@@ -89,29 +90,30 @@ export function DomainPage({ slug, go }: { slug: string; go: (to: string) => voi
     let on = true;
     setWarm('generating');
     const poll = async () => {
-      try { const a = await reasoning.prefetch(key, difficulty); if (!on) return; setWarm(a.state === 'ready' ? 'ready' : 'generating'); if (a.state !== 'ready') t = window.setTimeout(poll, 4000); }
+      try { const s = await reasoning.pool(key, difficulty); if (!on) return; setAvailable(s.available); setWarm(s.available > 0 ? 'ready' : 'generating'); if (s.available === 0) t = window.setTimeout(poll, 5000); }
       catch { if (on) setWarm('idle'); }
     };
     let t = window.setTimeout(poll, 0);
     return () => { on = false; window.clearTimeout(t); };
   }, [domain?.available, key, difficulty]);
   const pick = (d: Difficulty) => { setDifficulty(d); rememberDifficulty(key, d); };
-  const start = async () => { setStarting(true); setErr(null); try { const a = await reasoning.create(key, difficulty); go(`${BASE}attempts/${a.id}`); } catch (e) { setErr(e); setStarting(false); } };
-  const open = history.find((a) => TRANSIENT.has(a.state) || a.state === 'ready');
+  const start = async () => { setStarting(true); setErr(null); try { const a = await reasoning.create(key, difficulty); beginSession(key, difficulty); go(`${BASE}attempts/${a.id}`); } catch (e) { setErr(e); setStarting(false); } };
+  // Only an unfinished question at the selected level is offered to continue; another level starts fresh.
+  const open = history.find((a) => (TRANSIENT.has(a.state) || a.state === 'ready') && a.difficulty === difficulty);
   return <>
     <section className="tr-page-head"><div className="tr-wrap">
       <Crumbs items={[{ label: 'All domains', to: BASE, go }, { label: domain?.title ?? cap(key.replace(/_/g, ' ')) }]} />
       {domain && <div className="tr-page-head-in">
-        <div><span className="tr-eyebrow">{domain.track} · {cap(domain.difficulty ?? '')}</span><h1 className="tr-h1">{domain.title}</h1><p className="tr-lead">{domain.description}</p></div>
+        <div><span className="tr-eyebrow">{domain.track} · {cap(difficulty)}</span><h1 className="tr-h1">{domain.title}</h1><p className="tr-lead">{domain.description}</p></div>
         <div className="ar-start">
           <div className="ar-levels" role="radiogroup" aria-label="Difficulty">{DIFFICULTIES.map((d) => <button key={d.key} type="button" role="radio" aria-checked={difficulty === d.key} className={`ar-level ${difficulty === d.key ? 'is-selected' : ''}`} onClick={() => pick(d.key)} title={d.blurb}>{d.label}</button>)}</div>
           <span className="tr-small tr-muted">{DIFFICULTIES.find((d) => d.key === difficulty)!.blurb}</span>
           {open ? <>
-            <button type="button" className="tr-btn tr-btn-primary" onClick={() => go(`${BASE}attempts/${open.id}`)}>Continue assessment</button>
-            <span className="tr-small tr-muted">You have an assessment in progress.</span>
+            <button type="button" className="tr-btn tr-btn-primary" onClick={() => { if (!currentSession()) beginSession(key, difficulty); go(`${BASE}attempts/${open.id}`); }}>Continue assessment</button>
+            <span className="tr-small tr-muted">You have an unfinished {difficulty} question. <a className="ar-link" href={BASE} onClick={(e) => { e.preventDefault(); start(); }}>Start a new one instead</a>.</span>
           </> : <>
             <button type="button" className="tr-btn tr-btn-primary" disabled={starting} onClick={start}>{starting ? 'Starting…' : warm === 'ready' ? 'Start now' : 'Start assessment'}</button>
-            <span className="tr-small tr-muted">{warm === 'ready' ? 'Your next scenario is ready.' : warm === 'generating' ? 'Preparing your next scenario in the background…' : 'One generated scenario, one decision, your reasoning. About 10 minutes.'}</span>
+            <span className="tr-small tr-muted">{warm === 'ready' ? `${available} new ${difficulty} question${available === 1 ? '' : 's'} ready for you.` : warm === 'generating' ? `Preparing new ${difficulty} questions in the background…` : 'One generated scenario, one decision, your reasoning. About 10 minutes.'}</span>
           </>}
         </div>
       </div>}
@@ -174,13 +176,28 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
     let on = true;
     let t: number | undefined;
     const poll = async () => {
-      try { const a = await reasoning.prefetch(attempt.domain, attempt.difficulty as Difficulty); if (!on) return; setNextReady(a.state === 'ready'); if (a.state !== 'ready') t = window.setTimeout(poll, 5000); }
+      try { const s = await reasoning.pool(attempt.domain, attempt.difficulty as Difficulty); if (!on) return; setNextReady(s.available > 0); if (s.available === 0) t = window.setTimeout(poll, 5000); }
       catch { /* pre-generation is optional */ }
     };
     poll();
     return () => { on = false; if (t) window.clearTimeout(t); };
   }, [attempt?.id, attempt?.domain, attempt?.difficulty, state]);
   const [moving, setMoving] = useState(false);
+  const [ending, setEnding] = useState(false);
+  /** Ends the session: an unanswered question is skipped, an answer being evaluated keeps evaluating. */
+  const endAssessment = async () => {
+    if (!attempt) return;
+    const unanswered = attempt.state === 'ready' || attempt.state === 'generating' || attempt.state === 'generation_failed';
+    if (unanswered && !window.confirm('End the assessment? This unanswered question will be skipped and will not count towards your score.')) return;
+    setEnding(true); setSubErr(null);
+    try {
+      if (unanswered) await reasoning.abandon(attempt.id);
+      const s = currentSession();
+      const since = s && s.domain === attempt.domain ? s.startedAt : attempt.createdAt;
+      endSession();
+      go(`${BASE}summary?domain=${encodeURIComponent(attempt.domain)}&since=${encodeURIComponent(since)}`);
+    } catch (e) { setSubErr(e); setEnding(false); }
+  };
   const nextScenario = async (skipCurrent: boolean) => {
     if (!attempt) return;
     setMoving(true); setSubErr(null);
@@ -219,7 +236,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
       {!attempt && !err && <Loading text="Loading assessment…" />}
       {attempt?.state === 'generating' && <div className="tr-card ar-wait">
         <span className="tr-spinner" aria-hidden="true" />
-        <div><h2 className="tr-h3">Generating a unique scenario</h2><p>The AI is building an architecture, an attack narrative and a diagram for you. Each item is validated in code and checked against your previous questions before you see it.</p><p className="tr-small tr-muted">{slow ? 'This is taking longer than usual. The attempt is saved; you can leave this page and come back.' : 'Usually under a minute.'}</p></div>
+        <div><h2 className="tr-h3">Generating a unique scenario</h2><p>The AI is building an architecture, an attack narrative and a diagram for you. Each item is validated in code and checked against your previous questions before you see it.</p><p className="tr-small tr-muted">{slow ? 'This is taking longer than usual. The attempt is saved; you can leave this page and come back.' : 'Usually under a minute.'}</p><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button></div>
       </div>}
       {attempt && (attempt.state === 'generation_failed' || attempt.state === 'evaluation_failed') && <div className="tr-note tr-note-bad" role="alert">
         <b>{attempt.state === 'generation_failed' ? 'Scenario generation failed.' : 'Evaluation failed.'}</b> {FAILURE_MESSAGE(attempt.failure?.code ?? '')} {attempt.state === 'evaluation_failed' && 'Your answer is saved.'} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={retry}>Retry</button>
@@ -240,17 +257,17 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
               <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, MAX_JUSTIFICATION))} rows={9} placeholder="The attacker is operating as … because the audit log shows … Revoking … breaks the path at … while … The alternatives …" />
               <span className="ar-counter tr-small tr-muted">{chars < MIN_JUSTIFICATION ? `${MIN_JUSTIFICATION - chars} more characters needed` : `${chars.toLocaleString()} / ${MAX_JUSTIFICATION.toLocaleString()}`}</span>
             </label>
-            <div className="ar-submit"><button type="button" className="tr-btn tr-btn-primary" disabled={!canSubmit} onClick={submit}>{submitting ? 'Submitting…' : 'Submit for evaluation'}</button><button type="button" className="tr-btn tr-btn-ghost" disabled={moving} onClick={() => nextScenario(true)} title="Skip this scenario and open the next architecture and question">{moving ? 'Opening…' : nextReady ? 'Skip to next scenario (ready)' : 'Skip to next scenario'}</button><span className="tr-small tr-muted">You see the correct answer and the feedback after your reasoning is evaluated.</span></div>
+            <div className="ar-submit"><button type="button" className="tr-btn tr-btn-primary" disabled={!canSubmit} onClick={submit}>{submitting ? 'Submitting…' : 'Submit for evaluation'}</button><button type="button" className="tr-btn tr-btn-ghost" disabled={moving} onClick={() => nextScenario(true)} title="Skip this scenario and open the next architecture and question">{moving ? 'Opening…' : nextReady ? 'Skip to next scenario (ready)' : 'Skip to next scenario'}</button><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button><span className="tr-small tr-muted">You see the correct answer and the feedback after your reasoning is evaluated.</span></div>
           </section>
         ) : (
           <section className="tr-card ar-question">
             <span className="tr-eyebrow">Your decision</span>
             <h2 className="tr-h2">{attempt.item.question}</h2>
             {attempt.answer && <div className="ar-answer"><p><b>Option {attempt.answer.selectedOption}.</b> {attempt.item.options.find((o) => o.id === attempt.answer!.selectedOption)?.text}</p><blockquote className="ar-quote">{attempt.answer.justification}</blockquote><span className="tr-small tr-muted">Submitted {fmtDate(attempt.answer.submittedAt)}</span></div>}
-            {attempt.state === 'evaluating' && <div className="ar-wait ar-wait-inline"><span className="tr-spinner" aria-hidden="true" /><div><b>Evaluating in three stages</b><ol className="ar-stages"><li>Evaluator: grades your justification against the rubric with verbatim evidence</li><li>Challenger: looks for errors, invented references and over-credit</li><li>Reconciler: settles the disagreements and writes your feedback</li></ol><span className="tr-small tr-muted">{slow ? 'Taking longer than usual. Your answer is saved; you can come back later.' : 'Usually one to two minutes.'}</span></div></div>}
+            {attempt.state === 'evaluating' && <div className="ar-wait ar-wait-inline"><span className="tr-spinner" aria-hidden="true" /><div><b>Evaluating in three stages</b><ol className="ar-stages"><li>Evaluator: grades your justification against the rubric with verbatim evidence</li><li>Challenger: looks for errors, invented references and over-credit</li><li>Reconciler: settles the disagreements and writes your feedback</li></ol><span className="tr-small tr-muted">{slow ? 'Taking longer than usual. Your answer is saved; you can come back later.' : 'Usually one to two minutes.'}</span><div className="ar-submit"><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button><span className="tr-small tr-muted">Ending now keeps this answer: it finishes evaluating and appears in your summary.</span></div></div></div>}
           </section>
         )}
-        {attempt.state === 'evaluated' && (result ? <ResultView r={result} item={attempt.item} go={go} domainSlug={domainSlug} next={() => nextScenario(false)} nextReady={nextReady} moving={moving} /> : !subErr && <Loading text="Loading your result…" />)}
+        {attempt.state === 'evaluated' && (result ? <ResultView r={result} item={attempt.item} go={go} domainSlug={domainSlug} next={() => nextScenario(false)} nextReady={nextReady} moving={moving} end={endAssessment} ending={ending} /> : !subErr && <Loading text="Loading your result…" />)}
       </div>}
     </div>
   </>;
@@ -260,7 +277,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
 
 const CONF: Record<string, string> = { high: 'tr-tag-live', medium: 'tr-tag-info', low: 'tr-tag-soon' };
 
-function ResultView({ r, item, go, domainSlug, next, nextReady, moving }: { r: Result; item: NonNullable<AttemptView['item']>; go: (to: string) => void; domainSlug: string; next: () => void; nextReady: boolean; moving: boolean }) {
+function ResultView({ r, item, go, domainSlug, next, nextReady, moving, end, ending }: { r: Result; item: NonNullable<AttemptView['item']>; go: (to: string) => void; domainSlug: string; next: () => void; nextReady: boolean; moving: boolean; end: () => void; ending: boolean }) {
   const opt = (id: OptionId) => r.options.find((o) => o.id === id)!;
   return <div className="ar-result">
     <section className="tr-card ar-score-card">
@@ -300,10 +317,71 @@ function ResultView({ r, item, go, domainSlug, next, nextReady, moving }: { r: R
     <div className="ar-actions">
       <button type="button" className="tr-btn tr-btn-primary" disabled={moving} onClick={next}>{moving ? 'Opening…' : nextReady ? 'Next question (ready)' : 'Next question'}</button>
       <span className="tr-small tr-muted ar-next-hint">{nextReady ? `A new ${item.difficulty} architecture and question are ready.` : 'The next architecture and question are being generated in the background.'}</span>
-      <a className="tr-btn tr-btn-secondary" href={`${BASE}domains/${domainSlug}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${domainSlug}`); }}>Back to domain</a>
-      <a className="tr-btn tr-btn-ghost" href={`${BASE}history`} onClick={(e) => { e.preventDefault(); go(`${BASE}history`); }}>History</a>
+      <button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={end}>{ending ? 'Ending…' : 'End assessment'}</button>
+      <a className="tr-btn tr-btn-ghost" href={`${BASE}domains/${domainSlug}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${domainSlug}`); }}>Back to domain</a>
     </div>
   </div>;
+}
+
+/* ---------------- Session summary (after End assessment) ---------------- */
+
+export function SummaryPage({ go }: { go: (to: string) => void }) {
+  const params = new URLSearchParams(location.search);
+  const domain = params.get('domain') ?? '';
+  const since = params.get('since') ?? new Date(0).toISOString();
+  const [items, setItems] = useState<AttemptSummary[] | null>(null);
+  const [err, setErr] = useState<unknown>(null);
+  const load = useCallback(async () => {
+    try {
+      // Pages of history until the session's start: the session is every attempt from then on in this domain.
+      const all: AttemptSummary[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 10; i++) {
+        const l = await reasoning.list(cursor);
+        all.push(...l.items);
+        const last = l.items[l.items.length - 1];
+        if (!l.nextCursor || (last && last.createdAt < since)) break;
+        cursor = l.nextCursor;
+      }
+      setItems(all.filter((a) => a.createdAt >= since && (!domain || a.domain === domain)).reverse());
+      setErr(null);
+    } catch (e) { if (!(e instanceof ApiError && e.status === 401)) setErr(e); }
+  }, [domain, since]);
+  useEffect(() => { load(); }, [load]);
+  // Answers still being evaluated finish in the background; keep the summary current.
+  const pending = items?.some((a) => a.state === 'evaluating') ?? false;
+  useEffect(() => { if (!pending) return undefined; const t = window.setInterval(load, 4000); return () => window.clearInterval(t); }, [pending, load]);
+  const evaluated = items?.filter((a) => a.state === 'evaluated' && a.totalScore !== null) ?? [];
+  const skipped = items?.filter((a) => a.state === 'abandoned').length ?? 0;
+  const avg = evaluated.length ? Math.round(evaluated.reduce((n, a) => n + (a.totalScore ?? 0), 0) / evaluated.length) : null;
+  const best = evaluated.length ? Math.max(...evaluated.map((a) => a.totalScore ?? 0)) : null;
+  const correct = evaluated.filter((a) => a.correct).length;
+  const title = domain ? cap(domain.replace(/_/g, ' ')) : 'Attack Reasoning';
+  return <>
+    <section className="tr-page-head"><div className="tr-wrap"><Crumbs items={[{ label: 'All domains', to: BASE, go }, ...(domain ? [{ label: title, to: `${BASE}domains/${DOMAIN_SLUG(domain)}`, go }] : []), { label: 'Assessment summary' }]} />
+      <div className="tr-page-head-in"><div><span className="tr-eyebrow">Assessment ended · {title}</span><h1 className="tr-h1">Your assessment summary</h1><p className="tr-lead">Started {fmtDate(since)}. Every question you answered in this assessment, with its score.</p></div></div></div></section>
+    <div className="tr-wrap tr-section">
+      {err ? <Err e={err} onRetry={load} /> : null}
+      {!items && !err && <Loading text="Loading your assessment…" />}
+      {items && <>
+        <div className="ar-stats">
+          <div className="tr-card"><span className="tr-eyebrow">Answered</span><b className="tr-h2">{evaluated.length}</b><span className="tr-small tr-muted">{pending ? 'some still evaluating' : `${skipped} skipped`}</span></div>
+          <div className="tr-card"><span className="tr-eyebrow">Average score</span><b className="tr-h2">{avg ?? '—'}</b><span className="tr-small tr-muted">best {best ?? '—'}</span></div>
+          <div className="tr-card"><span className="tr-eyebrow">Correct decisions</span><b className="tr-h2">{evaluated.length ? `${correct} / ${evaluated.length}` : '—'}</b><span className="tr-small tr-muted">{evaluated.length ? `${Math.round((correct / evaluated.length) * 100)}%` : 'no answers yet'}</span></div>
+          <div className="tr-card"><span className="tr-eyebrow">Trend</span>{evaluated.length > 1 ? <Spark values={evaluated.map((a) => a.totalScore ?? 0)} /> : <span className="tr-small tr-muted">Answer two or more to see a trend.</span>}</div>
+        </div>
+        <section className="tr-card"><h2 className="tr-h3">Questions in this assessment</h2>
+          {items.length === 0 ? <p className="tr-muted">No questions were answered in this assessment.</p> : <table className="ar-table"><thead><tr><th>#</th><th>Scenario</th><th>Level</th><th>State</th><th>Score</th></tr></thead><tbody>{items.map((a, i) => <tr key={a.id}><td className="tr-mono">{i + 1}</td><td><a className="ar-link" href={`${BASE}attempts/${a.id}`} onClick={(e) => { e.preventDefault(); go(`${BASE}attempts/${a.id}`); }}>{a.title ?? 'Scenario'}</a></td><td className="tr-small">{cap(a.difficulty ?? '')}</td><td><StateTag state={a.state} /></td><td className="tr-mono">{a.totalScore ?? '—'}{a.correct !== null && <span className="tr-small tr-muted"> {a.correct ? '· correct' : '· incorrect'}</span>}</td></tr>)}</tbody></table>}
+          {pending && <p className="tr-small tr-muted">Answers marked Evaluating are still being graded; this page updates when they finish.</p>}
+        </section>
+        <div className="ar-actions">
+          {domain && <a className="tr-btn tr-btn-primary" href={`${BASE}domains/${DOMAIN_SLUG(domain)}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${DOMAIN_SLUG(domain)}`); }}>Start a new assessment</a>}
+          <a className="tr-btn tr-btn-secondary" href={`${BASE}history`} onClick={(e) => { e.preventDefault(); go(`${BASE}history`); }}>All history</a>
+          <a className="tr-btn tr-btn-ghost" href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>All domains</a>
+        </div>
+      </>}
+    </div>
+  </>;
 }
 
 /* ---------------- History and analytics ---------------- */

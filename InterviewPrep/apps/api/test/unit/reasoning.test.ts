@@ -204,6 +204,12 @@ describe('attack reasoning: generated-item validation', () => {
     expect(fixed.diagram.nodes.find((n) => n.id === 'role')!.entry_point).toBe(true);
     expect(fixed.techniques[0]!.id).toBe('T1078.004');
     expect(validateGeneratedItem(fixed, CLOUD_SECURITY, seed()).errors).toEqual([]);
+    // An attack path listed out of order but forming one chain is put back in order.
+    const shuffled = fakeItem();
+    shuffled.diagram.attack_path = ['a2', 'a1'];
+    const reordered = normaliseGeneratorOutput(shuffled, CLOUD_SECURITY, seed());
+    expect(reordered.out.diagram.attack_path).toEqual(['a1', 'a2']);
+    expect(reordered.repairs).toContain('attack path reordered into chain order');
     // A path that starts at an outside node (attacker, client, internet boundary) is accepted.
     const outside = fakeItem();
     outside.diagram.edges.push({ id: 'a0', from: 'attacker', to: 'role', label: 'uses the leaked key', kind: 'attack' });
@@ -266,6 +272,7 @@ describe('attack reasoning: difficulty', () => {
     expect(validateGeneratedItem(tooHard, CLOUD_SECURITY, seed({ difficulty: 'beginner' })).errors.join(' ')).toMatch(/beginner allows at most 2/);
     const easy = fakeItem(seed({ difficulty: 'beginner' }));
     expect(validateGeneratedItem(easy, CLOUD_SECURITY, seed({ difficulty: 'beginner' })).ok).toBe(true);
+    expect(validateGeneratedItem(easy, CLOUD_SECURITY, seed({ difficulty: 'intermediate' })).errors.join(' ')).toMatch(/intermediate needs at least 2 attack steps/);
   });
 });
 

@@ -81,8 +81,17 @@ const EnvSchema = z
     REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
     /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
-    /** Pre-generate the next scenario in the background when one is started, so the next question opens instantly. */
-    REASONING_PREFETCH_ENABLED: bool.default(true),
+    /**
+     * Shared question pool: questions are generated ahead of time per domain and difficulty and served
+     * to learners in random order, never twice to the same learner. The refill job keeps each bucket at
+     * REASONING_POOL_TARGET questions and at least REASONING_POOL_MIN_AVAILABLE unseen for an active
+     * learner, generating REASONING_POOL_BATCH at a time in parallel, within REASONING_POOL_DAILY_CAP_USD.
+     */
+    REASONING_POOL_ENABLED: bool.default(true),
+    REASONING_POOL_TARGET: z.coerce.number().int().min(0).max(500).default(12),
+    REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(4),
+    REASONING_POOL_BATCH: z.coerce.number().int().min(1).max(10).default(4),
+    REASONING_POOL_DAILY_CAP_USD: z.coerce.number().positive().default(5),
 
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),

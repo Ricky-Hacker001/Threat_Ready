@@ -93,6 +93,26 @@ export function normaliseGeneratorOutput(out: GeneratorOutput, domain: Reasoning
   const d = out.diagram;
   const path = new Set(d.attack_path);
   const edges = d.edges.map((e) => (path.has(e.id) && e.kind !== 'attack' ? (repairs.push(`edge ${e.id} typed as attack`), { ...e, kind: 'attack' as const }) : e));
+  // The attack edges listed out of order but forming one chain: put them in chain order.
+  let attackPath = d.attack_path;
+  const pathEdges = attackPath.map((id) => edges.find((e) => e.id === id)).filter((e): e is (typeof edges)[number] => Boolean(e));
+  const connected = pathEdges.every((e, i) => i === 0 || pathEdges[i - 1]!.to === e.from);
+  if (!connected && pathEdges.length === attackPath.length) {
+    const targets = new Set(pathEdges.map((e) => e.to));
+    const starts = pathEdges.filter((e) => !targets.has(e.from));
+    if (starts.length === 1) {
+      const chain = [starts[0]!];
+      while (chain.length < pathEdges.length) {
+        const next = pathEdges.find((e) => !chain.includes(e) && e.from === chain[chain.length - 1]!.to);
+        if (!next) break;
+        chain.push(next);
+      }
+      if (chain.length === pathEdges.length) {
+        attackPath = chain.map((e) => e.id);
+        repairs.push('attack path reordered into chain order');
+      }
+    }
+  }
   let nodes = d.nodes;
   if (!nodes.some((n) => n.entry_point)) {
     const firstEdge = edges.find((e) => e.id === d.attack_path[0]);
@@ -115,7 +135,7 @@ export function normaliseGeneratorOutput(out: GeneratorOutput, domain: Reasoning
       repairs.push(`assigned technique ${t.id} added`);
     }
   }
-  return { out: { ...out, diagram: { ...d, edges, nodes }, techniques }, repairs };
+  return { out: { ...out, diagram: { ...d, edges, nodes, attack_path: attackPath }, techniques }, repairs };
 }
 
 export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDomain, seed: VariationSeed): ValidationResult {
@@ -196,6 +216,7 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   const nodeCount = out.diagram.nodes.length;
   if (seed.difficulty === 'advanced' && (steps < 3 || nodeCount < 9)) errors.push(`difficulty: advanced needs at least 3 attack steps and 9 components (got ${steps} and ${nodeCount})`);
   if (seed.difficulty === 'expert' && (steps < 4 || nodeCount < 11)) errors.push(`difficulty: expert needs at least 4 attack steps and 11 components (got ${steps} and ${nodeCount})`);
+  if (seed.difficulty === 'intermediate' && (steps < 2 || nodeCount < 6)) errors.push(`difficulty: intermediate needs at least 2 attack steps and 6 components (got ${steps} and ${nodeCount})`);
   if (seed.difficulty === 'beginner' && steps > 2) errors.push(`difficulty: beginner allows at most 2 attack steps (got ${steps})`);
 
   // Techniques and concepts.
