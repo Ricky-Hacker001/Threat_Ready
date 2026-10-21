@@ -15,13 +15,14 @@ import {
 } from '@threatready/contracts';
 import { llmCallLog, reasoningAttempts, reasoningEvaluations, reasoningItems } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, count, desc, eq, inArray, like, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, isNull, like, lt, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { Database, type Tx } from '../../platform/db/database.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
 import { attemptView, loadEvaluation, loadItem, loadOwnedAttempt, publicOf, transition, type AttemptRow } from './attempt.repo.js';
 import { catalogue, getDomain, isAvailable } from './domains/index.js';
+import { logger } from '../../platform/logging/logger.js';
 import type { GeneratedItem } from './item.types.js';
 import type { StoredFeedback } from './evaluation.service.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
@@ -34,6 +35,7 @@ const STATE_LABEL: Record<string, string> = {
   evaluated: 'Evaluated',
   generation_failed: 'Generation failed',
   evaluation_failed: 'Evaluation failed',
+  abandoned: 'Skipped',
 };
 
 /**
@@ -48,21 +50,81 @@ export class ReasoningService {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
+  /**
+   * The next question. A scenario pre-generated for this domain and difficulty is handed over (often
+   * already `ready`); otherwise a new attempt is created and generation queued. Either way the one
+   * after it starts generating now, so the learner never waits twice.
+   */
   async create(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
+    const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
+    const view = await this.db.user(p, async (tx) => {
+      await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
+      await this.assertCanOpen(tx, p);
+      const [waiting] = await tx.db
+        .select()
+        .from(reasoningAttempts)
+        .where(and(eq(reasoningAttempts.userId, p.userId), eq(reasoningAttempts.domain, req.domain), eq(reasoningAttempts.difficulty, difficulty), isNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, ['generating', 'ready'])))
+        .orderBy(desc(reasoningAttempts.createdAt))
+        .limit(1);
+      if (waiting) {
+        const [opened] = await tx.db.update(reasoningAttempts).set({ openedAt: new Date(), updatedAt: new Date() }).where(eq(reasoningAttempts.id, waiting.id)).returning();
+        const item = opened!.itemId ? await loadItem(tx, opened!.itemId) : null;
+        return attemptView(opened!, item, null);
+      }
+      const a = await this.newAttempt(tx, p, req.domain, difficulty, new Date());
+      return attemptView(a, null, null);
+    });
+    // Pre-generate the one after; a failure here never fails the learner's request.
+    if (this.cfg.REASONING_PREFETCH_ENABLED) {
+      await this.prefetch(p, { domain: req.domain, difficulty }).catch((err: unknown) => logger.warn({ err: { message: (err as Error).message } }, 'reasoning prefetch skipped'));
+    }
+    return view;
+  }
+
+  /** Ensures one un-opened attempt exists for the domain and difficulty, generating in the background. Idempotent. */
+  async prefetch(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
+    if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
+    if (!this.cfg.REASONING_PREFETCH_ENABLED) throw new DomainError('REASONING_INVALID_STATE', { message: 'Pre-generation is disabled' });
+    const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
     return this.db.user(p, async (tx) => {
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
-      const [{ n: open } = { n: 0 }] = await tx.db
-        .select({ n: count() })
+      const [waiting] = await tx.db
+        .select()
         .from(reasoningAttempts)
-        .where(and(eq(reasoningAttempts.userId, p.userId), inArray(reasoningAttempts.state, [...OPEN_STATES])));
-      if (open >= this.cfg.REASONING_MAX_OPEN_ATTEMPTS) throw new DomainError('REASONING_LIMIT_REACHED');
+        .where(and(eq(reasoningAttempts.userId, p.userId), eq(reasoningAttempts.domain, req.domain), eq(reasoningAttempts.difficulty, difficulty), isNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, ['generating', 'ready'])))
+        .limit(1);
+      if (waiting) return attemptView(waiting, waiting.itemId ? await loadItem(tx, waiting.itemId) : null, null);
       const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
       if (Number((rows[0] as { total: string }).total) >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) throw new DomainError('AI_SERVICE_PAUSED');
+      const a = await this.newAttempt(tx, p, req.domain, difficulty, null);
+      return attemptView(a, null, null);
+    });
+  }
 
-      const [a] = await tx.db.insert(reasoningAttempts).values({ orgId: p.orgId, userId: p.userId, domain: req.domain, state: 'generating' }).returning();
-      await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a!.id }, { key: a!.id }, tx);
-      return attemptView(a!, null, null);
+  private async assertCanOpen(tx: Tx, p: Principal): Promise<void> {
+    const [{ n: open } = { n: 0 }] = await tx.db
+      .select({ n: count() })
+      .from(reasoningAttempts)
+      .where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, [...OPEN_STATES])));
+    if (open >= this.cfg.REASONING_MAX_OPEN_ATTEMPTS) throw new DomainError('REASONING_LIMIT_REACHED');
+    const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
+    if (Number((rows[0] as { total: string }).total) >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) throw new DomainError('AI_SERVICE_PAUSED');
+  }
+
+  private async newAttempt(tx: Tx, p: Principal, domain: string, difficulty: string, openedAt: Date | null): Promise<AttemptRow> {
+    const [a] = await tx.db.insert(reasoningAttempts).values({ orgId: p.orgId, userId: p.userId, domain, difficulty, state: 'generating', openedAt }).returning();
+    await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a!.id }, { key: a!.id }, tx);
+    return a!;
+  }
+
+  /** Skips an unanswered scenario. It leaves the open-attempt count and the history's scores. */
+  async abandon(p: Principal, id: string): Promise<ReasoningAttemptView> {
+    return this.db.user(p, async (tx) => {
+      const a = await loadOwnedAttempt(tx, p.userId, id, true);
+      if (a.state !== 'ready' && a.state !== 'generating' && a.state !== 'generation_failed') throw new DomainError('REASONING_INVALID_STATE');
+      const next = await transition(tx, a, ['ready', 'generating', 'generation_failed'], { state: 'abandoned', openedAt: a.openedAt ?? new Date() });
+      return attemptView(next, next.itemId ? await loadItem(tx, next.itemId) : null, null);
     });
   }
 
@@ -168,7 +230,7 @@ export class ReasoningService {
       .from(reasoningAttempts)
       .leftJoin(reasoningItems, eq(reasoningItems.id, reasoningAttempts.itemId))
       .leftJoin(reasoningEvaluations, eq(reasoningEvaluations.attemptId, reasoningAttempts.id))
-      .where(and(eq(reasoningAttempts.userId, userId), before ? lt(reasoningAttempts.createdAt, before) : undefined))
+      .where(and(eq(reasoningAttempts.userId, userId), isNotNull(reasoningAttempts.openedAt), before ? lt(reasoningAttempts.createdAt, before) : undefined))
       .orderBy(desc(reasoningAttempts.createdAt))
       .limit(limit);
     return rows.map(({ a, title, difficulty, score, correct, evaluatedAt }) => ({
@@ -176,7 +238,7 @@ export class ReasoningService {
       domain: a.domain as ReasoningAttemptSummary['domain'],
       state: a.state,
       title: title ?? null,
-      difficulty: (difficulty as ReasoningAttemptSummary['difficulty']) ?? null,
+      difficulty: ((difficulty ?? a.difficulty) as ReasoningAttemptSummary['difficulty']) ?? null,
       totalScore: score ?? null,
       correct: correct ?? null,
       createdAt: a.createdAt.toISOString(),
@@ -196,7 +258,7 @@ export class ReasoningService {
       })
       .from(reasoningAttempts)
       .leftJoin(reasoningEvaluations, eq(reasoningEvaluations.attemptId, reasoningAttempts.id))
-      .where(eq(reasoningAttempts.userId, userId))
+      .where(and(eq(reasoningAttempts.userId, userId), isNotNull(reasoningAttempts.openedAt), sql`${reasoningAttempts.state} <> 'abandoned'`))
       .groupBy(reasoningAttempts.domain);
     return new Map(rows.map((r) => [r.domain, { attempts: r.attempts, evaluated: r.evaluated, averageScore: r.avg, bestScore: r.best, lastAttemptAt: r.last?.toISOString() ?? null }]));
   }
@@ -230,8 +292,8 @@ export class ReasoningService {
         .where(eq(reasoningEvaluations.userId, p.userId))
         .orderBy(desc(reasoningEvaluations.createdAt))
         .limit(200);
-      const [{ n: total } = { n: 0 }] = await tx.db.select({ n: count() }).from(reasoningAttempts).where(eq(reasoningAttempts.userId, p.userId));
-      const [{ n: open } = { n: 0 }] = await tx.db.select({ n: count() }).from(reasoningAttempts).where(and(eq(reasoningAttempts.userId, p.userId), inArray(reasoningAttempts.state, [...OPEN_STATES])));
+      const [{ n: total } = { n: 0 }] = await tx.db.select({ n: count() }).from(reasoningAttempts).where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.openedAt), sql`${reasoningAttempts.state} <> 'abandoned'`));
+      const [{ n: open } = { n: 0 }] = await tx.db.select({ n: count() }).from(reasoningAttempts).where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.openedAt), inArray(reasoningAttempts.state, [...OPEN_STATES])));
       const recent = await this.summaryRows(tx, p.userId, null, 8);
       const stats = await this.statsByDomain(tx, p.userId);
       const sums: Record<string, { v: number; w: number; n: number }> = {};

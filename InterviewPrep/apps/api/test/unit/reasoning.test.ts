@@ -253,6 +253,22 @@ describe('attack reasoning: uniqueness', () => {
   });
 });
 
+describe('attack reasoning: difficulty', () => {
+  it('the seed carries the requested difficulty and the validator enforces its floors', () => {
+    const adv = pickSeed(CLOUD_SECURITY, [], () => 0.1, new Set(), 'advanced');
+    expect(adv.difficulty).toBe('advanced');
+    const item = fakeItem(seed({ difficulty: 'advanced' }));
+    expect(item.diagram.attack_path.length).toBeGreaterThanOrEqual(3);
+    expect(validateGeneratedItem(item, CLOUD_SECURITY, seed({ difficulty: 'advanced' })).ok).toBe(true);
+    const tooEasy = fakeItem(seed({ difficulty: 'intermediate' }));
+    expect(validateGeneratedItem(tooEasy, CLOUD_SECURITY, seed({ difficulty: 'advanced' })).errors.join(' ')).toMatch(/advanced needs at least 3 attack steps/);
+    const tooHard = fakeItem(seed({ difficulty: 'advanced' }));
+    expect(validateGeneratedItem(tooHard, CLOUD_SECURITY, seed({ difficulty: 'beginner' })).errors.join(' ')).toMatch(/beginner allows at most 2/);
+    const easy = fakeItem(seed({ difficulty: 'beginner' }));
+    expect(validateGeneratedItem(easy, CLOUD_SECURITY, seed({ difficulty: 'beginner' })).ok).toBe(true);
+  });
+});
+
 describe('attack reasoning: domain registry', () => {
   it('registers Cloud Security end to end and lists the fifteen planned domains', () => {
     expect(isAvailable('cloud_security')).toBe(true);

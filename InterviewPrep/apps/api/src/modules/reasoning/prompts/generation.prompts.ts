@@ -12,10 +12,10 @@ export const GENERATOR_VERSION = 'gen.v1.2026-10-19';
 export const GENERATION_PROMPT_VERSION = 'reasoning-generate.v1';
 
 const DIFFICULTY_GUIDE: Record<ReasoningDifficulty, string> = {
-  beginner: 'One clear attack step, obvious entry point, a direct control; distractors are clearly weaker to an attentive reader.',
-  intermediate: 'Two to three attack steps through one trust boundary; the best answer needs the reader to trace the path and respect the constraint; distractors are real controls that address the wrong step.',
-  advanced: 'Three to four steps across trust boundaries with one control that does not apply for a stated reason; the distractors are each the right answer to a slightly different question.',
-  expert: 'Multi-step path using a trust relationship most readers miss; second-order effects of the answer matter; two distractors are defensible to a mid-level engineer.',
+  beginner: 'Architecture: 5 to 7 components in 2 or 3 trust boundaries, one obvious entry point. Attack: 1 or 2 steps that the narrative states plainly, with the evidence named (which log, which call). Question: one direct decision; the best option follows from one fact in the scenario; the three distractors are real controls that clearly address something else. Rubric: 6 points, each satisfiable in one sentence.',
+  intermediate: 'Architecture: 7 to 10 components in 3 or 4 trust boundaries, one control that matters on the path. Attack: 2 or 3 steps crossing one boundary. Question: the best option needs the reader to trace the path and respect the constraint; distractors are sound controls that address the wrong step or break the constraint. Rubric: 7 to 9 points.',
+  advanced: 'Architecture: 10 to 13 components in 4 or 5 trust boundaries, including a trust relationship (role assumption, shared credential, VPC peering, federation or service-to-service token) that most readers miss, and one control on the diagram that does not apply for a stated reason. Attack: 3 to 5 steps crossing two boundaries. Question: the best option depends on that trust relationship or on a second-order effect; two distractors must be defensible to a mid-level engineer and wrong only for a reason an expert would give. Rubric: 9 or 10 points, several requiring the trust relationship, the non-applicable control, or the second-order effect to be named. The reference answer must be precise about why each distractor fails.',
+  expert: 'Architecture: 12 to 14 components in 5 trust boundaries with two interacting trust relationships. Attack: 4 to 6 steps. Question: the best option is right only because of an interaction between two components; three distractors are each defensible. Rubric: 10 points at expert depth.',
 };
 
 const id = str(40).transform((s) => s.toLowerCase().replace(/[^a-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'x');
@@ -76,7 +76,7 @@ ${domain.guidance}
 
 Diagram rules (the diagram is data, rendered by the application; the learner reasons from it):
 - boundaries: the trust boundaries present (kinds: internet, edge, dmz, vpc, private, data, identity, account, onprem, cicd, management). Every node belongs to exactly one boundary.
-- nodes: 6 to 12 components with short, specific labels (e.g. "exports-prod bucket", "deploy-prod role"), a type, the controls actually present on them (e.g. "MFA", "WAF", "private endpoint only"), and mark exactly the compromised ones and the entry point.
+- nodes: the count the difficulty asks for (never more than 14), with short, specific labels (e.g. "exports-prod bucket", "deploy-prod role"), a type, the controls actually present on them (e.g. "MFA", "WAF", "private endpoint only"), and mark exactly the compromised ones and the entry point.
 - edges: normal flows (kind data, auth or control) with labels like "HTTPS 443", "AssumeRole", "reads objects"; and attack edges (kind attack) describing each step the attacker takes. attack_path lists the attack edge ids in order, connected end to end, starting at the entry point.
 - Use the exact node labels in the scenario and attack narrative wherever you refer to a component, so the text and the picture match.
 

@@ -64,7 +64,7 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 \* onboard's default is 3000. This machine runs open-webui on 3000, so `apps/api/.env` sets `PORT=3200`, and InterviewPrep and Labs use `IDENTITY_URL=http://localhost:3200`.
 
 1. `node Threatready-landing-page-main/scripts/init-env.mjs` creates onboard's `.env` with `BETTER_AUTH_SECRET` and `INTERNAL_API_TOKEN`. Copy the **same** `INTERNAL_API_TOKEN` into `InterviewPrep/.env`, `threatready-lab-001/.env` and `attack-reasoning/.env` (templates: `.env.example`).
-2. Migrate onboard (`pnpm db:migrate`; adds `users.role`) and InterviewPrep (`node packages/db/dist/migrate.js` with `.env` loaded; adds migrations 0005 and 0006, the Attack Reasoning tables). Set `ALLOWED_APP_ORIGINS=http://localhost:5176` in `InterviewPrep/.env` and `REASONING_API_URL=http://localhost:3100` in `attack-reasoning/.env`. The InterviewPrep worker (`npm run dev:worker`) must run: scenario generation and evaluation are its jobs.
+2. Migrate onboard (`pnpm db:migrate`; adds `users.role`) and InterviewPrep (`node packages/db/dist/migrate.js` with `.env` loaded; adds migrations 0005 and 0006, the Attack Reasoning tables). Set `ALLOWED_APP_ORIGINS=http://localhost:5176` in `InterviewPrep/.env` and `REASONING_API_URL=http://localhost:3100` in `attack-reasoning/.env` (`REASONING_PREFETCH_ENABLED` controls background pre-generation of the next scenario). The InterviewPrep worker (`npm run dev:worker`) must run: scenario generation and evaluation are its jobs.
 3. Open http://localhost:5173. Locally no `COOKIE_DOMAIN` is needed because localhost cookies ignore the port, so all three apps share the session.
 
 ## Production checklist

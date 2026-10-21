@@ -20,7 +20,7 @@ const tenant = {
 const created = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 const updated = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
 
-export const REASONING_ATTEMPT_STATES = ['generating', 'ready', 'evaluating', 'evaluated', 'generation_failed', 'evaluation_failed'] as const;
+export const REASONING_ATTEMPT_STATES = ['generating', 'ready', 'evaluating', 'evaluated', 'generation_failed', 'evaluation_failed', 'abandoned'] as const;
 
 export const reasoningItems = pgTable(
   'reasoning_items',
@@ -53,7 +53,10 @@ export const reasoningAttempts = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     ...tenant,
     domain: text('domain').notNull(),
+    difficulty: text('difficulty').notNull().default('intermediate'),
     state: text('state', { enum: REASONING_ATTEMPT_STATES }).notNull(),
+    /** Null while the attempt is pre-generated in the background; set when the learner opens it. */
+    openedAt: timestamp('opened_at', { withTimezone: true }),
     itemId: uuid('item_id').references(() => reasoningItems.id, { onDelete: 'set null' }),
     selectedOption: text('selected_option'),
     justification: text('justification'),
@@ -71,6 +74,9 @@ export const reasoningAttempts = pgTable(
   (t) => [
     index('reasoning_attempts_user_idx').on(t.userId, t.createdAt),
     index('reasoning_attempts_state_idx').on(t.state, t.updatedAt),
+    index('reasoning_attempts_prefetch_idx').on(t.userId, t.domain, t.difficulty, t.openedAt),
+    /** At most one scenario waits un-opened per learner, domain and difficulty (the backstop for prefetch idempotency). */
+    uniqueIndex('reasoning_attempts_one_waiting_uq').on(t.userId, t.domain, t.difficulty).where(sql`opened_at is null and state in ('generating', 'ready')`),
     uniqueIndex('reasoning_attempts_submission_uq').on(t.id, t.clientSubmissionId),
     check('reasoning_attempts_justification_len', sql`justification is null or char_length(justification) <= 4000`),
     ownerPolicy('reasoning_attempts'),

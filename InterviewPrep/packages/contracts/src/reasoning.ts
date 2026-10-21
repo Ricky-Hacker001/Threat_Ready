@@ -32,7 +32,7 @@ export const ReasoningDifficulty = z.enum(['beginner', 'intermediate', 'advanced
 export type ReasoningDifficulty = z.infer<typeof ReasoningDifficulty>;
 
 export const ReasoningAttemptState = z
-  .enum(['generating', 'ready', 'evaluating', 'evaluated', 'generation_failed', 'evaluation_failed'])
+  .enum(['generating', 'ready', 'evaluating', 'evaluated', 'generation_failed', 'evaluation_failed', 'abandoned'])
   .openapi('ReasoningAttemptState');
 export type ReasoningAttemptState = z.infer<typeof ReasoningAttemptState>;
 
@@ -130,7 +130,8 @@ export type ReasoningItemPublic = z.infer<typeof ReasoningItemPublic>;
 
 /* ---------------- Requests ---------------- */
 
-export const CreateReasoningAttemptRequest = z.object({ domain: ReasoningDomainKey }).openapi('CreateReasoningAttemptRequest');
+/** Difficulty is chosen per attempt; the domain's default applies when omitted. */
+export const CreateReasoningAttemptRequest = z.object({ domain: ReasoningDomainKey, difficulty: ReasoningDifficulty.optional() }).openapi('CreateReasoningAttemptRequest');
 export type CreateReasoningAttemptRequest = z.infer<typeof CreateReasoningAttemptRequest>;
 
 export const SubmitReasoningRequest = z
@@ -148,7 +149,10 @@ export const ReasoningAttemptView = z
   .object({
     id: z.uuid(),
     domain: ReasoningDomainKey,
+    difficulty: ReasoningDifficulty,
     state: ReasoningAttemptState,
+    /** True when this attempt was generated ahead of time and handed over ready. */
+    prefetched: z.boolean(),
     item: ReasoningItemPublic.nullable(),
     answer: z.object({ selectedOption: OptionId, justification: z.string(), submittedAt: z.iso.datetime() }).nullable(),
     /** Present once evaluated: the headline only; the full result has its own route. */

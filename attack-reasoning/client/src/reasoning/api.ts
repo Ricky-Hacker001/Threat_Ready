@@ -4,7 +4,13 @@ import { ApiError, signIn, signUp } from '../api';
 
 export type DomainKey = string;
 export type OptionId = 'A' | 'B' | 'C' | 'D';
-export type AttemptState = 'generating' | 'ready' | 'evaluating' | 'evaluated' | 'generation_failed' | 'evaluation_failed';
+export type AttemptState = 'generating' | 'ready' | 'evaluating' | 'evaluated' | 'generation_failed' | 'evaluation_failed' | 'abandoned';
+export type Difficulty = 'beginner' | 'intermediate' | 'advanced';
+export const DIFFICULTIES: { key: Difficulty; label: string; blurb: string }[] = [
+  { key: 'beginner', label: 'Beginner', blurb: 'Small architecture, one or two attack steps, a direct decision.' },
+  { key: 'intermediate', label: 'Intermediate', blurb: 'Several trust boundaries, a path to trace, a constraint to respect.' },
+  { key: 'advanced', label: 'Advanced', blurb: 'A hidden trust relationship, a control that does not apply, two defensible distractors.' },
+];
 export type DimensionKey = 'correctness' | 'reasoning' | 'architecture' | 'risk';
 
 export interface Technique { id: string; name: string }
@@ -18,7 +24,7 @@ export interface ItemPublic {
   options: { id: OptionId; text: string }[]; diagram: DiagramData; techniques: Technique[]; concepts: string[]; weights: Record<DimensionKey, number>; generatorVersion: string; createdAt: string;
 }
 export interface AttemptView {
-  id: string; domain: DomainKey; state: AttemptState; item: ItemPublic | null;
+  id: string; domain: DomainKey; difficulty: string; state: AttemptState; prefetched: boolean; item: ItemPublic | null;
   answer: { selectedOption: OptionId; justification: string; submittedAt: string } | null;
   result: { totalScore: number; correct: boolean; confidence: 'high' | 'medium' | 'low' } | null;
   failure: { code: string; stage: 'generation' | 'evaluation' } | null;
@@ -79,7 +85,9 @@ export const reasoning = {
   domains: () => engine<DomainView[]>('GET', '/domains'),
   dashboard: () => engine<Dashboard>('GET', '/dashboard'),
   list: (cursor?: string) => engine<{ items: AttemptSummary[]; nextCursor: string | null }>('GET', `/attempts${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
-  create: (domain: DomainKey) => engine<AttemptView>('POST', '/attempts', { domain }),
+  create: (domain: DomainKey, difficulty?: Difficulty) => engine<AttemptView>('POST', '/attempts', { domain, difficulty }),
+  prefetch: (domain: DomainKey, difficulty?: Difficulty) => engine<AttemptView>('POST', '/attempts/prefetch', { domain, difficulty }),
+  abandon: (id: string) => engine<AttemptView>('POST', `/attempts/${encodeURIComponent(id)}/abandon`),
   get: (id: string) => engine<AttemptView>('GET', `/attempts/${encodeURIComponent(id)}`),
   submit: (id: string, selectedOption: OptionId, justification: string, clientSubmissionId: string) => engine<AttemptView>('POST', `/attempts/${encodeURIComponent(id)}/submit`, { selectedOption, justification, clientSubmissionId }),
   retry: (id: string) => engine<AttemptView>('POST', `/attempts/${encodeURIComponent(id)}/retry`),
@@ -89,3 +97,7 @@ export const reasoning = {
 export const DIMENSION_SHORT: Record<DimensionKey, string> = { correctness: 'Decision', reasoning: 'Reasoning', architecture: 'Architecture', risk: 'Risk & trade-offs' };
 export const DOMAIN_SLUG = (key: string) => key.replace(/_/g, '-');
 export const DOMAIN_KEY = (slug: string) => slug.replace(/-/g, '_');
+
+/** The learner's chosen difficulty per domain, remembered in this browser. */
+export const rememberedDifficulty = (domain: string): Difficulty => { try { const v = localStorage.getItem(`ar-difficulty:${domain}`); return v === 'beginner' || v === 'advanced' ? v : 'intermediate'; } catch { return 'intermediate'; } };
+export const rememberDifficulty = (domain: string, d: Difficulty) => { try { localStorage.setItem(`ar-difficulty:${domain}`, d); } catch { /* storage unavailable */ } };

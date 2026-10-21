@@ -60,7 +60,7 @@ export class GenerationService {
     const used = new Set<string>();
     const started = Date.now();
     for (let tryNumber = 1; tryNumber <= this.cfg.REASONING_MAX_GENERATION_TRIES; tryNumber++) {
-      const seed = pickSeed(domain, recentSeeds, this.rng, used);
+      const seed = pickSeed(domain, recentSeeds, this.rng, used, (a.difficulty as VariationSeed['difficulty']) || domain.difficulty);
       used.add([seed.domain, seed.topology, seed.entryPoint, seed.objective, seed.technique].join('|'));
       await this.db.system(({ db }) => db.update(reasoningAttempts).set({ generationTries: tryNumber, updatedAt: new Date() }).where(eq(reasoningAttempts.id, attemptId)));
 

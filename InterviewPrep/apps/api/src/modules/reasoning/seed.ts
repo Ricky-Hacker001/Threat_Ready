@@ -1,3 +1,4 @@
+import type { ReasoningDifficulty } from '@threatready/contracts';
 import { fingerprintOf, type ReasoningDomain, type VariationSeed } from './domain.types.js';
 
 export type Rng = () => number;
@@ -8,7 +9,7 @@ export type Rng = () => number;
  * least-seen combination wins, with the technique and constraint drawn from the remaining pool.
  * Exact fingerprints already seen are excluded while any other combination remains.
  */
-export function pickSeed(domain: ReasoningDomain, recent: VariationSeed[], rng: Rng = Math.random, exclude: Set<string> = new Set()): VariationSeed {
+export function pickSeed(domain: ReasoningDomain, recent: VariationSeed[], rng: Rng = Math.random, exclude: Set<string> = new Set(), difficulty: ReasoningDifficulty = domain.difficulty): VariationSeed {
   const seen = (pick: (s: VariationSeed) => string) => {
     const m = new Map<string, number>();
     recent.forEach((s, i) => m.set(pick(s), (m.get(pick(s)) ?? 0) + (recent.length - i)));
@@ -32,7 +33,7 @@ export function pickSeed(domain: ReasoningDomain, recent: VariationSeed[], rng: 
   for (let i = 0; i < 64; i++) {
     const seed: VariationSeed = {
       domain: domain.key,
-      difficulty: domain.difficulty,
+      difficulty,
       topology: choose(leastSeen(v.topologies, topoSeen)).id,
       entryPoint: choose(leastSeen(v.entryPoints, entrySeen)).id,
       objective: choose(leastSeen(v.objectives, objSeen)).id,
@@ -45,10 +46,10 @@ export function pickSeed(domain: ReasoningDomain, recent: VariationSeed[], rng: 
     for (const entryPoint of v.entryPoints)
       for (const objective of v.objectives)
         for (const technique of domain.techniques) {
-          const seed: VariationSeed = { domain: domain.key, difficulty: domain.difficulty, topology: topology.id, entryPoint: entryPoint.id, objective: objective.id, technique: technique.id, constraint: choose(v.constraints).id };
+          const seed: VariationSeed = { domain: domain.key, difficulty, topology: topology.id, entryPoint: entryPoint.id, objective: objective.id, technique: technique.id, constraint: choose(v.constraints).id };
           if (!seenFingerprints.has(fingerprintOf(seed))) return seed;
         }
-  return { domain: domain.key, difficulty: domain.difficulty, topology: choose(v.topologies).id, entryPoint: choose(v.entryPoints).id, objective: choose(v.objectives).id, technique: choose(domain.techniques).id, constraint: choose(v.constraints).id };
+  return { domain: domain.key, difficulty, topology: choose(v.topologies).id, entryPoint: choose(v.entryPoints).id, objective: choose(v.objectives).id, technique: choose(domain.techniques).id, constraint: choose(v.constraints).id };
 }
 
 /** Human-readable seed for prompts and logs. */

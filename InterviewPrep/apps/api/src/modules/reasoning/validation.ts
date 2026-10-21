@@ -191,6 +191,13 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   if (out.must_not_credit.length > 6) errors.push('must_not_credit: at most six claims');
   if (out.reference_answer.trim().length < 150) errors.push('reference_answer: too short for an expert explanation');
 
+  // Difficulty: the architecture and the attack must be as demanding as the level promises.
+  const steps = out.diagram.attack_path.length;
+  const nodeCount = out.diagram.nodes.length;
+  if (seed.difficulty === 'advanced' && (steps < 3 || nodeCount < 9)) errors.push(`difficulty: advanced needs at least 3 attack steps and 9 components (got ${steps} and ${nodeCount})`);
+  if (seed.difficulty === 'expert' && (steps < 4 || nodeCount < 11)) errors.push(`difficulty: expert needs at least 4 attack steps and 11 components (got ${steps} and ${nodeCount})`);
+  if (seed.difficulty === 'beginner' && steps > 2) errors.push(`difficulty: beginner allows at most 2 attack steps (got ${steps})`);
+
   // Techniques and concepts.
   if (!out.techniques.length) errors.push('techniques: name at least one ATT&CK technique');
   for (const t of out.techniques) if (!TECHNIQUE_ID.test(t.id)) errors.push(`techniques: "${t.id}" is not an ATT&CK technique id`);

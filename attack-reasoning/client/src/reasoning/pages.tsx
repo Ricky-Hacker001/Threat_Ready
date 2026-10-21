@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, BASE } from '../api';
 import { ArchitectureDiagram } from './Diagram';
-import { DIMENSION_SHORT, DOMAIN_SLUG, FAILURE_MESSAGE, messageFor, reasoning, type AttemptSummary, type AttemptView, type Dashboard, type DomainView, type OptionId, type Result } from './api';
+import { DIFFICULTIES, DIMENSION_SHORT, DOMAIN_SLUG, FAILURE_MESSAGE, messageFor, reasoning, rememberDifficulty, rememberedDifficulty, type AttemptSummary, type AttemptView, type Dashboard, type Difficulty, type DomainView, type OptionId, type Result } from './api';
 
 const MIN_JUSTIFICATION = 40;
 const MAX_JUSTIFICATION = 4000;
@@ -17,6 +17,7 @@ const STATE_TAG: Record<string, { label: string; cls: string }> = {
   evaluated: { label: 'Evaluated', cls: 'tr-tag-live' },
   generation_failed: { label: 'Generation failed', cls: 'tr-tag-soon' },
   evaluation_failed: { label: 'Evaluation failed', cls: 'tr-tag-soon' },
+  abandoned: { label: 'Skipped', cls: 'tr-tag-plain' },
 };
 const StateTag = ({ state }: { state: string }) => { const t = STATE_TAG[state] ?? { label: state, cls: 'tr-tag-plain' }; return <span className={`tr-tag ${t.cls}`}>{t.label}</span>; };
 
@@ -78,9 +79,24 @@ export function DomainPage({ slug, go }: { slug: string; go: (to: string) => voi
   const [history, setHistory] = useState<AttemptSummary[]>([]);
   const [err, setErr] = useState<unknown>(null);
   const [starting, setStarting] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>(() => rememberedDifficulty(key));
+  const [warm, setWarm] = useState<'idle' | 'generating' | 'ready'>('idle');
   const load = useCallback(() => { setErr(null); Promise.all([reasoning.domains(), reasoning.list()]).then(([ds, l]) => { setDomain(ds.find((d) => d.key === key) ?? null); setHistory(l.items.filter((a) => a.domain === key)); }, (e) => { if (!(e instanceof ApiError && e.status === 401)) setErr(e); }); }, [key]);
   useEffect(load, [load]);
-  const start = async () => { setStarting(true); setErr(null); try { const a = await reasoning.create(key); go(`${BASE}attempts/${a.id}`); } catch (e) { setErr(e); setStarting(false); } };
+  // The next scenario is generated in the background as soon as the learner is here, so Start is instant.
+  useEffect(() => {
+    if (!domain?.available) return undefined;
+    let on = true;
+    setWarm('generating');
+    const poll = async () => {
+      try { const a = await reasoning.prefetch(key, difficulty); if (!on) return; setWarm(a.state === 'ready' ? 'ready' : 'generating'); if (a.state !== 'ready') t = window.setTimeout(poll, 4000); }
+      catch { if (on) setWarm('idle'); }
+    };
+    let t = window.setTimeout(poll, 0);
+    return () => { on = false; window.clearTimeout(t); };
+  }, [domain?.available, key, difficulty]);
+  const pick = (d: Difficulty) => { setDifficulty(d); rememberDifficulty(key, d); };
+  const start = async () => { setStarting(true); setErr(null); try { const a = await reasoning.create(key, difficulty); go(`${BASE}attempts/${a.id}`); } catch (e) { setErr(e); setStarting(false); } };
   const open = history.find((a) => TRANSIENT.has(a.state) || a.state === 'ready');
   return <>
     <section className="tr-page-head"><div className="tr-wrap">
@@ -88,12 +104,14 @@ export function DomainPage({ slug, go }: { slug: string; go: (to: string) => voi
       {domain && <div className="tr-page-head-in">
         <div><span className="tr-eyebrow">{domain.track} · {cap(domain.difficulty ?? '')}</span><h1 className="tr-h1">{domain.title}</h1><p className="tr-lead">{domain.description}</p></div>
         <div className="ar-start">
+          <div className="ar-levels" role="radiogroup" aria-label="Difficulty">{DIFFICULTIES.map((d) => <button key={d.key} type="button" role="radio" aria-checked={difficulty === d.key} className={`ar-level ${difficulty === d.key ? 'is-selected' : ''}`} onClick={() => pick(d.key)} title={d.blurb}>{d.label}</button>)}</div>
+          <span className="tr-small tr-muted">{DIFFICULTIES.find((d) => d.key === difficulty)!.blurb}</span>
           {open ? <>
             <button type="button" className="tr-btn tr-btn-primary" onClick={() => go(`${BASE}attempts/${open.id}`)}>Continue assessment</button>
             <span className="tr-small tr-muted">You have an assessment in progress.</span>
           </> : <>
-            <button type="button" className="tr-btn tr-btn-primary" disabled={starting} onClick={start}>{starting ? 'Starting…' : 'Start assessment'}</button>
-            <span className="tr-small tr-muted">One generated scenario, one decision, your reasoning. About 10 minutes.</span>
+            <button type="button" className="tr-btn tr-btn-primary" disabled={starting} onClick={start}>{starting ? 'Starting…' : warm === 'ready' ? 'Start now' : 'Start assessment'}</button>
+            <span className="tr-small tr-muted">{warm === 'ready' ? 'Your next scenario is ready.' : warm === 'generating' ? 'Preparing your next scenario in the background…' : 'One generated scenario, one decision, your reasoning. About 10 minutes.'}</span>
           </>}
         </div>
       </div>}
@@ -149,6 +167,29 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
   const state = attempt?.state;
   useEffect(() => { setSlow(false); if (state && TRANSIENT.has(state)) { const t = window.setTimeout(() => setSlow(true), 75_000); return () => window.clearTimeout(t); } return undefined; }, [state]);
   useEffect(() => { if (state === 'evaluated' && !result) reasoning.result(id).then(setResult, setSubErr); }, [state, id, result]);
+  // While the learner reads and answers, the next scenario at this difficulty is generated in the background.
+  const [nextReady, setNextReady] = useState(false);
+  useEffect(() => {
+    if (!attempt || (state !== 'ready' && state !== 'evaluating' && state !== 'evaluated')) return undefined;
+    let on = true;
+    let t: number | undefined;
+    const poll = async () => {
+      try { const a = await reasoning.prefetch(attempt.domain, attempt.difficulty as Difficulty); if (!on) return; setNextReady(a.state === 'ready'); if (a.state !== 'ready') t = window.setTimeout(poll, 5000); }
+      catch { /* pre-generation is optional */ }
+    };
+    poll();
+    return () => { on = false; if (t) window.clearTimeout(t); };
+  }, [attempt?.id, attempt?.domain, attempt?.difficulty, state]);
+  const [moving, setMoving] = useState(false);
+  const nextScenario = async (skipCurrent: boolean) => {
+    if (!attempt) return;
+    setMoving(true); setSubErr(null);
+    try {
+      if (skipCurrent) await reasoning.abandon(attempt.id);
+      const a = await reasoning.create(attempt.domain, attempt.difficulty as Difficulty);
+      go(`${BASE}attempts/${a.id}`);
+    } catch (e) { setSubErr(e); setMoving(false); }
+  };
   // While a transient state lasts, keep polling even after a submit from this page.
   useEffect(() => { if (state && TRANSIENT.has(state)) { const t = window.setInterval(() => { refresh(); }, 2500); return () => window.clearInterval(t); } return undefined; }, [state, refresh]);
   const domainSlug = attempt ? DOMAIN_SLUG(attempt.domain) : '';
@@ -199,7 +240,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
               <textarea value={text} onChange={(e) => setText(e.target.value.slice(0, MAX_JUSTIFICATION))} rows={9} placeholder="The attacker is operating as … because the audit log shows … Revoking … breaks the path at … while … The alternatives …" />
               <span className="ar-counter tr-small tr-muted">{chars < MIN_JUSTIFICATION ? `${MIN_JUSTIFICATION - chars} more characters needed` : `${chars.toLocaleString()} / ${MAX_JUSTIFICATION.toLocaleString()}`}</span>
             </label>
-            <div className="ar-submit"><button type="button" className="tr-btn tr-btn-primary" disabled={!canSubmit} onClick={submit}>{submitting ? 'Submitting…' : 'Submit for evaluation'}</button><span className="tr-small tr-muted">You see the correct answer and the feedback after your reasoning is evaluated.</span></div>
+            <div className="ar-submit"><button type="button" className="tr-btn tr-btn-primary" disabled={!canSubmit} onClick={submit}>{submitting ? 'Submitting…' : 'Submit for evaluation'}</button><button type="button" className="tr-btn tr-btn-ghost" disabled={moving} onClick={() => nextScenario(true)} title="Skip this scenario and open the next architecture and question">{moving ? 'Opening…' : nextReady ? 'Skip to next scenario (ready)' : 'Skip to next scenario'}</button><span className="tr-small tr-muted">You see the correct answer and the feedback after your reasoning is evaluated.</span></div>
           </section>
         ) : (
           <section className="tr-card ar-question">
@@ -209,7 +250,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
             {attempt.state === 'evaluating' && <div className="ar-wait ar-wait-inline"><span className="tr-spinner" aria-hidden="true" /><div><b>Evaluating in three stages</b><ol className="ar-stages"><li>Evaluator: grades your justification against the rubric with verbatim evidence</li><li>Challenger: looks for errors, invented references and over-credit</li><li>Reconciler: settles the disagreements and writes your feedback</li></ol><span className="tr-small tr-muted">{slow ? 'Taking longer than usual. Your answer is saved; you can come back later.' : 'Usually one to two minutes.'}</span></div></div>}
           </section>
         )}
-        {attempt.state === 'evaluated' && (result ? <ResultView r={result} item={attempt.item} go={go} domainSlug={domainSlug} /> : !subErr && <Loading text="Loading your result…" />)}
+        {attempt.state === 'evaluated' && (result ? <ResultView r={result} item={attempt.item} go={go} domainSlug={domainSlug} next={() => nextScenario(false)} nextReady={nextReady} moving={moving} /> : !subErr && <Loading text="Loading your result…" />)}
       </div>}
     </div>
   </>;
@@ -219,10 +260,8 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
 
 const CONF: Record<string, string> = { high: 'tr-tag-live', medium: 'tr-tag-info', low: 'tr-tag-soon' };
 
-function ResultView({ r, item, go, domainSlug }: { r: Result; item: NonNullable<AttemptView['item']>; go: (to: string) => void; domainSlug: string }) {
+function ResultView({ r, item, go, domainSlug, next, nextReady, moving }: { r: Result; item: NonNullable<AttemptView['item']>; go: (to: string) => void; domainSlug: string; next: () => void; nextReady: boolean; moving: boolean }) {
   const opt = (id: OptionId) => r.options.find((o) => o.id === id)!;
-  const [starting, setStarting] = useState(false);
-  const [startErr, setStartErr] = useState<unknown>(null);
   return <div className="ar-result">
     <section className="tr-card ar-score-card">
       <div className="ar-score"><span className="ar-score-num">{r.totalScore}</span><span className="ar-score-den">/ 100</span></div>
@@ -258,9 +297,9 @@ function ResultView({ r, item, go, domainSlug }: { r: Result; item: NonNullable<
     <section className="tr-card"><h2 className="tr-h3">Architecture analysis</h2><p className="ar-prose">{r.feedback.architectureAnalysis}</p></section>
     <section className="tr-card"><h2 className="tr-h3">Expert explanation</h2><p className="ar-prose">{r.feedback.expertExplanation}</p><div className="tr-chips">{r.concepts.map((c) => <span key={c} className="tr-tag tr-tag-plain">{c}</span>)}</div></section>
     <section className="tr-card"><h2 className="tr-h3">How to improve</h2><ul className="ar-list">{r.feedback.improve.map((x) => <li key={x}>{x}</li>)}</ul></section>
-    {startErr ? <Err e={startErr} /> : null}
     <div className="ar-actions">
-      <button type="button" className="tr-btn tr-btn-primary" disabled={starting} onClick={async () => { setStarting(true); setStartErr(null); try { const a = await reasoning.create(item.domain); go(`${BASE}attempts/${a.id}`); } catch (e) { setStartErr(e); setStarting(false); } }}>{starting ? 'Starting…' : 'New assessment in this domain'}</button>
+      <button type="button" className="tr-btn tr-btn-primary" disabled={moving} onClick={next}>{moving ? 'Opening…' : nextReady ? 'Next question (ready)' : 'Next question'}</button>
+      <span className="tr-small tr-muted ar-next-hint">{nextReady ? `A new ${item.difficulty} architecture and question are ready.` : 'The next architecture and question are being generated in the background.'}</span>
       <a className="tr-btn tr-btn-secondary" href={`${BASE}domains/${domainSlug}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${domainSlug}`); }}>Back to domain</a>
       <a className="tr-btn tr-btn-ghost" href={`${BASE}history`} onClick={(e) => { e.preventDefault(); go(`${BASE}history`); }}>History</a>
     </div>

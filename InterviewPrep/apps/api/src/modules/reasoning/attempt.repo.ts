@@ -70,7 +70,9 @@ export function attemptView(a: AttemptRow, item: ItemRow | null, ev: EvaluationR
   return {
     id: a.id,
     domain: a.domain as ReasoningAttemptView['domain'],
+    difficulty: a.difficulty as ReasoningAttemptView['difficulty'],
     state: a.state,
+    prefetched: a.openedAt !== null && a.openedAt.getTime() - a.createdAt.getTime() > 5_000,
     item: item ? publicOf(item) : null,
     answer: a.selectedOption && a.justification && a.submittedAt ? { selectedOption: a.selectedOption as 'A', justification: a.justification, submittedAt: a.submittedAt.toISOString() } : null,
     result: ev ? { totalScore: ev.totalScore, correct: ev.correct, confidence: ev.confidence } : null,

@@ -81,6 +81,8 @@ const EnvSchema = z
     REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
     /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
+    /** Pre-generate the next scenario in the background when one is started, so the next question opens instantly. */
+    REASONING_PREFETCH_ENABLED: bool.default(true),
 
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),

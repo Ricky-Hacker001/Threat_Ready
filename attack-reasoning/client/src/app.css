@@ -117,3 +117,14 @@ body { margin: 0; }
 .ar-detail strong { color: var(--text); }
 .ar-detail p { margin: 0; }
 .ar-path { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+/* Difficulty selector and next-question hint */
+.ar-levels { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r1); overflow: hidden; }
+.ar-level { padding: 8px 14px; background: transparent; border: 0; border-right: 1px solid var(--border); color: var(--text-2); font: 500 14px/1 var(--font); cursor: pointer; }
+.ar-level:last-child { border-right: 0; }
+.ar-level:hover { color: var(--text); background: var(--surface); }
+.ar-level.is-selected { background: var(--accent-soft); color: var(--accent-text); }
+.ar-next-hint { align-self: center; }
+/* Routed edge labels (placed at dagre's reserved label positions) */
+.ar-edge-label { position: absolute; pointer-events: none; padding: 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font: 500 11px/1.2 var(--font); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.ar-edge-label.is-attack { color: #ef5a6f; border-color: rgba(239,90,111,.45); font-weight: 600; }
+.ar-edge-label-auth { color: #4fb3a9; } .ar-edge-label-control { color: #c5a24e; }

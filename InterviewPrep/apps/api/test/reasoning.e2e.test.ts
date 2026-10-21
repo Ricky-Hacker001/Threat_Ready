@@ -339,6 +339,55 @@ describe('attack reasoning: cloud security end to end', () => {
     }
   });
 
+  it('pre-generates the next scenario, hands it over instantly, lets the learner skip, and scales with difficulty', async () => {
+    const t4 = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_PREFETCH_ENABLED: 'true', REASONING_MAX_OPEN_ATTEMPTS: '2' });
+    try {
+      const l = await signUp(t4, 'Prefetch Tester');
+      // Opening the domain page pre-generates one scenario; a second call is idempotent.
+      const pre = await l.post('/v1/reasoning/attempts/prefetch').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' });
+      expect(pre.status).toBe(202);
+      expect(pre.body).toMatchObject({ state: 'generating', difficulty: 'advanced' });
+      const again = await l.post('/v1/reasoning/attempts/prefetch').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' });
+      expect(again.body.id).toBe(pre.body.id);
+      await drainJobs(t4, { only: ['reasoning.generate'] });
+      // Pre-generated attempts are invisible in history and do not count as open.
+      expect((await l.get('/v1/reasoning/attempts')).body.items).toHaveLength(0);
+      expect((await l.get('/v1/reasoning/dashboard')).body.inProgress).toBe(0);
+      // Starting hands over the ready scenario at once and queues the next one.
+      const started = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' });
+      expect(started.status).toBe(202);
+      expect(started.body.id).toBe(pre.body.id);
+      expect(started.body.state).toBe('ready');
+      expect(started.body.item.difficulty).toBe('advanced');
+      expect(started.body.item.diagram.attackPath.length).toBeGreaterThanOrEqual(3);
+      expect(started.body.item.diagram.nodes.length).toBeGreaterThanOrEqual(9);
+      const { rows } = await t4.pool.query(`SELECT count(*)::int AS n FROM reasoning_attempts WHERE user_id = (SELECT user_id FROM reasoning_attempts WHERE id = $1) AND opened_at IS NULL AND state IN ('generating','ready')`, [started.body.id]);
+      expect(rows[0].n).toBe(1);
+      expect((await l.get('/v1/reasoning/attempts')).body.items).toHaveLength(1);
+      // Skip: the attempt is marked abandoned, the next one is handed over.
+      const skipped = await l.post(`/v1/reasoning/attempts/${started.body.id}/abandon`).set('Origin', ORIGIN);
+      expect(skipped.status).toBe(200);
+      expect(skipped.body.state).toBe('abandoned');
+      await drainJobs(t4, { only: ['reasoning.generate'] });
+      const next = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' });
+      expect(next.body.state).toBe('ready');
+      expect(next.body.id).not.toBe(started.body.id);
+      // A different difficulty is its own queue and shapes the item.
+      const easy = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'beginner' });
+      expect(easy.body.state).toBe('generating');
+      await drainJobs(t4, { only: ['reasoning.generate'] });
+      const easyView = await l.get(`/v1/reasoning/attempts/${easy.body.id}`);
+      expect(easyView.body.item.difficulty).toBe('beginner');
+      expect(easyView.body.item.diagram.attackPath.length).toBeLessThanOrEqual(2);
+      // Skipped and open attempts show in history; the open-attempt cap counts opened ones only.
+      const items = (await l.get('/v1/reasoning/attempts')).body.items;
+      expect(items.map((i: { state: string }) => i.state).sort()).toEqual(['abandoned', 'ready', 'ready']);
+      expect((await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'intermediate' })).status).toBe(409);
+    } finally {
+      await t4.close();
+    }
+  });
+
   it('limits open attempts per user', async () => {
     const t3 = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '2' });
     try {

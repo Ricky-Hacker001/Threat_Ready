@@ -36,6 +36,20 @@ export class ReasoningController {
     return this.reasoning.create(req.principal, body);
   }
 
+  @Post('attempts/prefetch')
+  @HttpCode(202)
+  @Route('prefetchReasoningAttempt')
+  prefetch(@Req() req: AuthedRequest, @Body() body: CreateReasoningAttemptRequest) {
+    return this.reasoning.prefetch(req.principal, body);
+  }
+
+  @Post('attempts/:id/abandon')
+  @HttpCode(200)
+  @Route('abandonReasoningAttempt')
+  abandon(@Req() req: AuthedRequest, @Param('id') id: string) {
+    return this.reasoning.abandon(req.principal, id);
+  }
+
   @Get('attempts')
   @Route('listReasoningAttempts')
   list(@Req() req: AuthedRequest, @Query('cursor') cursor?: string, @Query('limit') limit?: string) {

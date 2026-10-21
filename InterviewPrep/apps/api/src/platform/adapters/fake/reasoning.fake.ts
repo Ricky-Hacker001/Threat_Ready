@@ -120,6 +120,11 @@ export function fakeReasoningItem(req: LlmRequest): unknown {
         { id: 'bucket', label: labels.bucket, type: 'storage', boundary: 'data', detail: 'Nightly exports', compromised: false, entry_point: false, controls: ['versioning'] },
         { id: 'idp', label: labels.idp, type: 'identity', boundary: 'identity', detail: 'SSO with MFA', compromised: false, entry_point: false, controls: ['MFA'] },
         { id: 'trail', label: labels.trail, type: 'control', boundary: 'identity', detail: 'All API calls', compromised: false, entry_point: false, controls: ['immutable retention'] },
+        ...(difficulty === 'advanced' || difficulty === 'expert' ? [
+          { id: 'cache', label: 'session cache', type: 'service' as const, boundary: 'vpc', detail: 'Reused password', compromised: false, entry_point: false, controls: [] as string[] },
+          { id: 'peer', label: 'peered analytics VPC', type: 'network' as const, boundary: 'data', detail: 'Full-mesh peering', compromised: false, entry_point: false, controls: [] as string[] },
+          { id: 'ci', label: 'CI runner pool', type: 'compute' as const, boundary: 'vpc', detail: 'Holds the deploy key', compromised: false, entry_point: false, controls: [] as string[] },
+        ] : []),
       ],
       edges: [
         { id: 'e1', from: 'lb', to: 'app', label: 'HTTPS 443', kind: 'data' },
@@ -129,8 +134,9 @@ export function fakeReasoningItem(req: LlmRequest): unknown {
         { id: 'e5', from: 'role', to: 'app', label: 'deploys', kind: 'control' },
         { id: 'a1', from: 'role', to: 'bucket', label: 'lists and downloads exports', kind: 'attack' },
         { id: 'a2', from: 'bucket', to: 'db', label: 'pivots toward the database network', kind: 'attack' },
+        ...(difficulty === 'advanced' || difficulty === 'expert' ? [{ id: 'a3', from: 'db', to: 'idp', label: 'reuses a stored admin credential against SSO', kind: 'attack' as const }] : []),
       ],
-      attack_path: ['a1', 'a2'],
+      attack_path: difficulty === 'advanced' || difficulty === 'expert' ? ['a1', 'a2', 'a3'] : difficulty === 'beginner' ? ['a1'] : ['a1', 'a2'],
     },
     rubric: [
       { id: 'r1', dimension: 'reasoning', text: 'States that the attacker is operating as the deploy-prod role and that revoking that identity stops the current activity', weight: '5', hint: 'Name the identity the attacker is using; the audit log shows it is the deploy-prod role.', explanation: 'The path runs through one identity; cutting it ends the activity.' },
