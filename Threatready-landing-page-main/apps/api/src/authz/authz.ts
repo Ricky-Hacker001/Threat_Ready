@@ -2,7 +2,7 @@ import { SetMetadata, createParamDecorator, type ExecutionContext } from "@nestj
 import type { PersonalRole } from "../tenancy/tenancy.js";
 
 /** Static role → permission map (ADD L7 step 4). Code, not data. */
-export const PERMISSIONS = ["me:read", "feature:read", "feature:launch", "launch:read", "overview:read", "admin:read"] as const;
+export const PERMISSIONS = ["me:read", "feature:read", "feature:launch", "launch:read", "overview:read", "admin:read", "admin:write"] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<PersonalRole, readonly Permission[]> = {
@@ -12,7 +12,7 @@ export const ROLE_PERMISSIONS: Record<PersonalRole, readonly Permission[]> = {
 };
 
 /** Granted by the platform role, not by the membership role. */
-export const ADMIN_PERMISSIONS: readonly Permission[] = ["admin:read"];
+export const ADMIN_PERMISSIONS: readonly Permission[] = ["admin:read", "admin:write"];
 
 /** Platform admin: users.role = 'admin', or a verified email listed in ADMIN_EMAILS. Never a trial user. */
 export function isPlatformAdmin(
@@ -22,6 +22,16 @@ export function isPlatformAdmin(
   if (user.isAnonymous) return false;
   if (user.role === "admin") return true;
   return !!user.emailVerified && !!user.email && adminEmails.has(user.email.toLowerCase());
+}
+
+/** Where a user's admin access comes from, for the console: "role" can be changed there, "env" only by editing ADMIN_EMAILS. */
+export function adminSourceOf(
+  user: { role?: string | null; email?: string | null; emailVerified?: boolean | null; isAnonymous?: boolean | null },
+  adminEmails: ReadonlySet<string>,
+): "role" | "env" | null {
+  if (user.isAnonymous) return null;
+  if (user.role === "admin") return "role";
+  return !!user.emailVerified && !!user.email && adminEmails.has(user.email.toLowerCase()) ? "env" : null;
 }
 
 export interface Principal {

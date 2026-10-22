@@ -29,6 +29,13 @@
       "when": 1792700000000,
       "tag": "0003_activity_and_locations",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792780000000,
+      "tag": "0004_admin_audit_log",
+      "breakpoints": true
     }
   ]
 }

@@ -1673,3 +1673,18 @@ select.input {
 .chart-bar:hover i { opacity: 1; }
 .chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: var(--t-sm); color: var(--ink-3); }
 @media (max-width: 600px) { .chart-axis span:nth-child(2) { display: none; } }
+
+/* Admin → user → platform role (promote / remove admin) */
+.admin-role {
+  align-items: flex-start;
+  padding: 16px 18px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-surface);
+  background: var(--panel);
+  margin: 0 0 24px;
+}
+.admin-role .profile-card-id { flex: 1; }
+.admin-role p { margin-top: 6px; }
+.admin-role-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.admin-role-confirm { margin-top: 12px; max-width: 460px; }
+.admin-role-confirm .field { margin-top: 10px; }

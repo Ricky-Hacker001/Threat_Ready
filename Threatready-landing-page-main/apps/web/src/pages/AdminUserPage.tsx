@@ -3,8 +3,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { AppCards } from "../components/Overview";
 import { Avatar, displayName } from "../components/ProfileMenu";
-import { Notice } from "../components/ui";
+import { useMe } from "../components/AppShell";
+import { Button, Field, Notice } from "../components/ui";
 import { api, ApiError } from "../lib/api";
+import type { AdminRoleChangeResult } from "@threatready/contracts";
 import { fmtAgo, fmtCompact, fmtDate, fmtDateTime, fmtInt, fmtUsd } from "../lib/format";
 import { AppTag, RANGES, RangePicker, Tile, UsageTable, rangeFor, tokensOf } from "./AdminPage";
 import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, regionOf, timeZoneName } from "./adminInsights";
@@ -15,6 +17,7 @@ export function AdminUserPage() {
   const [params, setParams] = useSearchParams();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);
   const [data, setData] = useState<AdminUserDetail | null>(null);
+  const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -31,7 +34,7 @@ export function AdminUserPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, range.key]);
+  }, [id, range.key, reload]);
 
   const back = (
     <Link className="btn btn-quiet" to={`/app/admin?range=${range.key}`}>
@@ -85,6 +88,8 @@ export function AdminUserPage() {
         </section>
         <RangePicker value={range.key} onChange={(k) => setParams({ range: k }, { replace: true })} />
       </div>
+
+      <RoleCard user={u} onChanged={() => setReload((n) => n + 1)} />
 
       <p className="admin-summary" aria-label="In short">
         {displayName({ name: u.name, email: u.email, username: u.username })}{" "}
@@ -287,5 +292,78 @@ export function AdminUserPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * Promote this user to platform admin, or remove it. The server enforces the rules (not yourself,
+ * not a trial or unverified account, not the last admin, not an ADMIN_EMAILS admin); this card
+ * explains them up front and asks the admin to retype the user's email before the change.
+ */
+function RoleCard({ user, onChanged }: { user: AdminUserDetail["user"]; onChanged: () => void }) {
+  const { me } = useMe();
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<AdminRoleChangeResult | null>(null);
+  useEffect(() => { setOpen(false); setConfirm(""); setError(null); setDone(null); }, [user.id, user.isAdmin]);
+
+  const isSelf = me.user.id === user.id;
+  const promote = !user.isAdmin;
+  const title = promote ? "Make admin" : "Remove admin access";
+  const blocked =
+    isSelf ? "You can\'t change your own role. Ask another admin." :
+    user.isTrial ? "Trial accounts can\'t be admins. The user needs to create an account first." :
+    promote && !user.emailVerified ? "Only a verified email can be made admin. The user needs to verify first." :
+    !promote && user.adminSource === "env" ? "This admin is listed in ADMIN_EMAILS. Remove the email from that setting; the console can\'t override it." :
+    null;
+
+  const submit = async () => {
+    setBusy(true); setError(null);
+    try {
+      const r = await api.admin.setRole(user.id, { role: promote ? "admin" : "user", confirmEmail: confirm });
+      setDone(r); setOpen(false); setConfirm(""); onChanged();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn\'t change the role. Try again.");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <section className="profile-card admin-role" aria-labelledby="admin-role-title">
+      <div className="profile-card-id">
+        <h2 id="admin-role-title" className="h3" style={{ margin: 0 }}>Platform role</h2>
+        <p>
+          {user.isAdmin
+            ? <>This user is an <strong>admin</strong>{user.adminSource === "env" ? " (via ADMIN_EMAILS)" : ""}: they see every user, token and AI cost, and can change roles.</>
+            : <>This user is a <strong>learner</strong>. Admins see every user, token and AI cost, and can change roles.</>}
+        </p>
+        {done ? (
+          <Notice tone="ok">
+            {done.user.isAdmin ? "Now an admin." : `Admin access removed${done.sessionsEnded ? `; signed out of ${done.sessionsEnded} session${done.sessionsEnded === 1 ? "" : "s"}` : ""}.`} Recorded in the audit log.
+          </Notice>
+        ) : null}
+        {blocked ? (
+          <p className="field-hint">{blocked}</p>
+        ) : !open ? (
+          <div className="admin-role-actions">
+            <Button type="button" variant={promote ? "primary" : "signal"} onClick={() => { setOpen(true); setDone(null); }}>{title}</Button>
+          </div>
+        ) : (
+          <form className="admin-role-confirm" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
+            <p className="field-hint">
+              {promote
+                ? "They will immediately see every user\'s data and AI cost. Type their email to confirm."
+                : "They will be signed out everywhere and lose the admin console at once. Type their email to confirm."}
+            </p>
+            <Field label="Confirm email" type="email" autoComplete="off" placeholder={user.email ?? ""} value={confirm} onChange={(e) => setConfirm(e.currentTarget.value)} error={error} />
+            <div className="admin-role-actions">
+              <Button type="submit" variant={promote ? "primary" : "signal"} loading={busy} disabled={!confirm || confirm.trim().toLowerCase() !== (user.email ?? "").toLowerCase()}>{title}</Button>
+              <Button type="button" variant="quiet" onClick={() => { setOpen(false); setConfirm(""); setError(null); }} disabled={busy}>Cancel</Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </section>
   );
 }

@@ -10,7 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file-if-exists=.env dist/db/migrate.js",
-    "test:routes": "node --test test/routes.test.mjs",
+    "test:routes": "node --test test/routes.test.mjs test/role-change.test.mjs",
     "test:e2e": "node --env-file-if-exists=.env --test test/e2e.test.mjs",
     "admin:grant": "node --env-file-if-exists=.env dist/db/grant-admin.js"
   },

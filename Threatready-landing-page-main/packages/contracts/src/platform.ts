@@ -117,6 +117,19 @@ export const activityPingSchema = z.object({
 });
 export type ActivityPing = z.infer<typeof activityPingSchema>;
 
+/** `POST /api/admin/users/:id/role`: promote a user to platform admin or remove it. The caller retypes the target's email. */
+export const adminRoleChangeSchema = z.object({
+  role: z.enum(["admin", "user"]),
+  confirmEmail: z.string().trim().toLowerCase().email().max(254),
+});
+export type AdminRoleChange = z.infer<typeof adminRoleChangeSchema>;
+
+export interface AdminRoleChangeResult {
+  user: { id: string; email: string | null; isAdmin: boolean; adminSource: "role" | "env" | null };
+  /** Sessions ended for the user (a demoted admin is signed out everywhere so cached admin rights stop at once). */
+  sessionsEnded: number;
+}
+
 export interface AdminUserRow {
   id: string;
   name: string;
@@ -125,6 +138,8 @@ export interface AdminUserRow {
   emailVerified: boolean;
   isTrial: boolean;
   isAdmin: boolean;
+  /** Where admin access comes from: the users.role column (changeable in the console), the ADMIN_EMAILS environment list (not), or neither. */
+  adminSource: "role" | "env" | null;
   createdAt: string;
   lastSeenAt: string | null;
   activeSessions: number;

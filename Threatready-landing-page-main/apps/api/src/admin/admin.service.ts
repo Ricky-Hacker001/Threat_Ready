@@ -1,8 +1,9 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   addAiUsage,
   emptyAiUsage,
   type AdminOverview,
+  type AdminRoleChangeResult,
   type AdminUserDetail,
   type AdminUserList,
   type AdminUserRow,
@@ -12,12 +13,13 @@ import {
 } from "@threatready/contracts";
 import { and, count, desc, eq, gt, gte, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { isPlatformAdmin } from "../authz/authz.js";
+import { adminSourceOf, isPlatformAdmin, type Principal } from "../authz/authz.js";
 import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
-import { accounts, sessions, users } from "../db/schema.js";
+import { accounts, adminAuditLog, sessions, users } from "../db/schema.js";
 import { AppsClient } from "../platform/apps.client.js";
 import { lastApps, primaryLocations, secondsByUser, timeOverview, userActivity } from "./activity.queries.js";
+import { planRoleChange } from "./role-change.js";
 
 export interface Range {
   from: Date;
@@ -267,6 +269,7 @@ export class AdminService {
         emailVerified: r.emailVerified,
         isTrial: r.isAnonymous === true,
         isAdmin: this.isAdmin(r),
+        adminSource: adminSourceOf(r, this.config.adminEmails),
         createdAt: r.createdAt.toISOString(),
         lastSeenAt: lastSeen,
         activeSessions: Number(r.active ?? 0),
@@ -288,6 +291,81 @@ export class AdminService {
     };
     out.sort(sorters[query.sort]);
     return { rows: out, unavailable };
+  }
+
+  /** Platform admins right now: the role column plus verified ADMIN_EMAILS accounts that are not already role admins. */
+  private async adminCount(db: Pick<Db, "select"> = this.db): Promise<number> {
+    const [byRole] = await db.select({ n: count() }).from(users).where(and(eq(users.role, "admin"), sql`${users.isAnonymous} is not true`));
+    let byEnv = 0;
+    const listed = [...this.config.adminEmails];
+    if (listed.length) {
+      const [r] = await db
+        .select({ n: count() })
+        .from(users)
+        .where(and(sql`lower(${users.email}) in (${sql.join(listed.map((e) => sql`${e}`), sql`, `)})`, eq(users.emailVerified, true), sql`${users.role} <> 'admin'`, sql`${users.isAnonymous} is not true`));
+      byEnv = r?.n ?? 0;
+    }
+    return (byRole?.n ?? 0) + byEnv;
+  }
+
+  /**
+   * Promote a user to platform admin or remove it. The rules live in planRoleChange (pure); this
+   * gathers the facts, applies the plan in one transaction with an audit row, and on demotion ends
+   * every session of the user so cached admin rights stop immediately.
+   */
+  async setRole(actor: Principal, targetId: string, requested: "admin" | "user", confirmEmail: string, ip: string | null): Promise<AdminRoleChangeResult> {
+    if (targetId.length > 100) throw new NotFoundException({ code: "NOT_FOUND", message: "Not found" });
+    const [t] = await this.db.select().from(users).where(eq(users.id, targetId)).limit(1);
+    if (!t) throw new NotFoundException({ code: "NOT_FOUND", message: "Not found" });
+
+    const envListed = !!t.email && this.config.adminEmails.has(t.email.toLowerCase());
+    const plan = planRoleChange({
+      actor: { userId: actor.userId },
+      target: { id: t.id, email: t.email, role: t.role, emailVerified: t.emailVerified, isAnonymous: t.isAnonymous, envListed },
+      requested,
+      confirmEmail,
+      adminCount: requested === "user" ? await this.adminCount() : 0,
+    });
+    if (!plan.ok) {
+      const body = { code: plan.code, message: plan.message };
+      throw plan.status === 409 ? new ConflictException(body) : new BadRequestException(body);
+    }
+
+    const sessionsEnded = await this.db.transaction(async (tx) => {
+      // Role changes are serialised (transaction-scoped advisory lock), and a demotion recounts the
+      // admins under that lock, so two admins demoting each other at the same moment cannot leave none.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext('threatready:admin-role'))`);
+      if (plan.signOut && (await this.adminCount(tx)) <= 1) {
+        throw new BadRequestException({ code: "ADMIN_LAST_ADMIN", message: "This is the last admin. Promote someone else before removing this one." });
+      }
+      const [updated] = await tx
+        .update(users)
+        .set({ role: requested, updatedAt: new Date() })
+        .where(and(eq(users.id, t.id), eq(users.role, t.role)))
+        .returning({ id: users.id });
+      if (!updated) throw new ConflictException({ code: "ADMIN_CHANGED", message: "This user's role changed a moment ago. Reload and try again." });
+      let ended = 0;
+      if (plan.signOut) {
+        const gone = await tx.delete(sessions).where(eq(sessions.userId, t.id)).returning({ id: sessions.id });
+        ended = gone.length;
+      }
+      await tx.insert(adminAuditLog).values({
+        action: plan.action,
+        actorId: actor.userId,
+        actorEmail: actor.email,
+        targetId: t.id,
+        targetEmail: t.email,
+        detail: { from: t.role, to: requested, sessionsEnded: ended },
+        ip,
+      });
+      return ended;
+    });
+
+    const after = { ...t, role: requested };
+    return {
+      user: { id: t.id, email: t.email, isAdmin: this.isAdmin(after), adminSource: adminSourceOf(after, this.config.adminEmails) },
+      sessionsEnded,
+    };
   }
 
   async userDetail(id: string, range: Range): Promise<AdminUserDetail> {
@@ -338,6 +416,7 @@ export class AdminService {
         emailVerified: u.emailVerified,
         isTrial: u.isAnonymous === true,
         isAdmin: this.isAdmin(u),
+        adminSource: adminSourceOf(u, this.config.adminEmails),
         createdAt: u.createdAt.toISOString(),
         lastSeenAt: lastSeen?.at ? new Date(lastSeen.at).toISOString() : null,
         activeSessions: userSessions.length,

@@ -1,10 +1,12 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  bigserial,
   boolean,
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgPolicy,
   pgRole,
@@ -234,3 +236,20 @@ export const authSchema = {
   verification: verifications,
   rateLimit: rateLimits,
 };
+
+/** Append-only record of platform-role changes made from the admin console (migration 0004). */
+export const adminAuditLog = pgTable(
+  "admin_audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    action: text("action").notNull(),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email"),
+    targetId: text("target_id").references(() => users.id, { onDelete: "set null" }),
+    targetEmail: text("target_email"),
+    detail: jsonb("detail").notNull().default({}),
+    ip: text("ip"),
+  },
+  (t) => [index("admin_audit_log_at_idx").on(t.at), index("admin_audit_log_target_idx").on(t.targetId)],
+);

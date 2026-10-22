@@ -94,6 +94,10 @@ body { margin: 0; }
 .ar-flow .react-flow__controls button { background: var(--surface); border-bottom: 1px solid var(--border); fill: var(--text); color: var(--text); }
 .ar-flow .react-flow__edge-text { fill: var(--text-2); font-size: 11px; }
 .ar-flow .react-flow__edge-textbg { fill: var(--surface); }
+/* Layering: boundaries (-1) < edges (1-2) < edge labels (3) < components (4). Edges carry a zIndex so
+   the attack path draws above data flows; without this, those edge <svg>s also draw above the HTML
+   label layer and lines run straight through the words. */
+.ar-flow .react-flow__edgelabel-renderer { z-index: 3; }
 .ar-flow .react-flow__attribution { background: transparent; color: var(--text-3); }
 .ar-boundary { width: 100%; height: 100%; border: 1.5px dashed var(--border-strong); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); }
 .ar-boundary-internet { border-color: #ef5a6f; } .ar-boundary-identity, .ar-boundary-account { border-color: #c5a24e; } .ar-boundary-data { border-color: #4fb3a9; } .ar-boundary-cicd, .ar-boundary-management, .ar-boundary-cluster { border-color: #8a7bff; } .ar-boundary-corporate, .ar-boundary-tenant { border-color: #7b8aa6; } .ar-boundary-ot { border-color: #e0893a; } .ar-boundary-vendor { border-color: #c5a24e; }

@@ -15,7 +15,129 @@ const COLOUR: Record<DiagramEdge['kind'], string> = { attack: '#ef5a6f', data: '
 /** Estimated rendered height: a wrapped label and a row of flags make a node taller than the base. */
 const nodeHeight = (n: DiagramNode) => 46 + (n.label.length > 20 ? 16 : 0) + (n.label.length > 40 ? 16 : 0) + (n.entryPoint || n.compromised || n.controls.length ? 24 : 0) + (n.controls.length > 1 && (n.entryPoint || n.compromised) ? 20 : 0);
 /** Width an edge label needs, so dagre keeps that much room between the ranks it crosses. */
-const labelWidth = (text: string) => Math.min(190, 24 + text.length * 6.2);
+const labelWidth = (text: string) => Math.min(200, 24 + text.length * 6.2);
+const LABEL_H = 22;
+
+/* ---------------- Label deconfliction (post-layout) ----------------
+ * Dagre reserves room for a label only inside its own edge's rank gap. Nothing stops another edge's
+ * diagonal segment, a parallel edge between the same two nodes, or a neighbouring label from running
+ * through that rectangle, which is what makes words sit on top of flow lines. After dagre runs we
+ * place every label ourselves: try positions along the edge's own polyline (and just beside it),
+ * score each against component rectangles, other edges' segments and labels already placed, and
+ * keep the best. Attack steps are placed first because the story has to stay readable. */
+
+type Pt = { x: number; y: number };
+type Rect = { x: number; y: number; w: number; h: number };
+
+const rectsOverlap = (a: Rect, b: Rect, pad = 2) => a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+
+/** Liang–Barsky style test: does the segment p→q pass through the rectangle (with padding)? */
+function segmentHitsRect(p: Pt, q: Pt, r: Rect, pad = 3): boolean {
+  const x0 = r.x - pad, y0 = r.y - pad, x1 = r.x + r.w + pad, y1 = r.y + r.h + pad;
+  let t0 = 0, t1 = 1;
+  const dx = q.x - p.x, dy = q.y - p.y;
+  const clip = (den: number, num: number): boolean => {
+    if (den === 0) return num <= 0;
+    const t = num / den;
+    if (den > 0) { if (t > t1) return false; if (t > t0) t0 = t; } else { if (t < t0) return false; if (t < t1) t1 = t; }
+    return true;
+  };
+  return clip(-dx, p.x - x0) && clip(dx, x1 - p.x) && clip(-dy, p.y - y0) && clip(dy, y1 - p.y);
+}
+
+/** Point at arc-length fraction `t` of a polyline, plus the unit normal of the segment it falls on. */
+function pointAt(pts: Pt[], t: number): { p: Pt; n: Pt } {
+  if (pts.length === 1) return { p: pts[0]!, n: { x: 0, y: -1 } };
+  const lens: number[] = [];
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y); lens.push(l); total += l; }
+  let d = Math.max(0, Math.min(1, t)) * total;
+  for (let i = 0; i < lens.length; i++) {
+    const l = lens[i]!;
+    if (d <= l || i === lens.length - 1) {
+      const a = pts[i]!, b = pts[i + 1]!;
+      const f = l === 0 ? 0 : d / l;
+      const p = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+      const n = l === 0 ? { x: 0, y: -1 } : { x: -(b.y - a.y) / l, y: (b.x - a.x) / l };
+      return { p, n };
+    }
+    d -= l;
+  }
+  return { p: pts[pts.length - 1]!, n: { x: 0, y: -1 } };
+}
+
+/** Fractions along the edge to try, nearest the middle first so labels stay where the eye expects them. */
+const FRACTIONS = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82];
+/** Perpendicular offsets: on the line (dagre's intent) first, then just above/below it. */
+const OFFSETS = [0, 16, -16, 30, -30];
+
+interface Placed { id: string; rect: Rect }
+
+function placeLabels(
+  edges: { id: string; points: Pt[]; label: string; attack: boolean; preferred: Pt }[],
+  nodeRects: Rect[],
+): Map<string, Pt> {
+  const result = new Map<string, Pt>();
+  const placed: Placed[] = [];
+  // Attack steps first, then the widest labels, so the hardest-to-fit ones get the free space.
+  const order = [...edges].sort((a, b) => Number(b.attack) - Number(a.attack) || labelWidth(b.label) - labelWidth(a.label));
+  const segmentsOf = (e: { points: Pt[] }) => e.points.slice(1).map((q, i) => [e.points[i]!, q] as [Pt, Pt]);
+  const allSegments = edges.map((e) => ({ id: e.id, segs: segmentsOf(e) }));
+
+  for (const e of order) {
+    if (!e.label) continue;
+    const w = labelWidth(e.label), h = LABEL_H;
+    const rectAt = (c: Pt): Rect => ({ x: c.x - w / 2, y: c.y - h / 2, w, h });
+    const score = (r: Rect): number => {
+      let s = 0;
+      for (const n of nodeRects) if (rectsOverlap(r, n, 4)) s += 100;
+      for (const p of placed) if (rectsOverlap(r, p.rect, 4)) s += 60;
+      for (const o of allSegments) {
+        if (o.id === e.id) continue;
+        for (const [p, q] of o.segs) if (segmentHitsRect(p, q, r)) s += 25;
+      }
+      return s;
+    };
+    // Candidate 0 is dagre's own position; keep it when it is already clean.
+    let best: { c: Pt; s: number } = { c: e.preferred, s: score(rectAt(e.preferred)) };
+    if (best.s > 0 && e.points.length >= 2) {
+      outer: for (const t of FRACTIONS) {
+        const { p, n } = pointAt(e.points, t);
+        for (const off of OFFSETS) {
+          const c = { x: p.x + n.x * off, y: p.y + n.y * off };
+          const s = score(rectAt(c)) + Math.abs(t - 0.5) * 8 + Math.abs(off) * 0.4; // mild preference for centre, on-line
+          if (s < best.s) best = { c, s };
+          if (best.s === 0) break outer;
+        }
+      }
+    }
+    result.set(e.id, best.c);
+    placed.push({ id: e.id, rect: rectAt(best.c) });
+  }
+  return result;
+}
+
+/**
+ * Parallel edges between the same two nodes come out of dagre on top of each other. Fan them apart
+ * by a small perpendicular offset so each line, arrowhead and label is its own.
+ */
+function fanParallelEdges<T extends { from: string; to: string; points: Pt[] }>(edges: T[]): T[] {
+  const groups = new Map<string, T[]>();
+  for (const e of edges) { const k = [e.from, e.to].sort().join('|'); (groups.get(k) ?? groups.set(k, []).get(k)!).push(e); }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    group.forEach((e, i) => {
+      const off = (i - (group.length - 1) / 2) * 14;
+      if (off === 0 || e.points.length < 2) return;
+      const a = e.points[0]!, b = e.points[e.points.length - 1]!;
+      const l = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      const n = { x: -(b.y - a.y) / l, y: (b.x - a.x) / l };
+      // Shift the interior points; keep the endpoints on their nodes.
+      e.points = e.points.map((p, j) => (j === 0 || j === e.points.length - 1 ? p : { x: p.x + n.x * off, y: p.y + n.y * off }));
+    });
+  }
+  return edges;
+}
 
 type ComponentData = DiagramNode & { [k: string]: unknown };
 type BoundaryData = { label: string; kind: string; [k: string]: unknown };
@@ -78,7 +200,9 @@ const edgeTypes: EdgeTypes = { routed: RoutedEdge };
  */
 export function layout(d: DiagramData): { nodes: Node[]; edges: Edge[]; size: { width: number; height: number } } {
   const g = new dagre.graphlib.Graph({ compound: true, multigraph: true });
-  g.setGraph({ rankdir: 'LR', nodesep: 34, ranksep: 110, edgesep: 28, marginx: 16, marginy: 16, ranker: 'network-simplex' });
+  // edgesep is the vertical room dagre keeps between edges in one rank gap; a label is 22px tall, so
+  // anything below ~40 lets two labels in the same gap touch.
+  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 120, edgesep: 44, marginx: 16, marginy: 16, ranker: 'network-simplex' });
   g.setDefaultEdgeLabel(() => ({}));
   const stepOf = new Map<string, number>(d.attackPath.map((id, i) => [id, i + 1]));
   for (const b of d.boundaries) g.setNode(`b:${b.id}`, { label: b.label, clusterLabelPos: 'top', paddingTop: 44, paddingBottom: 18, paddingLeft: 18, paddingRight: 18 });
@@ -89,9 +213,21 @@ export function layout(d: DiagramData): { nodes: Node[]; edges: Edge[]; size: { 
   for (const e of d.edges) {
     const step = stepOf.get(e.id);
     const text = step ? `${step}. ${e.label}` : e.label;
-    g.setEdge(e.from, e.to, { width: labelWidth(text), height: 22, labelpos: 'c', weight: step ? 3 : 1, minlen: 1 }, e.id);
+    g.setEdge(e.from, e.to, { width: labelWidth(text), height: LABEL_H, labelpos: 'c', weight: step ? 3 : 1, minlen: 1 }, e.id);
   }
   dagre.layout(g);
+
+  // Geometry for label placement: component rectangles and every edge's routed polyline.
+  const nodeRects: Rect[] = d.nodes.map((n) => g.node(n.id)).filter(Boolean).map((p) => ({ x: p.x - p.width / 2, y: p.y - p.height / 2, w: p.width, h: p.height }));
+  const routed = fanParallelEdges(d.edges.map((e) => {
+    const r = g.edge(e.from, e.to, e.id) as { points?: Pt[]; x?: number; y?: number } | undefined;
+    const points = r?.points ?? [];
+    const mid = points[Math.floor(points.length / 2)] ?? { x: 0, y: 0 };
+    const step = stepOf.get(e.id);
+    return { id: e.id, from: e.from, to: e.to, points, label: step ? `${step}. ${e.label}` : e.label, attack: e.kind === 'attack', preferred: { x: r?.x ?? mid.x, y: r?.y ?? mid.y } };
+  }));
+  const labelPos = placeLabels(routed, nodeRects);
+  const routedById = new Map(routed.map((r) => [r.id, r]));
 
   const nodes: Node[] = [];
   for (const b of d.boundaries) {
@@ -102,21 +238,18 @@ export function layout(d: DiagramData): { nodes: Node[]; edges: Edge[]; size: { 
   for (const n of d.nodes) {
     const p = g.node(n.id);
     if (!p) continue;
-    nodes.push({ id: n.id, type: 'component', data: { ...n }, position: { x: p.x - p.width / 2, y: p.y - p.height / 2 }, style: { width: p.width, height: p.height }, draggable: false, sourcePosition: Position.Right, targetPosition: Position.Left });
+    nodes.push({ id: n.id, type: 'component', data: { ...n }, position: { x: p.x - p.width / 2, y: p.y - p.height / 2 }, style: { width: p.width, height: p.height }, draggable: false, sourcePosition: Position.Right, targetPosition: Position.Left, zIndex: 4 });
   }
   const edges: Edge[] = d.edges.map((e) => {
-    const step = stepOf.get(e.id) ?? null;
     const attack = e.kind === 'attack';
-    const r = g.edge(e.from, e.to, e.id) as { points?: { x: number; y: number }[]; x?: number; y?: number } | undefined;
-    const points = r?.points ?? [];
-    const mid = points[Math.floor(points.length / 2)] ?? { x: 0, y: 0 };
-    const text = step ? `${step}. ${e.label}` : e.label;
+    const r = routedById.get(e.id)!;
+    const at = labelPos.get(e.id) ?? r.preferred;
     return {
       id: e.id,
       source: e.from,
       target: e.to,
       type: 'routed',
-      data: { kind: e.kind, points, label: text, labelX: r?.x ?? mid.x, labelY: r?.y ?? mid.y },
+      data: { kind: e.kind, points: r.points, label: r.label, labelX: at.x, labelY: at.y },
       markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: COLOUR[e.kind] },
       style: { strokeWidth: attack ? 2.4 : 1.4, stroke: COLOUR[e.kind], strokeDasharray: e.kind === 'auth' ? '6 4' : e.kind === 'control' ? '2 4' : undefined },
       animated: attack,

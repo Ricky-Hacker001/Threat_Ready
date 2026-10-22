@@ -1,14 +1,21 @@
-import { BadRequestException, Controller, Get, Header, Param, Query } from "@nestjs/common";
-import type { AdminOverview, AdminUserDetail, AdminUserList, AdminUserRow } from "@threatready/contracts";
-import { APP_KEYS } from "@threatready/contracts";
-import { RequirePermission } from "../authz/authz.js";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, HttpCode, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
+import type { Request } from "express";
+import type { AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList, AdminUserRow } from "@threatready/contracts";
+import { APP_KEYS, adminRoleChangeSchema } from "@threatready/contracts";
+import { CurrentPrincipal, FreshSession, RequirePermission, type Principal } from "../authz/authz.js";
+import { ClientIpThrottlerGuard, clientIp } from "../common/throttle.js";
+import { CONFIG, type Config } from "../config.js";
 import { AdminService, listQuerySchema, parseRange } from "./admin.service.js";
 
-/** Platform admin console. Read-only in this release. */
+/** Platform admin console. Read routes plus one write: changing a user's platform role. */
 @Controller("admin")
 @RequirePermission("admin:read")
 export class AdminController {
-  constructor(private readonly admin: AdminService) {}
+  constructor(
+    private readonly admin: AdminService,
+    @Inject(CONFIG) private readonly config: Config,
+  ) {}
 
   @Get("overview")
   @RequirePermission("admin:read")
@@ -41,6 +48,26 @@ export class AdminController {
   @RequirePermission("admin:read")
   user(@Param("id") id: string, @Query() query: Record<string, unknown>): Promise<AdminUserDetail> {
     return this.admin.userDetail(id, parseRange(query));
+  }
+
+  /**
+   * Promote a user to platform admin or remove it. Fresh session (no cookie cache: a revoked admin
+   * cannot keep using this), first-party Origin only (defence in depth beside SameSite cookies), the
+   * caller retypes the target's email, and the rules in role-change.ts apply. Audited.
+   */
+  @Post("users/:id/role")
+  @RequirePermission("admin:write")
+  @FreshSession()
+  @HttpCode(200)
+  @UseGuards(ClientIpThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  setRole(@Param("id") id: string, @Body() body: unknown, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminRoleChangeResult> {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    // The admin console is onboard's own page: no other app origin may change roles.
+    if (!origin || origin !== new URL(this.config.WEB_ORIGIN).origin) throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
+    const parsed = adminRoleChangeSchema.safeParse(body);
+    if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "role must be admin or user; confirmEmail must be the user's email" });
+    return this.admin.setRole(me, id, parsed.data.role, parsed.data.confirmEmail, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
   }
 }
 

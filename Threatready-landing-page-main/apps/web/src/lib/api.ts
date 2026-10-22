@@ -1,5 +1,7 @@
 import type {
   AdminOverview,
+  AdminRoleChange,
+  AdminRoleChangeResult,
   AdminUserDetail,
   AdminUserList,
   AppInfo,
@@ -75,6 +77,7 @@ export const api = {
     users: (r: AdminRange & { q?: string; sort?: string; includeTrial?: boolean; page?: number; size?: number }) =>
       request<AdminUserList>("GET", `/admin/users${qs({ ...r })}`),
     user: (id: string, r: AdminRange) => request<AdminUserDetail>("GET", `/admin/users/${encodeURIComponent(id)}${qs({ ...r })}`),
+    setRole: (id: string, body: AdminRoleChange) => request<AdminRoleChangeResult>("POST", `/admin/users/${encodeURIComponent(id)}/role`, body),
   },
   forgotUsername: (email: string, captcha?: string) =>
     request<GenericAccepted>("POST", "/account/forgot-username", { email }, captcha ? { "x-captcha-response": captcha } : {}),
