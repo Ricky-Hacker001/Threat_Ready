@@ -20,6 +20,9 @@ importers:
       '@aws-sdk/client-sesv2':
         specifier: ^3.1150.0
         version: 3.1150.0
+      '@ip-location-db/geo-whois-asn-country-mmdb':
+        specifier: ^2.3.2026061719
+        version: 2.3.2026061719
       '@nestjs/common':
         specifier: ^11.2.7
         version: 11.2.7(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -44,6 +47,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1
+      mmdb-lib:
+        specifier: ^3.0.3
+        version: 3.0.3
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -875,6 +881,9 @@ packages:
   '@fontsource-variable/jetbrains-mono@5.3.0':
     resolution: {integrity: sha512-F32xpS2NsGYoQi2ADSkKTgpJj7ozajsGgDJ8woTnqjmIB+dxDIqImjl4pXZVEExu8UFZ2ndhmX18EBS/hdz3Lw==}
 
+  '@ip-location-db/geo-whois-asn-country-mmdb@2.3.2026061719':
+    resolution: {integrity: sha512-xemBDNQl4mCYDuVbqe3jKGKsVDykZGkfvebhtOh/3VGLadq8vsp7t7ontpMUt3hH7sAGT0eLDyJ99SV+0waxZg==}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1697,6 +1706,10 @@ packages:
   mime-types@3.0.2:
     resolution: {integrity: sha512-Lbgzdk0h4juoQ9fCKXW4by0UJqj+nOOrI9MJ1sSj4nI8aI2eo1qmvQEie4VD1glsS250n15LsWsYtCugiStS5A==}
     engines: {node: '>=18'}
+
+  mmdb-lib@3.0.3:
+    resolution: {integrity: sha512-xQPoBXcNjjHiOvOraFBKtA++uNWF6aCVHL9dRKFXEov8eI3QJwtgiw3qApsonFT5SpoqsEVISUTg3HIDs2DiXw==}
+    engines: {node: '>=10', npm: '>=6'}
 
   ms@2.1.3:
     resolution: {integrity: sha512-6FlzubTLZG3J2a/NVCAleEhjzq5oxgHyaCU9yYXvcLsvoVaHJq/s5xXI6/XXP6tz7R9xAOtHnSO/tXtF3WRTlA==}
@@ -2673,6 +2686,8 @@ snapshots:
 
   '@fontsource-variable/jetbrains-mono@5.3.0': {}
 
+  '@ip-location-db/geo-whois-asn-country-mmdb@2.3.2026061719': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -3413,6 +3428,8 @@ snapshots:
   mime-types@3.0.2:
     dependencies:
       mime-db: 1.54.0
+
+  mmdb-lib@3.0.3: {}
 
   ms@2.1.3: {}
 

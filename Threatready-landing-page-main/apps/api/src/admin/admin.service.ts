@@ -17,6 +17,7 @@ import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
 import { accounts, sessions, users } from "../db/schema.js";
 import { AppsClient } from "../platform/apps.client.js";
+import { lastApps, primaryLocations, secondsByUser, timeOverview, userActivity } from "./activity.queries.js";
 
 export interface Range {
   from: Date;
@@ -47,7 +48,7 @@ export function parseRange(query: Record<string, unknown>): Range {
 
 export const listQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
-  sort: z.enum(["cost", "tokens", "recent", "created"]).default("cost"),
+  sort: z.enum(["cost", "tokens", "time", "recent", "created"]).default("cost"),
   includeTrial: z.enum(["true", "false"]).default("false"),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   size: z.coerce.number().int().min(5).max(100).default(25),
@@ -142,8 +143,44 @@ export class AdminService {
       for (const f of usage.byFeature) byFeature.push({ ...f, app });
     }
 
+    // Time, locations, and AI cost per country (each user counted in their most-used country).
+    const [time, primary] = await Promise.all([timeOverview(this.db, range), primaryLocations(this.db, range)]);
+    const perUser = usageByUser(ok);
+    const known = perUser.size
+      ? new Set(
+          (
+            await this.db
+              .select({ id: users.id })
+              .from(users)
+              .where(sql`${users.id} in (${sql.join([...perUser.keys()].map((k) => sql`${k}`), sql`, `)})`)
+          ).map((r) => r.id),
+        )
+      : new Set<string>();
+    let attributed = 0;
+    for (const [id, u] of perUser) if (known.has(id)) attributed += u.total.costUsd;
+    const secs = await secondsByUser(this.db, range);
+    const countries = new Map<string, { country: string; users: number; seconds: number; costUsd: number }>();
+    const zones = new Map<string, { timeZone: string; users: number; seconds: number }>();
+    for (const [userId, loc] of primary) {
+      const c = countries.get(loc.country) ?? { country: loc.country, users: 0, seconds: 0, costUsd: 0 };
+      c.users += 1;
+      c.seconds += secs.get(userId) ?? 0;
+      c.costUsd += perUser.get(userId)?.total.costUsd ?? 0;
+      countries.set(loc.country, c);
+      const z = zones.get(loc.timeZone) ?? { timeZone: loc.timeZone, users: 0, seconds: 0 };
+      z.users += 1;
+      z.seconds += secs.get(userId) ?? 0;
+      zones.set(loc.timeZone, z);
+    }
+
     return {
       range: { from: range.from.toISOString(), to: range.to.toISOString() },
+      unattributedCostUsd: Math.max(0, total.costUsd - attributed),
+      time,
+      locations: {
+        countries: [...countries.values()].sort((a, b) => b.users - a.users || b.seconds - a.seconds),
+        timeZones: [...zones.values()].sort((a, b) => b.users - a.users || b.seconds - a.seconds),
+      },
       users: {
         total: counts?.total ?? 0,
         verified: counts?.verified ?? 0,
@@ -173,6 +210,18 @@ export class AdminService {
   }
 
   async listUsers(range: Range, query: z.infer<typeof listQuerySchema>): Promise<AdminUserList> {
+    const { rows, unavailable } = await this.allUserRows(range, query);
+    const start = (query.page - 1) * query.size;
+    return {
+      range: { from: range.from.toISOString(), to: range.to.toISOString() },
+      total: rows.length,
+      rows: rows.slice(start, start + query.size),
+      unavailable,
+    };
+  }
+
+  /** Every matching user (sorted), for the list and the CSV export. */
+  async allUserRows(range: Range, query: Omit<z.infer<typeof listQuerySchema>, "page" | "size">) {
     const ss = this.sessionStats();
     const q = query.q ? `%${query.q.replace(/[%_\\]/g, (c) => `\\${c}`)}%` : null;
     const where = and(
@@ -198,11 +247,17 @@ export class AdminService {
       .orderBy(desc(users.createdAt))
       .limit(MAX_USERS_SCANNED);
 
-    const { ok, unavailable } = await this.apps.aiUsageAll(range);
+    const [{ ok, unavailable }, secs, primary, recent] = await Promise.all([
+      this.apps.aiUsageAll(range),
+      secondsByUser(this.db, range),
+      primaryLocations(this.db, range),
+      lastApps(this.db),
+    ]);
     const usage = usageByUser(ok);
 
     const out: AdminUserRow[] = rows.map((r) => {
       const u = usage.get(r.id);
+      const loc = primary.get(r.id);
       const lastSeen = r.lastSeenAt ? new Date(r.lastSeenAt).toISOString() : null;
       return {
         id: r.id,
@@ -217,23 +272,22 @@ export class AdminService {
         activeSessions: Number(r.active ?? 0),
         ai: u?.total ?? emptyAiUsage(),
         aiByApp: u?.byApp ?? {},
+        seconds: secs.get(r.id) ?? 0,
+        country: loc?.country ?? null,
+        timeZone: loc?.timeZone || null,
+        lastApp: recent.get(r.id) ?? null,
       };
     });
 
     const sorters: Record<typeof query.sort, (a: AdminUserRow, b: AdminUserRow) => number> = {
       cost: (a, b) => b.ai.costUsd - a.ai.costUsd || b.createdAt.localeCompare(a.createdAt),
       tokens: (a, b) => totalTokens(b.ai) - totalTokens(a.ai) || b.createdAt.localeCompare(a.createdAt),
+      time: (a, b) => b.seconds - a.seconds || b.createdAt.localeCompare(a.createdAt),
       recent: (a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""),
       created: (a, b) => b.createdAt.localeCompare(a.createdAt),
     };
     out.sort(sorters[query.sort]);
-    const start = (query.page - 1) * query.size;
-    return {
-      range: { from: range.from.toISOString(), to: range.to.toISOString() },
-      total: out.length,
-      rows: out.slice(start, start + query.size),
-      unavailable,
-    };
+    return { rows: out, unavailable };
   }
 
   async userDetail(id: string, range: Range): Promise<AdminUserDetail> {
@@ -259,6 +313,8 @@ export class AdminService {
       this.apps.overviewApps(id),
       this.apps.aiUsageAll(range, id),
     ]);
+    const [activity, recent] = await Promise.all([userActivity(this.db, range, id), lastApps(this.db, id)]);
+    const top = activity.locations[0];
     const [lastSeen] = await this.db
       .select({ at: sql<Date | null>`max(${sessions.updatedAt})` })
       .from(sessions)
@@ -287,7 +343,13 @@ export class AdminService {
         activeSessions: userSessions.length,
         ai: perUser?.total ?? emptyAiUsage(),
         aiByApp: perUser?.byApp ?? {},
+        seconds: activity.seconds,
+        country: top?.country ?? null,
+        timeZone: top?.timeZone || null,
+        lastApp: recent.get(id) ?? null,
       },
+      time: { seconds: activity.seconds, byArea: activity.byArea, daily: activity.daily },
+      locations: activity.locations,
       sessions: userSessions.map((s) => ({
         id: s.id,
         createdAt: s.createdAt.toISOString(),

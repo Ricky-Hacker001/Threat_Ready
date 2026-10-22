@@ -5,7 +5,9 @@ import { useMe } from "../components/AppShell";
 import { APP_LABEL } from "../components/Overview";
 import { Button, Notice } from "../components/ui";
 import { api, ApiError } from "../lib/api";
+import { API_ORIGIN } from "../lib/auth-client";
 import { fmtAgo, fmtCompact, fmtDate, fmtInt, fmtUsd } from "../lib/format";
+import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
 
 export const RANGES = [
   { key: "1d", label: "24 hours", days: 1 },
@@ -180,7 +182,16 @@ export function AdminPage() {
           <h1>Admin console</h1>
           <p>Users, activity and AI spend across every ThreatReady app.</p>
         </div>
-        <RangePicker value={range.key} onChange={(k) => set({ range: k, page: null })} />
+        <div className="admin-head-actions">
+          <RangePicker value={range.key} onChange={(k) => set({ range: k, page: null })} />
+          <a
+            className="btn btn-secondary"
+            href={`${API_ORIGIN}/api/admin/export/users.csv?${new URLSearchParams({ from: range.from, to: range.to, sort, includeTrial: String(includeTrial), ...(params.get("q") ? { q: params.get("q")! } : {}) })}`}
+            download
+          >
+            Download users (CSV)
+          </a>
+        </div>
       </div>
 
       {error ? <Notice tone="error">{error}</Notice> : null}
@@ -193,10 +204,23 @@ export function AdminPage() {
 
       {overview ? (
         <>
+          <p className="admin-summary" aria-label="In short">
+            <Summary o={overview} rangeLabel={RANGES.find((r) => r.key === range.key)!.label} />
+          </p>
           <section aria-label="Headline numbers" className="tiles">
             <Tile label="Users" value={fmtInt(overview.users.total)} sub={`${fmtInt(overview.users.verified)} verified`} />
             <Tile label="Active, last 7 days" value={fmtInt(overview.users.activeLast7Days)} />
             <Tile label="New in range" value={fmtInt(overview.users.newInRange)} sub={`${fmtInt(overview.users.trial)} trial sessions exist`} />
+            <Tile
+              label="Time used in range"
+              value={fmtHours(overview.time.seconds)}
+              sub={overview.time.users ? `${fmtDuration(overview.time.seconds / overview.time.users)} per active user` : "Measured from now on"}
+            />
+            <Tile
+              label="Countries"
+              value={fmtInt(overview.locations.countries.filter((c) => c.country !== "LO" && c.country !== "ZZ").length)}
+              sub={overview.locations.countries[0] ? `Most users: ${countryName(overview.locations.countries[0].country)}` : "No locations yet"}
+            />
             <Tile label="AI cost in range" value={fmtUsd(overview.ai.costUsd)} sub={`${fmtInt(overview.ai.calls)} LLM calls`} />
             <Tile
               label="Tokens in range"
@@ -210,6 +234,105 @@ export function AdminPage() {
             />
           </section>
 
+          <section className="module-panel" aria-labelledby="admin-time">
+            <h2 id="admin-time" className="profile-section-title">
+              Time used
+            </h2>
+            <ActivityChart daily={overview.time.daily} from={range.from} to={range.to} title="Active time across the platform" />
+            {overview.time.byArea.length ? (
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th scope="col">App</th>
+                      <th scope="col">Where</th>
+                      <th scope="col" className="num">Users</th>
+                      <th scope="col">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overview.time.byArea.map((a) => (
+                      <tr key={`${a.app}:${a.area}`}>
+                        <td>{ACTIVITY_APP_LABEL[a.app]}</td>
+                        <th scope="row">{areaLabel(a.app, a.area)}</th>
+                        <td className="num">{fmtInt(a.users)}</td>
+                        <td>
+                          <ShareBar value={a.seconds} max={overview.time.byArea[0]!.seconds} label={fmtDuration(a.seconds)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </section>
+
+          <div className="admin-split">
+            <section className="module-panel" aria-labelledby="admin-countries">
+              <h2 id="admin-countries" className="profile-section-title">
+                By country
+              </h2>
+              {overview.locations.countries.length ? (
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th scope="col">Country</th>
+                        <th scope="col" className="num">Users</th>
+                        <th scope="col" className="num">Time</th>
+                        <th scope="col" className="num">AI cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overview.locations.countries.map((c) => (
+                        <tr key={c.country}>
+                          <th scope="row">{countryName(c.country)}</th>
+                          <td className="num">{fmtInt(c.users)}</td>
+                          <td className="num">{fmtDuration(c.seconds)}</td>
+                          <td className="num strong">{fmtUsd(c.costUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="quota">No locations in this range yet.</p>
+              )}
+              <p className="hint">Each user counts once, in the country they used ThreatReady from most. Country comes from an offline IP lookup; IP addresses are not stored with it.</p>
+            </section>
+            <section className="module-panel" aria-labelledby="admin-regions">
+              <h2 id="admin-regions" className="profile-section-title">
+                By region and time zone
+              </h2>
+              {overview.locations.timeZones.length ? (
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th scope="col">Region</th>
+                        <th scope="col">Time zone</th>
+                        <th scope="col" className="num">Users</th>
+                        <th scope="col" className="num">Time</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {overview.locations.timeZones.map((z) => (
+                        <tr key={z.timeZone || "none"}>
+                          <td>{regionOf(z.timeZone)}</td>
+                          <th scope="row">{timeZoneName(z.timeZone)}</th>
+                          <td className="num">{fmtInt(z.users)}</td>
+                          <td className="num">{fmtDuration(z.seconds)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="quota">No time zones in this range yet.</p>
+              )}
+            </section>
+          </div>
+
           <section className="module-panel">
             <h2 className="profile-section-title">AI usage by app</h2>
             <UsageTable
@@ -220,9 +343,14 @@ export function AdminPage() {
                 label: <AppTag app={app} />,
               }))}
             />
+            {overview.unattributedCostUsd > 0.0001 ? (
+              <p className="hint">
+                {fmtUsd(overview.unattributedCostUsd)} of this is not tied to a user: shared work such as Attack Reasoning's question pool, or users who have been deleted.
+              </p>
+            ) : null}
           </section>
 
-          <div className="admin-split">
+          {/* Many columns each: full width, stacked. */}
             <section className="module-panel">
               <h2 className="profile-section-title">By model</h2>
               <UsageTable first="Model" rows={overview.byModel.map((m) => ({ ...m, key: m.model, label: <code>{m.model}</code> }))} />
@@ -237,13 +365,14 @@ export function AdminPage() {
                   label: (
                     <span className="feature-cell">
                       <AppTag app={f.app} />
-                      <code>{f.feature}</code>
+                      <span>
+                        {featureLabel(f.feature)} <code className="cell-sub">{f.feature}</code>
+                      </span>
                     </span>
                   ),
                 }))}
               />
             </section>
-          </div>
         </>
       ) : null}
 
@@ -276,6 +405,7 @@ export function AdminPage() {
             <select id="admin-sort" className="input" value={sort} onChange={(e) => set({ sort: e.target.value, page: null })}>
               <option value="cost">Highest AI cost</option>
               <option value="tokens">Most tokens</option>
+              <option value="time">Most time used</option>
               <option value="recent">Recently active</option>
               <option value="created">Newest</option>
             </select>
@@ -298,9 +428,11 @@ export function AdminPage() {
                     <th scope="col">User</th>
                     <th scope="col">Joined</th>
                     <th scope="col">Last seen</th>
+                    <th scope="col">Last active in</th>
+                    <th scope="col">Country</th>
+                    <th scope="col" className="num">Time used</th>
                     <th scope="col" className="num">LLM calls</th>
-                    <th scope="col" className="num">Input tokens</th>
-                    <th scope="col" className="num">Output tokens</th>
+                    <th scope="col" className="num">Tokens</th>
                     <th scope="col" className="num">AI cost</th>
                   </tr>
                 </thead>
@@ -317,9 +449,23 @@ export function AdminPage() {
                       </th>
                       <td>{fmtDate(u.createdAt)}</td>
                       <td>{fmtAgo(u.lastSeenAt)}</td>
+                      <td>
+                        {u.lastApp ? (
+                          <>
+                            {ACTIVITY_APP_LABEL[u.lastApp.app]}
+                            <span className="cell-sub">{areaLabel(u.lastApp.app, u.lastApp.area)}</span>
+                          </>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td>
+                        {u.country ? countryName(u.country) : "—"}
+                        {u.timeZone ? <span className="cell-sub">{timeZoneName(u.timeZone)}</span> : null}
+                      </td>
+                      <td className="num">{fmtDuration(u.seconds)}</td>
                       <td className="num">{fmtInt(u.ai.calls)}</td>
-                      <td className="num">{fmtInt(u.ai.inputTokens)}</td>
-                      <td className="num">{fmtInt(u.ai.outputTokens)}</td>
+                      <td className="num">{fmtCompact(tokensOf(u.ai))}</td>
                       <td className="num strong">{fmtUsd(u.ai.costUsd)}</td>
                     </tr>
                   ))}
@@ -350,5 +496,32 @@ export function AdminPage() {
         ) : null}
       </section>
     </div>
+  );
+}
+
+/** The overview in one paragraph: who, how much time, where, and what the AI cost. */
+function Summary({ o, rangeLabel }: { o: AdminOverview; rangeLabel: string }) {
+  const top = (Object.entries(o.time.byArea.reduce<Record<string, number>>((acc, a) => ({ ...acc, [a.app]: (acc[a.app] ?? 0) + a.seconds }), {})) as [keyof typeof ACTIVITY_APP_LABEL, number][]).sort((a, b) => b[1] - a[1])[0];
+  const countries = o.locations.countries.filter((c) => c.country !== "LO" && c.country !== "ZZ");
+  const topSpend = (Object.entries(o.ai.byApp) as [AppKey, AiUsageTotals][]).sort((a, b) => b[1].costUsd - a[1].costUsd)[0];
+  return (
+    <>
+      In the last {rangeLabel.toLowerCase()}, <strong>{fmtInt(o.time.users)}</strong> {o.time.users === 1 ? "user was" : "users were"} active for{" "}
+      <strong>{fmtHours(o.time.seconds)}</strong>
+      {top && o.time.seconds ? (
+        <>
+          , mostly in {ACTIVITY_APP_LABEL[top[0]]} ({Math.round((top[1] / o.time.seconds) * 100)}%)
+        </>
+      ) : null}
+      {countries.length ? (
+        <>
+          , from {countries.length} {countries.length === 1 ? "country" : "countries"} (most: {countryName(countries[0]!.country)})
+        </>
+      ) : null}
+      . {fmtInt(o.users.newInRange)} new {o.users.newInRange === 1 ? "account" : "accounts"}. AI cost <strong>{fmtUsd(o.ai.costUsd)}</strong> over{" "}
+      {fmtInt(o.ai.calls)} call{o.ai.calls === 1 ? "" : "s"}
+      {topSpend && o.ai.costUsd ? <>, {Math.round((topSpend[1].costUsd / o.ai.costUsd) * 100)}% in {APP_LABEL[topSpend[0]]}</> : null}
+      {o.unattributedCostUsd > 0.0001 ? <> ({fmtUsd(o.unattributedCostUsd)} shared, not tied to a user)</> : null}.
+    </>
   );
 }

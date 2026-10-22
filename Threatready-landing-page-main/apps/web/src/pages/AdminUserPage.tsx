@@ -6,7 +6,8 @@ import { Avatar, displayName } from "../components/ProfileMenu";
 import { Notice } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { fmtAgo, fmtCompact, fmtDate, fmtDateTime, fmtInt, fmtUsd } from "../lib/format";
-import { AppTag, RangePicker, Tile, UsageTable, rangeFor, tokensOf } from "./AdminPage";
+import { AppTag, RANGES, RangePicker, Tile, UsageTable, rangeFor, tokensOf } from "./AdminPage";
+import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, regionOf, timeZoneName } from "./adminInsights";
 
 /** One user across every app: identity, sessions, each app's own summary, and AI usage. */
 export function AdminUserPage() {
@@ -85,11 +86,69 @@ export function AdminUserPage() {
         <RangePicker value={range.key} onChange={(k) => setParams({ range: k }, { replace: true })} />
       </div>
 
+      <p className="admin-summary" aria-label="In short">
+        {displayName({ name: u.name, email: u.email, username: u.username })}{" "}
+        {u.seconds ? (
+          <>
+            used ThreatReady for <strong>{fmtDuration(u.seconds)}</strong> in the last {RANGES.find((r) => r.key === range.key)!.label.toLowerCase()}
+          </>
+        ) : (
+          <>has no measured time in the last {RANGES.find((r) => r.key === range.key)!.label.toLowerCase()} (time is measured from the activity-tracking release on)</>
+        )}
+        {data.time.byArea[0] ? (
+          <>
+            , mostly {areaLabel(data.time.byArea[0].app, data.time.byArea[0].area)} in {ACTIVITY_APP_LABEL[data.time.byArea[0].app]}
+          </>
+        ) : null}
+        {u.country ? <>, from {countryName(u.country)}{u.timeZone ? ` (${timeZoneName(u.timeZone)})` : ""}</> : null}. AI cost{" "}
+        <strong>{fmtUsd(u.ai.costUsd)}</strong> over {fmtInt(u.ai.calls)} call{u.ai.calls === 1 ? "" : "s"}.{" "}
+        {u.lastApp ? (
+          <>
+            Last active in {ACTIVITY_APP_LABEL[u.lastApp.app]} ({areaLabel(u.lastApp.app, u.lastApp.area)}), {fmtAgo(u.lastApp.at)}.
+          </>
+        ) : null}
+      </p>
+
       <section aria-label="This user's numbers" className="tiles">
+        <Tile label="Time used in range" value={fmtDuration(u.seconds)} sub={`${data.time.daily.length} active day${data.time.daily.length === 1 ? "" : "s"}`} />
+        <Tile label="Location" value={u.country ? countryName(u.country) : "—"} sub={u.timeZone ? `${timeZoneName(u.timeZone)} · ${regionOf(u.timeZone)}` : "No location yet"} />
         <Tile label="AI cost in range" value={fmtUsd(u.ai.costUsd)} sub={`${fmtInt(u.ai.calls)} LLM calls`} />
         <Tile label="Tokens in range" value={fmtCompact(tokensOf(u.ai))} sub={`${fmtCompact(u.ai.inputTokens)} in · ${fmtCompact(u.ai.outputTokens)} out`} />
         <Tile label="Joined" value={fmtDate(u.createdAt)} />
         <Tile label="Last seen" value={fmtAgo(u.lastSeenAt)} sub={`${u.activeSessions} active session${u.activeSessions === 1 ? "" : "s"}`} />
+      </section>
+
+      <section className="module-panel" aria-labelledby="admin-user-time">
+        <h2 id="admin-user-time" className="profile-section-title">
+          Time used
+        </h2>
+        <ActivityChart daily={data.time.daily} from={range.from} to={range.to} title="This user's active time" />
+        {data.time.byArea.length ? (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th scope="col">App</th>
+                  <th scope="col">Where</th>
+                  <th scope="col">Time</th>
+                  <th scope="col">Last active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.time.byArea.map((a) => (
+                  <tr key={`${a.app}:${a.area}`}>
+                    <td>{ACTIVITY_APP_LABEL[a.app]}</td>
+                    <th scope="row">{areaLabel(a.app, a.area)}</th>
+                    <td>
+                      <ShareBar value={a.seconds} max={data.time.byArea[0]!.seconds} label={fmtDuration(a.seconds)} />
+                    </td>
+                    <td>{fmtAgo(a.lastAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
       </section>
 
       <section className="overview" aria-labelledby="admin-user-apps">
@@ -108,7 +167,7 @@ export function AdminUserPage() {
         />
       </section>
 
-      <div className="admin-split">
+      {/* Many columns each: full width, stacked. */}
         <section className="module-panel">
           <h2 className="profile-section-title">By model</h2>
           <UsageTable
@@ -135,13 +194,50 @@ export function AdminUserPage() {
               label: (
                 <span className="feature-cell">
                   <AppTag app={f.app} />
-                  <code>{f.feature}</code>
+                  <span>
+                    {featureLabel(f.feature)} <code className="cell-sub">{f.feature}</code>
+                  </span>
                 </span>
               ),
             }))}
           />
         </section>
-      </div>
+
+      <section className="module-panel" aria-labelledby="admin-user-locations">
+        <h2 id="admin-user-locations" className="profile-section-title">
+          Where they use ThreatReady from
+        </h2>
+        {data.locations.length ? (
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th scope="col">Country</th>
+                  <th scope="col">Region</th>
+                  <th scope="col">Time zone</th>
+                  <th scope="col" className="num">Time</th>
+                  <th scope="col">First seen</th>
+                  <th scope="col">Last seen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.locations.map((l) => (
+                  <tr key={`${l.country}:${l.timeZone}`}>
+                    <th scope="row">{countryName(l.country)}</th>
+                    <td>{regionOf(l.timeZone)}</td>
+                    <td>{timeZoneName(l.timeZone)}</td>
+                    <td className="num">{fmtDuration(l.seconds)}</td>
+                    <td>{fmtDateTime(l.firstAt)}</td>
+                    <td>{fmtDateTime(l.lastAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="quota">No locations in this range yet.</p>
+        )}
+      </section>
 
       <section className="module-panel">
         <h2 className="profile-section-title">Account</h2>

@@ -2,6 +2,7 @@ import { Module, type DynamicModule } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { AccountController } from "./account/account.controller.js";
+import { ActivityController } from "./activity/activity.controller.js";
 import { AdminController } from "./admin/admin.controller.js";
 import { AdminService } from "./admin/admin.service.js";
 import { CaptchaService } from "./account/captcha.service.js";
@@ -42,6 +43,7 @@ export class AppModule {
         AccountController,
         PlatformController,
         AdminController,
+        ActivityController,
         ...devControllers,
       ],
       providers: [

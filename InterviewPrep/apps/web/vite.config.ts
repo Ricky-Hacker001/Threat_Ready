@@ -37,6 +37,8 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/v1': { target: process.env.API_PROXY_TARGET ?? 'http://localhost:3100', changeOrigin: false },
+      // onboard's API (activity pings), same-origin like the single-origin deployment
+      '/api': { target: process.env.ONBOARD_API_TARGET ?? 'http://localhost:3200', changeOrigin: false },
     },
   },
   build: {

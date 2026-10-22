@@ -101,6 +101,22 @@ export interface Overview {
   recent: (AppSummaryItem & { app: AppKey })[];
 }
 
+/* ---------------- Activity (every app → onboard) ---------------- */
+
+/** Where time is counted: the three apps plus onboard's own pages (home, profile). */
+export const ACTIVITY_APPS = ["home", "interview", "labs", "reasoning"] as const;
+export type ActivityApp = (typeof ACTIVITY_APPS)[number];
+
+/** `POST /api/activity/ping`, sent about once a minute while a page is visible and in use. */
+export const activityPingSchema = z.object({
+  app: z.enum(ACTIVITY_APPS),
+  /** A lab slug, an Attack Reasoning domain, … ("" for the app's main pages). */
+  area: z.string().max(40).regex(/^[A-Za-z0-9_-]*$/).default(""),
+  /** The browser's IANA time zone, e.g. "Asia/Kolkata". */
+  timeZone: z.string().max(64).regex(/^([A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}|UTC|)$/).default(""),
+});
+export type ActivityPing = z.infer<typeof activityPingSchema>;
+
 export interface AdminUserRow {
   id: string;
   name: string;
@@ -114,6 +130,20 @@ export interface AdminUserRow {
   activeSessions: number;
   ai: AiUsageTotals;
   aiByApp: Partial<Record<AppKey, AiUsageTotals>>;
+  /** Seconds of active use in the range, across every app. */
+  seconds: number;
+  /** Where most of this user's time comes from (ISO country; "LO" local network, "ZZ" unknown). */
+  country: string | null;
+  timeZone: string | null;
+  /** The app (and area) used most recently. */
+  lastApp: { app: ActivityApp; area: string; at: string } | null;
+}
+
+export interface AdminTimeByArea {
+  app: ActivityApp;
+  area: string;
+  seconds: number;
+  users: number;
 }
 
 export interface AdminOverview {
@@ -123,6 +153,20 @@ export interface AdminOverview {
   ai: AiUsageTotals & { byApp: Partial<Record<AppKey, AiUsageTotals>>; users: number };
   byModel: (AiUsageTotals & { model: string })[];
   byFeature: (AiUsageTotals & { app: AppKey; feature: string })[];
+  /** AI cost not tied to any user (e.g. Attack Reasoning's shared question pool) */
+  unattributedCostUsd: number;
+  /** Active use measured by the platform (from the first deploy with activity tracking). */
+  time: {
+    seconds: number;
+    /** users with any measured time in the range */
+    users: number;
+    byArea: AdminTimeByArea[];
+    daily: { day: string; seconds: number; users: number }[];
+  };
+  locations: {
+    countries: { country: string; users: number; seconds: number; costUsd: number }[];
+    timeZones: { timeZone: string; users: number; seconds: number }[];
+  };
   /** Apps whose usage could not be fetched; totals exclude them */
   unavailable: { app: AppKey; error: string }[];
 }
@@ -142,6 +186,12 @@ export interface AdminUserDetail {
   apps: OverviewApp[];
   byModel: (AiUsageTotals & { app: AppKey; model: string })[];
   byFeature: (AiUsageTotals & { app: AppKey; feature: string })[];
+  time: {
+    seconds: number;
+    byArea: { app: ActivityApp; area: string; seconds: number; lastAt: string }[];
+    daily: { day: string; seconds: number }[];
+  };
+  locations: { country: string; timeZone: string; seconds: number; firstAt: string; lastAt: string }[];
 }
 
 export const emptyAiUsage = (): AiUsageTotals => ({

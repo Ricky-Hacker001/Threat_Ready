@@ -2,12 +2,14 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  date,
   index,
   integer,
   pgEnum,
   pgPolicy,
   pgRole,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -178,6 +180,51 @@ export const featureLaunches = pgTable(
     pgPolicy("feature_launches_owner_insert", { for: "insert", to: appRole, withCheck: ownRows }),
   ],
 ).enableRLS();
+
+/* ------------------------------------------------------------------ */
+/* Platform activity: time spent in each app and where users are.     */
+/* Written by POST /api/activity/ping (the signed-in user's own rows); */
+/* read by the admin console. No RLS: admins read across users, and    */
+/* the API only ever writes the caller's rows.                         */
+/* ------------------------------------------------------------------ */
+
+/** Seconds of active use per user, UTC day, app and area (e.g. a lab console). */
+export const activityDays = pgTable(
+  "activity_days",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    /** home | interview | labs | reasoning */
+    app: text("app").notNull(),
+    /** Where in the app: a lab slug, an Attack Reasoning domain, or "" for the app's main pages. */
+    area: text("area").notNull().default(""),
+    seconds: integer("seconds").notNull().default(0),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAt: timestamp("last_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.day, t.app, t.area] }), index("activity_days_day_idx").on(t.day)],
+);
+
+/** Where a user uses the platform from, per UTC day: country (offline IP lookup, never the IP) and browser time zone. */
+export const userLocations = pgTable(
+  "user_locations",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    /** ISO 3166-1 alpha-2; "LO" local/private network; "ZZ" unknown. */
+    country: text("country").notNull(),
+    /** IANA time zone reported by the browser, e.g. "Asia/Kolkata"; "" when not reported. */
+    timeZone: text("time_zone").notNull().default(""),
+    seconds: integer("seconds").notNull().default(0),
+    firstAt: timestamp("first_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAt: timestamp("last_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.day, t.country, t.timeZone] }), index("user_locations_day_idx").on(t.day)],
+);
 
 /** Keys must equal Better Auth model names for the drizzle adapter. */
 export const authSchema = {

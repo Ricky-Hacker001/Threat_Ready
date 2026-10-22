@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.1150.0",
+    "@ip-location-db/geo-whois-asn-country-mmdb": "^2.3.2026061719",
     "@nestjs/common": "^11.2.7",
     "@nestjs/core": "^11.2.7",
     "@nestjs/platform-express": "^11.2.7",
@@ -24,6 +25,7 @@
     "better-auth": "1.7.7",
     "drizzle-orm": "0.45.4",
     "express": "^5.2.1",
+    "mmdb-lib": "^3.0.3",
     "pg": "^8.23.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",

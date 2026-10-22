@@ -63,4 +63,9 @@
     document.body.insertBefore(nav, document.body.firstChild);
   };
   if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount);
+  // Time spent in this lab, for the admin console (activity.js guards against loading twice).
+  var act = document.createElement('script');
+  act.src = base + 'activity.js';
+  act.defer = true;
+  document.head.appendChild(act);
 })();

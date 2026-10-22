@@ -1656,3 +1656,20 @@ select.input {
     display: none;
   }
 }
+
+/* ---------- Admin: summary, time chart, share bars ---------- */
+.admin-head-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
+.admin-summary { margin: 0; padding: 14px 16px; border: 1px solid var(--rule); border-left: 3px solid var(--accent); border-radius: 10px; background: var(--panel); color: var(--ink-2); line-height: 1.6; }
+.admin-summary strong { color: var(--ink); }
+.hint { margin: 10px 0 0; font-size: var(--t-sm); color: var(--ink-3); }
+.share { display: inline-flex; align-items: center; gap: 10px; min-width: 160px; }
+.share-bar { flex: 1; min-width: 60px; max-width: 220px; height: 6px; border-radius: 3px; background: var(--rule); overflow: hidden; }
+.share-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.share-val { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart { margin: 0 0 14px; }
+.chart-bars { display: flex; align-items: flex-end; gap: 2px; height: 120px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.chart-bar { flex: 1; min-width: 2px; height: 100%; display: flex; align-items: flex-end; }
+.chart-bar i { display: block; width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; opacity: 0.85; }
+.chart-bar:hover i { opacity: 1; }
+.chart-axis { display: flex; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: var(--t-sm); color: var(--ink-3); }
+@media (max-width: 600px) { .chart-axis span:nth-child(2) { display: none; } }
