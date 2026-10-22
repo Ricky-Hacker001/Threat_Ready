@@ -58,8 +58,8 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
   const noEngine = () => ({
     app: 'reasoning',
     stats: [
-      { label: 'Domains', value: 15, hint: 'On the roadmap' },
-      { label: 'Available now', value: 1, hint: 'Cloud Security' },
+      { label: 'Domains', value: 15, hint: 'Every domain is live' },
+      { label: 'Available now', value: 15, hint: 'Cloud Security to GRC & Risk' },
       { label: 'Assessments completed', value: 0 },
     ],
     items: [],

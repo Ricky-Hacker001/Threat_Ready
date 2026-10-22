@@ -28,7 +28,7 @@ export function fakeReasoningItem(req: LlmRequest): unknown {
   const entry = line(u, 'Attacker entry point');
   const objective = line(u, 'Assessment objective');
   const constraint = line(u, 'Operational constraint');
-  const tech = u.match(/Primary ATT&CK technique: (T\d{4}(?:\.\d{3})?) ([^.\n]+)\./);
+  const tech = u.match(/Primary \S+ technique: ([A-Z][\w.]*\d) ([^.\n]+)\./);
   const difficulty = req.system.match(/Difficulty: (beginner|intermediate|advanced|expert)/)?.[1] ?? 'intermediate';
   const topo = topology?.[1] ?? 'Three-tier web application';
   const topoGuide = topology?.[2] ?? '';
@@ -148,7 +148,9 @@ export function fakeReasoningItem(req: LlmRequest): unknown {
     ],
     must_not_credit: [{ id: 'm1', claim: 'The web application firewall would have blocked this attack', why: 'The attacker never passed through the load balancer or the WAF.', invalidates: ['a2'] }],
     reference_answer: `The attacker holds the ${labels.role} and is using it, right now, to download exports and probe the database network. The narrowest action that ends that is to revoke the role's current session and scope its policy so it can no longer read the ${labels.bucket} or reach the data tier. That keeps the ${labels.lb} and the application serving customers, respects the constraint, and leaves the ${labels.trail} intact for the investigation. Rotating every credential is wider than needed; alerting and waiting accepts more loss; taking the load balancer offline does nothing to an attacker who entered through an identity.`,
-    techniques: [{ id: tech?.[1] ?? 'T1078.004', name: tech?.[2] ?? 'Valid Accounts: Cloud Accounts' }, { id: 'T1530', name: 'Data from Cloud Storage' }],
+    // Only the seed's assigned technique, so the item stays valid for any domain's framework
+    // (ATT&CK or ATLAS). A second hardcoded id would belong to one framework and break the others.
+    techniques: [{ id: tech?.[1] ?? 'T1078.004', name: tech?.[2] ?? 'Valid Accounts: Cloud Accounts' }],
     concepts: ['least privilege', 'credential revocation', 'blast radius', 'evidence preservation', seedWords.split(' ')[0] ?? 'containment'],
     difficulty,
   };

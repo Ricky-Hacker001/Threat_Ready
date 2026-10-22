@@ -96,7 +96,7 @@ body { margin: 0; }
 .ar-flow .react-flow__edge-textbg { fill: var(--surface); }
 .ar-flow .react-flow__attribution { background: transparent; color: var(--text-3); }
 .ar-boundary { width: 100%; height: 100%; border: 1.5px dashed var(--border-strong); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); }
-.ar-boundary-internet { border-color: #ef5a6f; } .ar-boundary-identity, .ar-boundary-account { border-color: #c5a24e; } .ar-boundary-data { border-color: #4fb3a9; } .ar-boundary-cicd, .ar-boundary-management { border-color: #8a7bff; }
+.ar-boundary-internet { border-color: #ef5a6f; } .ar-boundary-identity, .ar-boundary-account { border-color: #c5a24e; } .ar-boundary-data { border-color: #4fb3a9; } .ar-boundary-cicd, .ar-boundary-management, .ar-boundary-cluster { border-color: #8a7bff; } .ar-boundary-corporate, .ar-boundary-tenant { border-color: #7b8aa6; } .ar-boundary-ot { border-color: #e0893a; } .ar-boundary-vendor { border-color: #c5a24e; }
 .ar-boundary-label { position: absolute; top: 8px; left: 12px; font: 600 11px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
 .ar-node { display: grid; grid-template-columns: 40px 1fr; gap: 8px; align-items: center; width: 196px; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg, var(--surface)); color: var(--text); font-family: var(--font); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 .ar-node.is-compromised { border-color: #ef5a6f; box-shadow: 0 0 0 2px rgba(239,90,111,.22); }
@@ -106,6 +106,8 @@ body { margin: 0; }
 .ar-node-attacker .ar-node-glyph { background: rgba(239,90,111,.18); color: #ef5a6f; }
 .ar-node-database .ar-node-glyph, .ar-node-storage .ar-node-glyph { background: rgba(79,179,169,.18); color: #4fb3a9; }
 .ar-node-identity .ar-node-glyph, .ar-node-secret .ar-node-glyph { background: rgba(197,162,78,.2); color: #c5a24e; }
+.ar-node-model .ar-node-glyph, .ar-node-siem .ar-node-glyph { background: rgba(138,123,255,.18); color: #8a7bff; }
+.ar-node-device .ar-node-glyph { background: rgba(224,137,58,.18); color: #e0893a; }
 .ar-node-body { display: grid; gap: 3px; min-width: 0; }
 .ar-node-label { font-size: 12.5px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .ar-node-meta { display: flex; flex-wrap: wrap; gap: 3px; }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fakeReasoningItem } from '../../src/platform/adapters/fake/reasoning.fake.js';
 import { CLOUD_SECURITY } from '../../src/modules/reasoning/domains/cloud-security.js';
-import { catalogue, getDomain, isAvailable } from '../../src/modules/reasoning/domains/index.js';
-import { fingerprintOf, type VariationSeed } from '../../src/modules/reasoning/domain.types.js';
+import { catalogue, getDomain, isAvailable, registeredDomains } from '../../src/modules/reasoning/domains/index.js';
+import { ATTACK_ENTERPRISE, fingerprintOf, type VariationSeed } from '../../src/modules/reasoning/domain.types.js';
 import type { GeneratorOutput, RubricPoint } from '../../src/modules/reasoning/item.types.js';
 import { generationRequest, generationSchema } from '../../src/modules/reasoning/prompts/generation.prompts.js';
 import { DEFAULT_WEIGHTS, normaliseWeights, REASONING_SCORING_VERSION, scoreAttempt, type PointJudgement, type ScoringInput } from '../../src/modules/reasoning/scoring.js';
@@ -277,16 +277,36 @@ describe('attack reasoning: difficulty', () => {
 });
 
 describe('attack reasoning: domain registry', () => {
-  it('registers Cloud Security end to end and lists the fifteen planned domains', () => {
+  it('registers all fifteen domains end to end, each well formed', () => {
     expect(isAvailable('cloud_security')).toBe(true);
-    expect(isAvailable('network_security')).toBe(false);
+    expect(isAvailable('network_security')).toBe(true);
+    expect(isAvailable('nope')).toBe(false);
     expect(getDomain('cloud_security')?.skillIds).toContain('cloudsec.iam');
     const all = catalogue();
     expect(all).toHaveLength(15);
-    expect(all.filter((d) => d.available).map((d) => d.key)).toEqual(['cloud_security']);
-    const w = CLOUD_SECURITY.weights;
-    expect(w.correctness + w.reasoning + w.architecture + w.risk).toBe(100);
-    for (const t of CLOUD_SECURITY.techniques) expect(t.id).toMatch(/^T\d{4}(\.\d{3})?$/);
-    for (const o of CLOUD_SECURITY.variation.objectives) expect(Object.values(normaliseWeights(o.weights, w)).reduce((a, b) => a + b, 0)).toBe(100);
+    expect(all.every((d) => d.available)).toBe(true);
+    expect(new Set(all.map((d) => d.key)).size).toBe(15);
+    for (const d of registeredDomains()) {
+      const w = d.weights;
+      expect(w.correctness + w.reasoning + w.architecture + w.risk, d.key).toBe(100);
+      const fw = d.framework ?? ATTACK_ENTERPRISE;
+      for (const t of d.techniques) expect(t.id, `${d.key} ${t.id}`).toMatch(fw.idPattern);
+      expect(new Set(d.techniques.map((t) => t.id)).size, d.key).toBe(d.techniques.length);
+      for (const o of d.variation.objectives) expect(Object.values(normaliseWeights(o.weights, w)).reduce((a, b) => a + b, 0), `${d.key} ${o.id}`).toBe(100);
+      const v = d.variation;
+      for (const list of [v.topologies, v.entryPoints, v.objectives, v.constraints]) expect(new Set(list.map((x) => x.id)).size).toBe(list.length);
+      expect(v.topologies.length).toBeGreaterThanOrEqual(6);
+      expect(v.entryPoints.length).toBeGreaterThanOrEqual(8);
+      expect(v.objectives.length).toBeGreaterThanOrEqual(6);
+      expect(v.constraints.length).toBeGreaterThanOrEqual(6);
+      expect(v.components.length).toBeGreaterThanOrEqual(20);
+      expect(d.techniques.length).toBeGreaterThanOrEqual(10);
+      expect(d.skillIds.length).toBeGreaterThan(0);
+      expect(d.guidance.length).toBeGreaterThan(200);
+      // Every seed the picker can produce describes cleanly.
+      const s = pickSeed(d, [], () => 0.5);
+      const desc = describeSeed(d, s);
+      expect(desc.topology && desc.entryPoint && desc.objective && desc.technique && desc.constraint).toBeTruthy();
+    }
   });
 });

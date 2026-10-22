@@ -11,6 +11,7 @@ import { AnalysisService } from '../interview/analysis.service.js';
 import { InterviewService } from '../interview/interview.service.js';
 import { IDLE_PAUSE_MS, stopClock } from '../interview/timing.js';
 import { EvaluationService } from '../reasoning/evaluation.service.js';
+import { registeredDomains } from '../reasoning/domains/index.js';
 import { GenerationService } from '../reasoning/generation.service.js';
 import { ReportsService } from '../reports/reports.service.js';
 import { SkillsService } from '../skills/skills.service.js';
@@ -45,7 +46,7 @@ export class JobsService {
     await this.queue.work<{ userId: string }>(JOBS.skillsRecalculate, (d) => this.skills.recalculate(d.userId));
     await this.queue.work<{ attemptId: string }>(JOBS.reasoningGenerate, (d) => this.generation.runGeneration(d.attemptId));
     await this.queue.work<{ attemptId: string }>(JOBS.reasoningEvaluate, (d) => this.evaluation.runEvaluation(d.attemptId));
-    await this.queue.work<{ domain?: string; difficulty?: string; userId?: string }>(JOBS.reasoningPoolRefill, (d) => this.generation.refillPool(d ?? {}));
+    await this.queue.work<{ domain?: string; difficulty?: string; userId?: string }>(JOBS.reasoningPoolRefill, (d) => (d?.domain && d?.difficulty ? this.generation.refillPool(d) : this.fanOutRefill()));
     await this.queue.work<Record<string, unknown>>(JOBS.deadLetter, (d) => this.onDeadLetter(d));
     await this.queue.work(JOBS.interviewSweep, () => this.sweep());
     await this.queue.schedule(JOBS.interviewSweep, '*/5 * * * *');
@@ -55,6 +56,20 @@ export class JobsService {
       await this.queue.enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill' }, { key: `startup:${Math.floor(Date.now() / 60_000)}` });
     }
     logger.info('worker started');
+  }
+
+  /**
+   * The schedule's refill: one short job per domain and difficulty, so no single job outlives its
+   * expiry as domains are added. Intermediate buckets first, then beginner, then advanced, so every
+   * domain gets questions early when the daily pool budget is the limit.
+   */
+  async fanOutRefill(): Promise<void> {
+    const minute = Math.floor(Date.now() / 60_000);
+    for (const difficulty of ['intermediate', 'beginner', 'advanced'] as const) {
+      for (const d of registeredDomains()) {
+        await this.queue.enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain: d.key, difficulty }, { key: `fanout:${d.key}:${difficulty}:${minute}` });
+      }
+    }
   }
 
   /** The owning row moves to failed with a code, so the user sees a state, not a spinner (LLD-19). */

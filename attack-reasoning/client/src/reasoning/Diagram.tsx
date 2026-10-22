@@ -9,7 +9,7 @@ import '@xyflow/react/dist/style.css';
 import type { DiagramData, DiagramEdge, DiagramNode } from './api';
 
 const NODE_W = 200;
-const GLYPH: Record<string, string> = { user: 'USR', client: 'CLI', external: 'EXT', web: 'WEB', api: 'API', service: 'SVC', identity: 'IDP', database: 'DB', queue: 'MQ', storage: 'OBJ', cloud: 'CLD', firewall: 'FW', gateway: 'GW', network: 'NET', control: 'CTL', attacker: 'ATK', secret: 'KEY', compute: 'CMP' };
+const GLYPH: Record<string, string> = { user: 'USR', client: 'CLI', external: 'EXT', web: 'WEB', api: 'API', service: 'SVC', identity: 'IDP', database: 'DB', queue: 'MQ', storage: 'OBJ', cloud: 'CLD', firewall: 'FW', gateway: 'GW', network: 'NET', control: 'CTL', attacker: 'ATK', secret: 'KEY', compute: 'CMP', endpoint: 'EP', container: 'POD', pipeline: 'CI', repository: 'GIT', model: 'LLM', device: 'DEV', email: 'MAIL', siem: 'SIEM', saas: 'SAAS' };
 const COLOUR: Record<DiagramEdge['kind'], string> = { attack: '#ef5a6f', data: '#7b8aa6', auth: '#4fb3a9', control: '#c5a24e' };
 
 /** Estimated rendered height: a wrapped label and a row of flags make a node taller than the base. */

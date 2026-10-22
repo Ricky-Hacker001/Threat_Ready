@@ -21,6 +21,19 @@ const STATE_TAG: Record<string, { label: string; cls: string }> = {
 };
 const StateTag = ({ state }: { state: string }) => { const t = STATE_TAG[state] ?? { label: state, cls: 'tr-tag-plain' }; return <span className={`tr-tag ${t.cls}`}>{t.label}</span>; };
 
+/** Domain display names ("AI & LLM Security"), fetched once per page load; the key is the fallback while loading. */
+let domainTitlesFetch: Promise<Map<string, string>> | null = null;
+function useDomainTitles(): (key: string) => string {
+  const [titles, setTitles] = useState<Map<string, string> | null>(null);
+  useEffect(() => {
+    let on = true;
+    domainTitlesFetch ??= reasoning.domains().then((ds) => new Map(ds.map((d) => [d.key, d.title])), () => { domainTitlesFetch = null; return new Map(); });
+    domainTitlesFetch.then((m) => { if (on) setTitles(m); });
+    return () => { on = false; };
+  }, []);
+  return (key: string) => titles?.get(key) ?? cap(key.replace(/_/g, ' '));
+}
+
 function Crumbs({ items }: { items: { label: string; to?: string; go?: (to: string) => void }[] }) {
   return <nav className="ar-crumbs" aria-label="Breadcrumb">{items.map((c, i) => <span key={i} className="ar-crumb">{i > 0 && <span aria-hidden="true">/</span>}{c.to && c.go ? <a href={c.to} onClick={(e) => { e.preventDefault(); c.go!(c.to!); }}>{c.label}</a> : <span>{c.label}</span>}</span>)}</nav>;
 }
@@ -210,7 +223,8 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
   // While a transient state lasts, keep polling even after a submit from this page.
   useEffect(() => { if (state && TRANSIENT.has(state)) { const t = window.setInterval(() => { refresh(); }, 2500); return () => window.clearInterval(t); } return undefined; }, [state, refresh]);
   const domainSlug = attempt ? DOMAIN_SLUG(attempt.domain) : '';
-  const crumbs = [{ label: 'All domains', to: BASE, go }, { label: attempt ? cap(attempt.domain.replace(/_/g, ' ')) : 'Domain', to: attempt ? `${BASE}domains/${domainSlug}` : undefined, go }, { label: attempt?.item?.title ?? 'Assessment' }];
+  const titleOf = useDomainTitles();
+  const crumbs = [{ label: 'All domains', to: BASE, go }, { label: attempt ? titleOf(attempt.domain) : 'Domain', to: attempt ? `${BASE}domains/${domainSlug}` : undefined, go }, { label: attempt?.item?.title ?? 'Assessment' }];
 
   const submit = async () => {
     if (!attempt || !selected) return;
@@ -226,7 +240,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
   return <>
     <section className="tr-page-head"><div className="tr-wrap"><Crumbs items={crumbs} />
       {attempt && <div className="tr-page-head-in"><div>
-        <span className="tr-eyebrow">{cap(attempt.domain.replace(/_/g, ' '))}{attempt.item && <> · {cap(attempt.item.difficulty)}</>} · <StateTag state={attempt.state} /></span>
+        <span className="tr-eyebrow">{titleOf(attempt.domain)}{attempt.item && <> · {cap(attempt.item.difficulty)}</>} · <StateTag state={attempt.state} /></span>
         <h1 className="tr-h1">{attempt.item?.title ?? (attempt.state === 'generating' ? 'Building your scenario' : 'Assessment')}</h1>
         {attempt.item && <p className="tr-lead">{attempt.item.objective}</p>}
       </div></div>}
@@ -356,7 +370,8 @@ export function SummaryPage({ go }: { go: (to: string) => void }) {
   const avg = evaluated.length ? Math.round(evaluated.reduce((n, a) => n + (a.totalScore ?? 0), 0) / evaluated.length) : null;
   const best = evaluated.length ? Math.max(...evaluated.map((a) => a.totalScore ?? 0)) : null;
   const correct = evaluated.filter((a) => a.correct).length;
-  const title = domain ? cap(domain.replace(/_/g, ' ')) : 'Attack Reasoning';
+  const titleOf = useDomainTitles();
+  const title = domain ? titleOf(domain) : 'Attack Reasoning';
   return <>
     <section className="tr-page-head"><div className="tr-wrap"><Crumbs items={[{ label: 'All domains', to: BASE, go }, ...(domain ? [{ label: title, to: `${BASE}domains/${DOMAIN_SLUG(domain)}`, go }] : []), { label: 'Assessment summary' }]} />
       <div className="tr-page-head-in"><div><span className="tr-eyebrow">Assessment ended · {title}</span><h1 className="tr-h1">Your assessment summary</h1><p className="tr-lead">Started {fmtDate(since)}. Every question you answered in this assessment, with its score.</p></div></div></div></section>
@@ -387,6 +402,7 @@ export function SummaryPage({ go }: { go: (to: string) => void }) {
 /* ---------------- History and analytics ---------------- */
 
 export function HistoryPage({ go }: { go: (to: string) => void }) {
+  const titleOf = useDomainTitles();
   const [dash, setDash] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<AttemptSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -411,7 +427,7 @@ export function HistoryPage({ go }: { go: (to: string) => void }) {
           <section className="tr-card"><h2 className="tr-h3">By domain</h2>{dash.byDomain.length ? <table className="ar-table"><thead><tr><th>Domain</th><th>Evaluated</th><th>Average</th><th>Best</th></tr></thead><tbody>{dash.byDomain.map((d) => <tr key={d.domain}><td><a className="ar-link" href={`${BASE}domains/${DOMAIN_SLUG(d.domain)}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${DOMAIN_SLUG(d.domain)}`); }}>{d.title}</a></td><td className="tr-mono">{d.stats.evaluated}</td><td className="tr-mono">{d.stats.averageScore ?? '—'}</td><td className="tr-mono">{d.stats.bestScore ?? '—'}</td></tr>)}</tbody></table> : <p className="tr-muted">No attempts yet.</p>}</section>
         </div>
         <section className="tr-card"><h2 className="tr-h3">All attempts</h2>
-          {items.length === 0 ? <p className="tr-muted">No attempts yet. <a className="ar-link" href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>Choose a domain</a> to start.</p> : <table className="ar-table"><thead><tr><th>Scenario</th><th>Domain</th><th>State</th><th>Score</th><th>When</th></tr></thead><tbody>{items.map((a) => <tr key={a.id}><td><a className="ar-link" href={`${BASE}attempts/${a.id}`} onClick={(e) => { e.preventDefault(); go(`${BASE}attempts/${a.id}`); }}>{a.title ?? 'Scenario'}</a></td><td className="tr-small">{cap(a.domain.replace(/_/g, ' '))}</td><td><StateTag state={a.state} /></td><td className="tr-mono">{a.totalScore ?? '—'}{a.correct !== null && <span className="tr-small tr-muted"> {a.correct ? '· correct' : '· incorrect'}</span>}</td><td className="tr-small">{fmtDate(a.createdAt)}</td></tr>)}</tbody></table>}
+          {items.length === 0 ? <p className="tr-muted">No attempts yet. <a className="ar-link" href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>Choose a domain</a> to start.</p> : <table className="ar-table"><thead><tr><th>Scenario</th><th>Domain</th><th>State</th><th>Score</th><th>When</th></tr></thead><tbody>{items.map((a) => <tr key={a.id}><td><a className="ar-link" href={`${BASE}attempts/${a.id}`} onClick={(e) => { e.preventDefault(); go(`${BASE}attempts/${a.id}`); }}>{a.title ?? 'Scenario'}</a></td><td className="tr-small">{titleOf(a.domain)}</td><td><StateTag state={a.state} /></td><td className="tr-mono">{a.totalScore ?? '—'}{a.correct !== null && <span className="tr-small tr-muted"> {a.correct ? '· correct' : '· incorrect'}</span>}</td><td className="tr-small">{fmtDate(a.createdAt)}</td></tr>)}</tbody></table>}
           {cursor && <button type="button" className="tr-btn tr-btn-secondary tr-btn-sm" onClick={more}>Load more</button>}
         </section>
       </>}

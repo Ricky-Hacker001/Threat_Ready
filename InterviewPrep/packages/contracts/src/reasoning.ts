@@ -50,11 +50,11 @@ export const REASONING_LIMITS = {
 /* ---------------- Architecture diagram (structured data, rendered by React Flow) ---------------- */
 
 export const DiagramNodeType = z
-  .enum(['user', 'client', 'external', 'web', 'api', 'service', 'identity', 'database', 'queue', 'storage', 'cloud', 'firewall', 'gateway', 'network', 'control', 'attacker', 'secret', 'compute'])
+  .enum(['user', 'client', 'external', 'web', 'api', 'service', 'identity', 'database', 'queue', 'storage', 'cloud', 'firewall', 'gateway', 'network', 'control', 'attacker', 'secret', 'compute', 'endpoint', 'container', 'pipeline', 'repository', 'model', 'device', 'email', 'siem', 'saas'])
   .openapi('DiagramNodeType');
 export type DiagramNodeType = z.infer<typeof DiagramNodeType>;
 
-export const DiagramBoundaryKind = z.enum(['internet', 'edge', 'dmz', 'vpc', 'private', 'data', 'identity', 'account', 'onprem', 'cicd', 'management']).openapi('DiagramBoundaryKind');
+export const DiagramBoundaryKind = z.enum(['internet', 'edge', 'dmz', 'vpc', 'private', 'data', 'identity', 'account', 'onprem', 'cicd', 'management', 'cluster', 'corporate', 'ot', 'tenant', 'vendor']).openapi('DiagramBoundaryKind');
 export type DiagramBoundaryKind = z.infer<typeof DiagramBoundaryKind>;
 
 export const DiagramEdgeKind = z.enum(['data', 'auth', 'control', 'attack']).openapi('DiagramEdgeKind');

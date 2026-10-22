@@ -57,16 +57,16 @@ describe('attack reasoning: cloud security end to end', () => {
   beforeEach(() => t.llm.reset());
   afterAll(async () => t?.close());
 
-  it('lists the fifteen domains with only Cloud Security available', async () => {
+  it('lists the fifteen domains, all available, and refuses an unknown one', async () => {
     const res = await learner.get('/v1/reasoning/domains');
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(15);
     const cloud = res.body.find((d: { key: string }) => d.key === 'cloud_security');
     expect(cloud).toMatchObject({ available: true, difficulty: 'intermediate', weights: { correctness: 30, reasoning: 40, architecture: 20, risk: 10 } });
-    expect(res.body.filter((d: { available: boolean }) => d.available)).toHaveLength(1);
-    const unavailable = await learner.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'network_security' });
-    expect(unavailable.status).toBe(404);
-    expect(unavailable.body.error.code).toBe('REASONING_DOMAIN_UNAVAILABLE');
+    expect(res.body.filter((d: { available: boolean }) => d.available)).toHaveLength(15);
+    const unknown = await learner.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'quantum_security' });
+    expect(unknown.status).toBeGreaterThanOrEqual(400);
+    expect(unknown.status).toBeLessThan(500);
   });
 
   it('runs the whole journey: generate, answer with a justification, three-stage evaluation, result, history, analytics, skill evidence', async () => {

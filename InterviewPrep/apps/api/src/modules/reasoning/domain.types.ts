@@ -18,6 +18,30 @@ export interface ObjectiveChoice extends VariationChoice {
 }
 
 /**
+ * The technique taxonomy a domain cites. Most domains use MITRE ATT&CK Enterprise (the default);
+ * AI & LLM Security uses MITRE ATLAS, whose ids look like AML.T0051.001. The validator checks every
+ * technique id in a generated item against `idPattern`, and the generation prompt names `name`.
+ */
+export interface TechniqueFramework {
+  name: string;
+  idPattern: RegExp;
+  /** One line for the generator: where the ids come from and what to cite. */
+  citeRule: string;
+}
+
+export const ATTACK_ENTERPRISE: TechniqueFramework = {
+  name: 'ATT&CK',
+  idPattern: /^T\d{4}(\.\d{3})?$/,
+  citeRule: 'Cite techniques from the MITRE ATT&CK Enterprise matrix only (ids like T1078 or T1078.004).',
+};
+
+export const ATLAS: TechniqueFramework = {
+  name: 'ATLAS',
+  idPattern: /^AML\.T\d{4}(\.\d{3})?$/,
+  citeRule: 'Cite techniques from the MITRE ATLAS matrix only (ids like AML.T0051 or AML.T0051.001).',
+};
+
+/**
  * A domain is configuration over one engine (ADD §8.7: packs are content, the engine is shared).
  * Generation, validation, similarity, evaluation, scoring, persistence, the API and the UI never
  * branch on the domain key; they read this definition.
@@ -29,6 +53,14 @@ export interface ReasoningDomain {
   /** Track label as published on threatready.io (the catalogue groups scenarios by it). */
   track: string;
   difficulty: ReasoningDifficulty;
+  /** Technique taxonomy for this domain. Defaults to ATT&CK Enterprise when omitted. */
+  framework?: TechniqueFramework;
+  /**
+   * What the diagram and the narrative depict, used in the generator's opening sentence. Defaults to
+   * "an architecture diagram and an active attack". GRC, for example, depicts a control environment
+   * with a live incident or audit finding; the engine is otherwise identical.
+   */
+  framing?: string;
   /** What this domain assesses, shown on the landing page. */
   focus: string[];
   /** Skill ids from content/interview/skills.json that receive evidence from this domain. */

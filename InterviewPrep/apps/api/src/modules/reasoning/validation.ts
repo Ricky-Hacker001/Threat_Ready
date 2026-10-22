@@ -1,5 +1,5 @@
 import type { DiagramData, OptionId } from '@threatready/contracts';
-import { fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
+import { ATTACK_ENTERPRISE, fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
 import type { GeneratedItem, GeneratorOutput } from './item.types.js';
 
 /**
@@ -13,7 +13,6 @@ export interface ValidationResult {
 }
 
 const OPTION_IDS: OptionId[] = ['A', 'B', 'C', 'D'];
-const TECHNIQUE_ID = /^T\d{4}(\.\d{3})?$/;
 const LEAK_PATTERNS = [/correct (answer|option)/i, /best (answer|option) is/i, /\boption [a-d] is (correct|right|best)/i, /\(correct\)/i, /\bthe answer is\b/i];
 const BANNED_OPTION = /^(all|none) of the above/i;
 const GENERIC = new Set(['the', 'and', 'for', 'with', 'from', 'prod', 'service', 'server', 'cloud', 'main', 'primary', 'public', 'private', 'internal', 'external', 'app', 'web', 'data', 'store', 'user', 'users', 'role', 'account', 'system', 'tier', 'node', 'host', 'api']);
@@ -219,9 +218,10 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   if (seed.difficulty === 'intermediate' && (steps < 2 || nodeCount < 6)) errors.push(`difficulty: intermediate needs at least 2 attack steps and 6 components (got ${steps} and ${nodeCount})`);
   if (seed.difficulty === 'beginner' && steps > 2) errors.push(`difficulty: beginner allows at most 2 attack steps (got ${steps})`);
 
-  // Techniques and concepts.
-  if (!out.techniques.length) errors.push('techniques: name at least one ATT&CK technique');
-  for (const t of out.techniques) if (!TECHNIQUE_ID.test(t.id)) errors.push(`techniques: "${t.id}" is not an ATT&CK technique id`);
+  // Techniques and concepts: ids must belong to the domain's framework (ATT&CK by default, ATLAS for AI).
+  const fw = domain.framework ?? ATTACK_ENTERPRISE;
+  if (!out.techniques.length) errors.push(`techniques: name at least one ${fw.name} technique`);
+  for (const t of out.techniques) if (!fw.idPattern.test(t.id)) errors.push(`techniques: "${t.id}" is not a ${fw.name} technique id`);
   if (!out.techniques.some((t) => t.id === seed.technique)) errors.push(`techniques: the assigned technique ${seed.technique} must be among the techniques in play`);
   if (out.techniques.length > 6) warnings.push('techniques: more than six listed');
   if (out.difficulty !== seed.difficulty) warnings.push(`difficulty: generator wrote ${out.difficulty}, seed asked for ${seed.difficulty}`);
