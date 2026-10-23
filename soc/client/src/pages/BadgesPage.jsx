@@ -14,7 +14,7 @@ export default function BadgesPage({ go }) {
   const all = levels && levels.every((l) => l.badge);
 
   return (
-    <div className="page">
+    <main className="page">
       <header className="home-head">
         <div>
           <Brand />
@@ -49,6 +49,6 @@ export default function BadgesPage({ go }) {
       <p className="muted">Internal badges show progress inside this simulation. They are not a certification or professional qualification.</p>
       <p><button type="button" className="btn" onClick={() => go('#/report')}>Final analyst report</button></p>
       <Footer />
-    </div>
+    </main>
   );
 }

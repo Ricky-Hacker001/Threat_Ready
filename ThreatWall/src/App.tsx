@@ -19,6 +19,7 @@ import { LabTools } from './training/LabTools';
 import { Home } from './brand/Home';
 import { Record } from './brand/Record';
 import { Notebook } from './notebook/Notebook';
+import { SmallScreenNotice } from './components/SmallScreenNotice';
 
 /** Training-layer screens live outside the simulated appliance: #/start (home), #/record, #/notebook[/task]. Anything else is the lab. */
 type Screen = 'home' | 'record' | 'notebook' | 'lab';
@@ -37,7 +38,7 @@ function useScreen(): { screen: Screen; focus?: string } {
     return () => window.removeEventListener('hashchange', on);
   }, []);
   const screen = screenOf();
-  useEffect(() => { window.scrollTo(0, 0); document.body.dataset.screen = screen; }, [screen]);
+  useEffect(() => { window.scrollTo(0, 0); document.body.dataset.screen = screen; document.documentElement.dataset.screen = screen; }, [screen]);
   const focus = screen === 'notebook' ? hash.replace(/^#\/?notebook\/?/, '') || undefined : undefined;
   return { screen, focus };
 }
@@ -70,11 +71,14 @@ function Gate() {
 function Layout() {
   const { progress } = useStore();
   const { screen, focus } = useScreen();
+  // Lets the appliance toasts sit clear of the training panel (see .tw-toasts in index.css).
+  useEffect(() => { document.body.dataset.panel = progress.panelOpen ? 'open' : 'closed'; }, [progress.panelOpen]);
   if (screen !== 'lab') {
     return <>{screen === 'home' ? <Home /> : screen === 'record' ? <Record /> : <Notebook focus={focus} />}<TaskRunner /></>;
   }
   return (
     <div className={`tw-root${progress.panelOpen ? ' panel-open' : ''}`}>
+      <SmallScreenNotice />
       <div className="tw-stage">
         <BrowserChrome>
           <div className="tw-stage-body"><Gate /></div>

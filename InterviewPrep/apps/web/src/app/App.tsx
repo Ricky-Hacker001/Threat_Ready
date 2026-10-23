@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { History, LayoutDashboard, Plus } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { Navigate, NavLink, Route, Routes } from 'react-router';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { api, ApiError, messageFor } from '../lib/api';
 import { redirectToSignIn, redirectToSignUp, useMe } from '../lib/auth';
 import { PlatformFooter, PlatformHeader, PlatformLoading } from './PlatformShell';
-import { CardSkeleton, RouteErrorBoundary, ToastProvider } from '../ui/components';
+import { CardSkeleton, focusMainHeading, RouteErrorBoundary, ToastProvider } from '../ui/components';
 
 const Dashboard = lazy(() => import('../features/interview-prep/pages/DashboardPage'));
 const CreateInterview = lazy(() => import('../features/interview-prep/pages/CreateInterviewPage'));
@@ -27,7 +27,8 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     return (
       <div className="page">
         <div className="card stack">
-          <p>{messageFor(error)}</p>
+          <h1 className="h-sm">InterviewPrep couldn’t open</h1>
+          <p role="alert">{messageFor(error)}</p>
           <div><button className="btn" type="button" onClick={() => void refetch()}>Try again</button></div>
         </div>
       </div>
@@ -35,6 +36,20 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   }
   if (isPending || !data) return <PlatformLoading />;
   return <>{children}</>;
+}
+
+/** After an in-app navigation, focus moves to the new screen's h1 so screen readers announce it. */
+function RouteFocus() {
+  const { pathname } = useLocation();
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    focusMainHeading();
+  }, [pathname]);
+  return null;
 }
 
 /**
@@ -93,6 +108,7 @@ export function App() {
     <ToastProvider>
       <div className="ip-shell tr-shell">
         <a href="#main" className="tr-skip">Skip to content</a>
+        <RouteFocus />
         {data && <PlatformHeader user={data} />}
         {data && <SubNav />}
         <main id="main" tabIndex={-1}>

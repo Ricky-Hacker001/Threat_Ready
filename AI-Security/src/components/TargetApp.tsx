@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useApp } from "@/state/store";
 import { BRAND } from "@/brand/brand";
 import type { Role } from "@/engine/types";
@@ -11,6 +11,13 @@ export function TargetApp() {
   const at = state.attempt!;
   const s = at.scenario;
   const [input, setInput] = useState("");
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // Keep the newest message in view inside the scrolling log.
+  useEffect(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [at.chat.length]);
 
   const nVariants = variantCountFor(s.level);
   const variants = [s.attack, ...s.bypassVariants.slice(0, Math.max(nVariants, s.level === "foundation" ? 0 : nVariants))];
@@ -45,7 +52,16 @@ export function TargetApp() {
           safely; any HTML/script is shown as inert text.
         </div>
 
-        <div className="chat-log">
+        {/* role=log: new messages (only) are announced politely; focusable so it can be scrolled by keyboard. */}
+        <div
+          className="chat-log"
+          ref={logRef}
+          role="log"
+          aria-live="polite"
+          aria-relevant="additions"
+          aria-label={`Conversation with ${BRAND.assistantName}`}
+          tabIndex={0}
+        >
           {at.chat.length === 0 && (
             <div className="muted small" style={{ textAlign: "center", padding: 16 }}>
               Start by asking a normal question, or run an attack below.
@@ -77,6 +93,7 @@ export function TargetApp() {
         >
           <input
             className="input"
+            aria-label={`Message ${BRAND.assistantName}`}
             placeholder={`Message ${BRAND.assistantName}…`}
             value={input}
             onChange={(e) => setInput(e.target.value)}

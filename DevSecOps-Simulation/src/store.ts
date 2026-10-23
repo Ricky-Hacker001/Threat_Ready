@@ -1,7 +1,8 @@
 import type { LabState } from './engine/types';
 import type { Mode } from './engine/lab';
 
-// Per-browser progress (no login): chosen mode, saved lab workspaces and results.
+// Per-learner progress: chosen mode, saved lab workspaces and results. Standalone the keys are per browser; inside
+// ThreatReady they are namespaced by the signed-in user (see setStorageNamespace).
 
 export interface LabResult {
   score: number;
@@ -16,12 +17,46 @@ export interface Progress {
   results: Record<string, LabResult>;
 }
 
-const KEY = 'devsecops-lab:progress:v1';
-const LAB_KEY = (id: string) => `devsecops-lab:state:v1:${id}`;
+const ROOT = 'devsecops-lab:';
+/** Prefix of user-namespaced keys: devsecops-lab:u:<id>:… */
+const USER_ROOT = `${ROOT}u:`;
+let namespace = '';
+
+/** Set once at start-up, before anything is read, when a ThreatReady user is known. */
+export function setStorageNamespace(userId: string) {
+  namespace = userId ? encodeURIComponent(userId) : '';
+}
+
+const prefix = () => (namespace ? `${USER_ROOT}${namespace}:` : ROOT);
+const KEY = () => `${prefix()}progress:v1`;
+const LAB_KEY = (id: string) => `${prefix()}state:v1:${id}`;
+
+/** Keys written before progress was namespaced (devsecops-lab:progress:v1, devsecops-lab:state:v1:<lab>). */
+function legacyKeys(): string[] {
+  return Object.keys(localStorage).filter((k) => k.startsWith(ROOT) && !k.startsWith(USER_ROOT));
+}
+
+/**
+ * One-time migration: progress saved before keys were namespaced moves into the first signed-in user's keys and is
+ * removed from the shared keys, so the next user on the same browser starts fresh.
+ */
+export function migrateLegacyProgress() {
+  if (!namespace) return;
+  try {
+    for (const k of legacyKeys()) {
+      const target = `${prefix()}${k.slice(ROOT.length)}`;
+      const v = localStorage.getItem(k);
+      if (v !== null && localStorage.getItem(target) === null) localStorage.setItem(target, v);
+      localStorage.removeItem(k);
+    }
+  } catch {
+    /* storage unavailable: nothing to migrate */
+  }
+}
 
 export function loadProgress(): Progress {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY());
     if (raw) return { mode: null, results: {}, ...(JSON.parse(raw) as Partial<Progress>) };
   } catch {
     /* storage unavailable */
@@ -31,7 +66,7 @@ export function loadProgress(): Progress {
 
 export function saveProgress(p: Progress) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(p));
+    localStorage.setItem(KEY(), JSON.stringify(p));
   } catch {
     /* storage unavailable */
   }
@@ -68,11 +103,11 @@ export function clearLabState(id: string) {
   }
 }
 
+/** Remove this learner's progress only (other users' namespaced keys are left alone). */
 export function resetAll() {
   try {
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('devsecops-lab:'))
-      .forEach((k) => localStorage.removeItem(k));
+    const keys = namespace ? Object.keys(localStorage).filter((k) => k.startsWith(prefix())) : legacyKeys();
+    keys.forEach((k) => localStorage.removeItem(k));
   } catch {
     /* ignore */
   }

@@ -16,19 +16,43 @@ export interface PlatformUser {
 const BASE = import.meta.env.BASE_URL;
 export const inPlatform = typeof window !== "undefined" && BASE.startsWith("/labs/");
 
+/** How long the lab waits for /labs/api/me before opening without a confirmed user. */
+const ME_TIMEOUT_MS = 5000;
+
+/**
+ * Inside ThreatReady, why the signed-in user could not be confirmed (null when it was, or standalone).
+ * The lab then keeps progress for this tab only rather than under a key other learners could share.
+ */
+let identityProblem: "signed-out" | "unavailable" | null = null;
+export function platformIdentityProblem(): "signed-out" | "unavailable" | null {
+  return identityProblem;
+}
+
 let cached: Promise<PlatformUser | null> | null = null;
 export function platformUser(): Promise<PlatformUser | null> {
   if (!inPlatform) return Promise.resolve(null);
   return (cached ??= (async () => {
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = setTimeout(() => ctrl?.abort(), ME_TIMEOUT_MS);
     try {
       const origin = window.location.origin;
-      const res = await fetch(new URL("../api/me", origin + BASE), { credentials: "include", cache: "no-store" });
-      if (!res.ok) return null;
+      const res = await fetch(new URL("../api/me", origin + BASE), { credentials: "include", cache: "no-store", signal: ctrl?.signal });
+      if (!res.ok) {
+        identityProblem = res.status === 401 || res.status === 403 ? "signed-out" : "unavailable";
+        return null;
+      }
       const u = (await res.json()) as { id?: unknown; name?: unknown };
-      if (typeof u?.id !== "string" || !u.id) return null;
+      if (typeof u?.id !== "string" || !u.id) {
+        identityProblem = "signed-out";
+        return null;
+      }
       return { id: u.id, name: typeof u.name === "string" && u.name.trim() ? u.name.trim() : "Learner", catalogUrl: new URL("..", origin + BASE).pathname };
     } catch {
+      // Network error, bad JSON or the timeout above.
+      identityProblem = "unavailable";
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   })());
 }

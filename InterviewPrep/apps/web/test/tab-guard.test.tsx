@@ -47,23 +47,29 @@ afterEach(() => {
 describe('tab-switch guard', () => {
   it('warns when the candidate comes back after switching tabs, and counts repeats', async () => {
     renderRoom(base);
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     setVisibility('hidden');
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     setVisibility('visible');
-    const dialog = screen.getByRole('alertdialog', { name: /not allowed to switch tabs/i });
-    expect(dialog).not.toHaveTextContent(/left the interview/);
-    expect(screen.getByRole('button', { name: 'Return to the interview' })).toHaveFocus();
+    // A neutral reminder, not a ban: it says the score is unaffected.
+    const dialog = screen.getByRole('dialog', { name: /switched away from the interview/i });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveTextContent(/doesn’t affect your score/);
+    expect(dialog).not.toHaveTextContent(/times./);
+    expect(screen.getByRole('button', { name: 'Back to the interview' })).toHaveFocus();
+    // Focus stays inside the dialog.
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'Back to the interview' })).toHaveFocus();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Return to the interview' }));
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Back to the interview' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 
     setVisibility('hidden');
     setVisibility('visible');
-    expect(screen.getByRole('alertdialog')).toHaveTextContent('You have left the interview 2 times.');
+    expect(screen.getByRole('dialog')).toHaveTextContent('You have switched away 2 times.');
     await userEvent.keyboard('{Escape}');
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('asks before the page is closed or reloaded mid-interview', () => {
@@ -77,13 +83,13 @@ describe('tab-switch guard', () => {
     const { unmount } = renderRoom({ ...base, state: 'planned', currentTurn: null });
     setVisibility('hidden');
     setVisibility('visible');
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     unmount();
 
     renderRoom({ ...base, state: 'paused' });
     setVisibility('hidden');
     setVisibility('visible');
-    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     const e = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(false);

@@ -17,7 +17,7 @@ const MESSAGES: Record<string, string> = {
   CAPTCHA_FAILED: "The verification check failed. Try it again.",
   RATE_LIMITED: "Too many attempts. Wait a minute and try again.",
   NETWORK: "Can't reach ThreatReady. Check your connection and try again.",
-  ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY: "You're already in a trial session.",
+  ANONYMOUS_USERS_CANNOT_SIGN_IN_AGAIN_ANONYMOUSLY: "You're already browsing as a guest.",
 };
 
 /** OAuth errors come back on the URL as ?error=... */

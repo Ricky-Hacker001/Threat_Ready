@@ -21,7 +21,7 @@
   --text-2: #a3acbf;
   --text-3: #8089a0;
   --accent: #6d5dfc;
-  --accent-hover: #7d6fff;
+  --accent-hover: #5b4bf0; /* primary hover: white text 5.7:1 */
   --accent-text: #a59bff;
   --accent-soft: rgba(109, 93, 252, 0.12);
   --on-accent: #ffffff;
@@ -95,7 +95,7 @@ html[data-theme="light"] .trp {
 .tr-skip:focus { top: 12px; }
 .trp main:focus { outline: none; }
 .tr-wrap { max-width: var(--wrap); margin: 0 auto; padding: 0 var(--gutter); }
-.tr-sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.tr-sr { position: absolute; top: 0; left: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .tr-icon { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 
 /* ---------- Type ---------- */
@@ -254,4 +254,42 @@ html[data-theme="light"] .tr-theme-btn .tr-i-moon { display: none; }
 /* ---------- Reduced motion: no shimmer, spin or transitions for users who ask for less ---------- */
 @media (prefers-reduced-motion: reduce) {
   .trp *, .trp *::before, .trp *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ---------- Loading: the one screen every app shows while it opens (session check, first data) ----------
+   ThreatReady's own: the mark in a radar ring with a sweeping arc and a sonar ping, then a terminal line. */
+.tr-loading { min-height: calc(100vh - var(--tr-labnav-h, 0px)); display: grid; place-items: center; padding: 48px var(--gutter); background: var(--bg); color: var(--text-2); font-family: var(--font); }
+.tr-loading-in { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.tr-loading-radar { position: relative; width: 104px; height: 104px; display: grid; place-items: center; margin-bottom: 6px; }
+.tr-loading-radar img { position: relative; z-index: 1; width: 38px; height: 37px; }
+.tr-loading-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.tr-loading-track { fill: none; stroke: var(--border); stroke-width: 2; }
+.tr-loading-sweep { fill: none; stroke: var(--accent); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 70 219; transform-origin: 50% 50%; animation: tr-sweep 1.4s linear infinite; }
+.tr-loading-ping { position: absolute; inset: 0; border-radius: 50%; border: 1px solid var(--accent); opacity: 0; animation: tr-ping 2.1s ease-out infinite; }
+.tr-loading-mark { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; color: var(--text); }
+.tr-loading-line { margin: 0; font: 13px/20px var(--mono); color: var(--text-2); }
+.tr-loading-prompt { color: var(--accent); margin-right: 6px; }
+.tr-loading-cursor { display: inline-block; width: 7px; height: 14px; margin-left: 3px; vertical-align: -2px; background: var(--accent); animation: tr-blink 1s steps(2, start) infinite; }
+@keyframes tr-sweep { to { transform: rotate(360deg); } }
+@keyframes tr-ping { 0% { transform: scale(0.62); opacity: 0.75; } 100% { transform: scale(1.3); opacity: 0; } }
+@keyframes tr-blink { to { visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .tr-loading-sweep, .tr-loading-ping, .tr-loading-cursor { animation: none; } .tr-loading-ping { opacity: 0.35; transform: none; } }
+
+/* ---------- Switching apps: a smooth hand-off between ThreatReady's services ----------
+   1. Same-origin (the single-origin deployment): the browser cross-fades the old page into the new one
+      (cross-document view transitions; Chrome, Edge, Safari). 2. Everywhere: platform-nav.js fades the
+      page out on an app link, the loading screen rises in, and the shell fades in once it mounts. */
+@view-transition { navigation: auto; }
+::view-transition-old(root) { animation: tr-vt-out 0.18s ease-in both; }
+::view-transition-new(root) { animation: tr-vt-in 0.26s ease-out both; }
+@keyframes tr-vt-out { to { opacity: 0; } }
+@keyframes tr-vt-in { from { opacity: 0; } }
+html.tr-leaving body { opacity: 0; transition: opacity 0.16s ease-in; }
+.tr-loading-in { animation: tr-rise 0.36s ease-out both; }
+.tr-shell { animation: tr-enter 0.3s ease-out both; }
+@keyframes tr-rise { from { opacity: 0; transform: translateY(8px); } }
+@keyframes tr-enter { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root), .tr-loading-in, .tr-shell { animation: none; }
+  html.tr-leaving body { transition: none; }
 }

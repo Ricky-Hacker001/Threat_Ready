@@ -1,11 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import type { AuditEntry, FirewallConfig, LabControls, LabEvent, LabSession, Progress, RootState, LogEntry } from './types';
 import { STATE_VERSION, initialLab, initialPm, initialProgress, initialSession, initialState } from './baseline';
 import { uid } from '../lib/hash';
 import { evaluate, type FlowResult, type FlowSpec } from '../engine/traffic';
 import { applyEffects, addLogs } from '../engine/effects';
+import { backupKey, labStateKey } from './storageKeys';
 
-const STORAGE_KEY = 'threatwall:lab-state';
 const MAX_EVENTS = 400;
 
 export type AuditInput = Omit<AuditEntry, 'id' | 'ts' | 'user'>;
@@ -68,12 +68,21 @@ function reducer(state: RootState, action: Action): RootState {
   }
 }
 
+/** Why saved progress could not be restored this time (shown once on the home page), or null. */
+let loadNotice: string | null = null;
+
 function load(): RootState {
+  loadNotice = null;
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    raw = localStorage.getItem(labStateKey());
     if (!raw) return initialState();
     const parsed = JSON.parse(raw) as RootState;
-    if (!parsed || parsed.version !== STATE_VERSION || !parsed.config) return initialState();
+    if (!parsed || parsed.version !== STATE_VERSION || !parsed.config) {
+      keepBackup(raw);
+      loadNotice = 'Your saved lab progress is from an earlier version of ThreatReady Firewall and could not be loaded, so the lab started again from the first task. A copy of the old save is kept in this browser.';
+      return initialState();
+    }
     return {
       ...parsed,
       session: { ...initialSession(), ...parsed.session },
@@ -83,8 +92,17 @@ function load(): RootState {
       logs: parsed.logs ?? [],
     };
   } catch {
+    if (raw) {
+      keepBackup(raw);
+      loadNotice = 'Your saved lab progress could not be read, so the lab started again from the first task. A copy of the old save is kept in this browser.';
+    }
     return initialState();
   }
+}
+
+/** Keep the unreadable save instead of silently overwriting it. */
+function keepBackup(raw: string) {
+  try { localStorage.setItem(backupKey(), raw); } catch { /* storage full or unavailable */ }
 }
 
 export interface StoreValue {
@@ -104,16 +122,21 @@ export interface StoreValue {
   /** Send simulated traffic: evaluates, applies counters/logs/captures, records a 'test' event. */
   sendFlow: (spec: FlowSpec, opts?: { at?: number; tag?: string }) => FlowResult;
   resetLab: () => void;
+  /** Set when saved progress could not be restored at start-up; the learner is told once. */
+  storageNotice: string | null;
+  dismissStorageNotice: () => void;
 }
 
 const StoreContext = createContext<StoreValue | null>(null);
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, load);
+  const [storageNotice, setStorageNotice] = useState<string | null>(() => loadNotice);
+  const dismissStorageNotice = useCallback(() => setStorageNotice(null), []);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
+      try { localStorage.setItem(labStateKey(), JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
     }, 120);
     return () => clearTimeout(t);
   }, [state]);
@@ -127,7 +150,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const emit = useCallback((type: string, data: Record<string, unknown> = {}) => dispatch({ type: 'event', event: { type, data } }), []);
   const update = useCallback((fn: (s: RootState) => RootState) => dispatch({ type: 'update', fn }), []);
   const resetLab = useCallback(() => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(labStateKey()); } catch { /* ignore */ }
     dispatch({ type: 'lab/reset' });
   }, []);
 
@@ -152,7 +175,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const value = useMemo<StoreValue>(() => ({
     state, config: state.config, session: state.session, lab: state.lab, progress: state.progress,
     commit, patchSession, patchLab, setProgress, addAudit: addAuditCb, addLogs: addLogsCb, emit, update, sendFlow, resetLab,
-  }), [state, commit, patchSession, patchLab, setProgress, addAuditCb, addLogsCb, emit, update, sendFlow, resetLab]);
+    storageNotice, dismissStorageNotice,
+  }), [state, commit, patchSession, patchLab, setProgress, addAuditCb, addLogsCb, emit, update, sendFlow, resetLab, storageNotice, dismissStorageNotice]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
 }
 

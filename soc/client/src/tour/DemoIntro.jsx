@@ -42,7 +42,7 @@ export default function DemoIntro({ goHome, goDemo, goSummary }) {
   const finished = saved?.progress.status === 'completed';
 
   return (
-    <div className="page demo-page">
+    <main className="page demo-page">
       <p><button type="button" className="link" onClick={goHome}>Home</button></p>
       <header className="home-head">
         <div>
@@ -85,6 +85,6 @@ export default function DemoIntro({ goHome, goDemo, goSummary }) {
           <ol className="demo-steps">{(info?.steps || []).map((s) => <li key={s.n}>{s.title}</li>)}</ol>
         </div>
       </section>
-    </div>
+    </main>
   );
 }

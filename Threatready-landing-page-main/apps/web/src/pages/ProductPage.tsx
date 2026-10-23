@@ -1,5 +1,5 @@
 import type { AppKey, AppSummaryItem, Overview } from "@threatready/contracts";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL, fmtScore } from "../components/Overview";
@@ -18,6 +18,12 @@ const FINISHED = /^(report ready|completed|archived|failed|expired|cancelled)/i;
 function ContinueStrip() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    setFailed(false);
+    setItems(null);
+    setAttempt((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,9 +39,8 @@ function ContinueStrip() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  if (failed) return null; // the product cards below still work; the profile page explains failures
   return (
     <section className="continue" aria-labelledby="continue-title">
       <div className="continue-head">
@@ -46,7 +51,15 @@ function ContinueStrip() {
           All your progress <span aria-hidden="true">→</span>
         </Link>
       </div>
-      {items === null ? (
+      {failed ? (
+        // Compact, not alarming: the product cards below still work.
+        <p className="continue-empty" role="status">
+          We couldn't load your recent activity just now.{" "}
+          <button type="button" className="link-btn" onClick={retry}>
+            Try again
+          </button>
+        </p>
+      ) : items === null ? (
         <ul className="continue-list" aria-hidden="true">
           {[0, 1, 2].map((n) => (
             <li key={n} className="continue-item">
@@ -107,7 +120,7 @@ export function ProductPage() {
 
       {isTrial ? (
         <div className="trial-banner">
-          <p>You're on a free trial. Create an account to keep your progress and unlock more sessions.</p>
+          <p>You're browsing as a guest. Create a free account to start an interview, a lab or a reasoning session.</p>
           <Link className="btn btn-primary" to="/?mode=signup">
             Create account
           </Link>
@@ -121,10 +134,10 @@ export function ProductPage() {
             <li key={f.key} className="feature">
               <div className="feature-art">{f.art}</div>
               <div className="feature-body">
-                <h2 id={`feature-${f.key}`}>
+                <h3 id={`feature-${f.key}`}>
                   <span className={`tr-dot tr-dot-${f.app}`} aria-hidden="true" />
                   {f.title}
-                </h2>
+                </h3>
                 <p>{f.description}</p>
                 <div className="feature-foot">
                   {(() => {

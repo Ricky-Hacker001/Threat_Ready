@@ -1,19 +1,28 @@
 import type { ReactNode } from 'react';
+import { inPlatform } from '../platform';
 
 export const PRODUCT = 'ThreatReady Firewall';
 export const COMPANY = 'Aerovant Technologies';
 export const TAGLINE = `${PRODUCT} by ${COMPANY}: hands-on firewall administration training from first cable to incident containment.`;
 export const BADGE_DISCLAIMER = 'Internal badge: progress inside this simulation, not a certification.';
 
-/** Aerovant logo · divider · THREATREADY. Training-layer pages only — never inside the simulated appliance. */
+/**
+ * Aerovant logo · divider · THREATREADY, plus the page's navigation buttons. Training-layer pages only — never inside
+ * the simulated appliance. Inside ThreatReady the platform strip above already carries the ThreatReady mark, so only
+ * the buttons are shown. Below 640 px the buttons wrap onto their own full-width row.
+ */
 export function BrandRow({ right }: { right?: ReactNode }) {
   return (
-    <div className="tr-brandrow" role="banner" aria-label="ThreatReady, by Aerovant Technologies">
-      <img src={`${import.meta.env.BASE_URL}brand/aerovant-logo-light.svg`} alt="" aria-hidden="true" />
-      <span className="div" aria-hidden="true" />
-      <span className="word" aria-hidden="true">ThreatReady</span>
-      {right ? <div className="right">{right}</div> : null}
-    </div>
+    <header className={`tr-brandrow${inPlatform ? ' in-platform' : ''}`}>
+      {inPlatform ? null : (
+        <span className="tr-brandmark" role="img" aria-label="ThreatReady, by Aerovant Technologies">
+          <img src={`${import.meta.env.BASE_URL}brand/aerovant-logo-light.svg`} alt="" />
+          <span className="div" aria-hidden="true" />
+          <span className="word" aria-hidden="true">ThreatReady</span>
+        </span>
+      )}
+      {right ? <nav className="right" aria-label="Training pages">{right}</nav> : null}
+    </header>
   );
 }
 
@@ -22,7 +31,7 @@ export function BrandFooter({ closing }: { closing?: boolean }) {
 }
 
 /** One colour per level, kept clear of the severity colours (red/orange/amber). */
-export const LEVEL_COLOR = ['#7dd3fc', '#2dd4bf', '#818cf8', '#c084fc', '#e2e8f0'];
+export const LEVEL_COLOR = ['#7dd3fc', '#3fb6a8', '#818cf8', '#c084fc', '#e2e8f0'];
 
 export function BadgeShield({ level, size = 44, earned = true }: { level: number; size?: number; earned?: boolean }) {
   const c = LEVEL_COLOR[level] ?? '#94a3b8';

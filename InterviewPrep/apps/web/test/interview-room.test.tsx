@@ -61,10 +61,13 @@ const sseBody = (events: object[]) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('interview room', () => {
-  it('works in text-only mode when WebGL is unavailable, with the question, status, timer and progress', () => {
+  it('shows the 2D interviewer when WebGL is unavailable, with the question, status, timer and progress', () => {
     renderRoom(base);
     expect(screen.getByText(/Walk me through how you triage/)).toBeInTheDocument();
-    expect(screen.getByText('Text-only mode')).toBeInTheDocument();
+    // The 2D Alex still works, so the room never claims to be text-only.
+    expect(screen.getAllByRole('img', { name: 'Alex, your interviewer' }).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Text-only mode')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'SOC Analyst (L2)' })).toBeInTheDocument();
     expect(screen.getAllByText('Listening').length).toBeGreaterThan(0);
     expect(screen.getByRole('timer')).toHaveTextContent('29:00');
     // The current question only: the planned total is never shown to the candidate.

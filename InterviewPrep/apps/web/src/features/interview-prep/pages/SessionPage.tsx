@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SessionView } from '@threatready/contracts';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ClipboardCheck, Sparkles } from 'lucide-react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { api } from '../../../lib/api';
-import { CardSkeleton, ErrorAlert } from '../../../ui/components';
+import { Busy, CardSkeleton, ErrorAlert, focusMainHeading, usePageTitle } from '../../../ui/components';
 import { ConfigureView } from '../components/ConfigureView';
 import { Stepper } from '../components/Stepper';
 
@@ -24,6 +24,31 @@ export function useSessionEvents(id: string, active: boolean) {
 
 const WORKING = new Set(['parsing', 'completed', 'scoring']);
 
+/** Which screen a session state shows; focus and the tab title follow the screen, not every turn. */
+function screenFor(state: string | undefined) {
+  switch (state) {
+    case undefined:
+      return null;
+    case 'parsing':
+      return 'Analysing your documents';
+    case 'profiled':
+      return 'Configure your interview';
+    case 'planned':
+    case 'asking':
+    case 'awaiting_answer':
+    case 'evaluating':
+    case 'paused':
+      return 'Interview';
+    case 'completed':
+    case 'scoring':
+      return 'Preparing your report';
+    case 'report_ready':
+      return 'Report';
+    default:
+      return 'Interview ended';
+  }
+}
+
 export default function SessionPage() {
   const { id = '' } = useParams();
   const q = useQuery({
@@ -32,6 +57,14 @@ export default function SessionPage() {
     refetchInterval: (query) => (WORKING.has(query.state.data?.state ?? '') ? 4000 : false),
   });
   useSessionEvents(id, WORKING.has(q.data?.state ?? ''));
+  const screen = screenFor(q.data?.state);
+  usePageTitle(screen);
+  // Analysis, configure, room and report generation share one URL: announce each new screen.
+  const lastScreen = useRef(screen);
+  useEffect(() => {
+    if (lastScreen.current && screen && lastScreen.current !== screen) focusMainHeading();
+    lastScreen.current = screen;
+  }, [screen]);
 
   if (q.isPending) return <div className="page"><CardSkeleton lines={5} /></div>;
   if (q.error) return <div className="page"><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
@@ -85,14 +118,14 @@ function WorkingCard({ icon: Icon, title, steps, intervalMs, note }: { icon: typ
       <div className="row">
         <span className="icon-tile accent pulse-tile"><Icon className="icon lg" aria-hidden /></span>
         <div>
-          <h2>{title}</h2>
+          <h1 className="h-sm">{title}</h1>
           <p className="muted" style={{ fontSize: 13.5 }}>{note}</p>
         </div>
       </div>
       <ul className="checklist">
         {steps.map((label, n) => (
           <li key={label} className={n < i ? 'done' : n === i ? 'active' : ''}>
-            <span className="ck">{n < i ? <Check className="icon sm" aria-hidden /> : n === i ? <span className="spinner" style={{ width: 12, height: 12 }} /> : null}</span>
+            <span className="ck">{n < i ? <Check className="icon sm" aria-hidden /> : n === i ? <span className="spinner" aria-hidden style={{ width: 12, height: 12 }} /> : null}</span>
             {label}
           </li>
         ))}
@@ -134,6 +167,7 @@ function Ended({ session }: { session: SessionView }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [error, setError] = useState<unknown>(null);
+  const [retrying, setRetrying] = useState(false);
   const scoringFailed = session.state === 'failed' && session.failure?.stage === 'scoring';
   const code = session.failure?.code ?? '';
   // The analysis can fail because of the documents or because the AI service was unavailable.
@@ -163,8 +197,8 @@ function Ended({ session }: { session: SessionView }) {
     <div className="page" style={{ maxWidth: 720 }}>
       <div className="card stack lg">
         <div className="row">
-          <span className={`icon-tile ${session.state === 'failed' ? 'accent' : ''}`}>{session.state === 'failed' ? <AlertTriangle className="icon" aria-hidden /> : <Check className="icon" aria-hidden />}</span>
-          <h2>{title}</h2>
+          <span className={`icon-tile ${session.state === 'failed' ? 'bad' : ''}`}>{session.state === 'failed' ? <AlertTriangle className="icon" aria-hidden /> : <Check className="icon" aria-hidden />}</span>
+          <h1 className="h-sm">{title}</h1>
         </div>
         <p className="subtle">{body}</p>
         {session.failure && <span className="hint">Reference: {session.failure.code}</span>}
@@ -174,16 +208,21 @@ function Ended({ session }: { session: SessionView }) {
             <button
               className="btn primary"
               type="button"
+              disabled={retrying}
               onClick={async () => {
+                setRetrying(true);
+                setError(null);
                 try {
                   await api.retryReport(session.id);
                   await qc.invalidateQueries({ queryKey: ['session', session.id] });
                 } catch (e) {
                   setError(e);
+                } finally {
+                  setRetrying(false);
                 }
               }}
             >
-              Generate report again
+              {retrying ? <Busy label="Requesting…" /> : 'Generate report again'}
             </button>
           )}
           <button className="btn" type="button" onClick={() => navigate('/interview-prep/new')}>Start a new interview</button>

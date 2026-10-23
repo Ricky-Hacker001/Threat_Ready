@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { LabDef, Mode } from '../engine/lab';
-import { createLabState, score, settle } from '../engine/lab';
+import { activeMs, createLabState, score, settle } from '../engine/lab';
 import type { LabState } from '../engine/types';
 import { runLine, type ShellCtx } from '../engine/shell';
 import { ancestry, status } from '../engine/git';
@@ -8,7 +8,7 @@ import { findWorkflow } from '../engine/pipeline';
 import { revOf } from '../engine/shell';
 import { clearLabState, loadLabState, saveLabState, type Progress } from '../store';
 import { LABS } from '../content/labs';
-import { isUnlocked } from './Dashboard';
+import { canOpen } from './Dashboard';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
 import { Terminal, type TerminalHandle } from '../components/Terminal';
@@ -16,8 +16,11 @@ import { Findings } from '../components/Findings';
 import { PipelineView } from '../components/PipelineView';
 import { TaskPanel } from '../components/TaskPanel';
 import { Ansi } from '../components/Ansi';
+import { Modal } from '../components/Modal';
+import { SmallScreenNotice } from '../components/SmallScreenNotice';
 
 type Tab = 'terminal' | 'findings' | 'pipeline' | 'git' | 'activity';
+const TABS: Tab[] = ['terminal', 'findings', 'pipeline', 'git', 'activity'];
 
 interface Props {
   def: LabDef;
@@ -32,14 +35,45 @@ function fmtTime(ms: number) {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function LabPage({ def, mode, progress, update, go }: Props) {
-  const stateRef = useRef<LabState>(loadLabState(def.id) ?? createLabState(def));
+/**
+ * Gate: a locked lab shows a message and nothing else. The workspace (and its effects, which create and save lab
+ * state) only mounts for a lab the learner may open (FUNC-14).
+ */
+export function LabPage(props: Props) {
+  const { def, progress, go } = props;
+  if (!canOpen(def.id, progress))
+    return (
+      <div className="page">
+        <main className="wrap section">
+          <h1 className="pagetitle">
+            <span aria-hidden="true">🔒 </span>
+            {def.title} is locked
+          </h1>
+          <p className="sub">Complete the previous lab first, or switch to Expert mode on the dashboard to unlock everything.</p>
+          <button className="btn primary" onClick={() => go('/labs')}>
+            Back to my labs
+          </button>
+        </main>
+      </div>
+    );
+  return <LabWorkspace {...props} />;
+}
+
+function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
+  // Each attempt keeps the mode it was started in (UX-14); older saves adopt the current mode once.
+  const [initial] = useState<LabState>(() => {
+    const st = loadLabState(def.id) ?? createLabState(def);
+    if (!st.mode) st.mode = dashboardMode;
+    return st;
+  });
+  const stateRef = useRef<LabState>(initial);
   const s = stateRef.current;
+  const mode: Mode = s.mode ?? dashboardMode;
   const [, setTick] = useState(0);
   const [termKey, setTermKey] = useState(0);
   const [active, setActive] = useState<string | null>(s.files[def.openFile] !== undefined ? def.openFile : Object.keys(s.files)[0] ?? null);
   const [tab, setTab] = useState<Tab>('terminal');
-  const [toasts, setToasts] = useState<{ id: number; text: string }[]>([]);
+  const [toasts, setToasts] = useState<{ id: number; text: string; ok: boolean }[]>([]);
   const [animating, setAnimating] = useState<{ id: number; start: number } | null>(null);
   const [jump, setJump] = useState<{ line: number; n: number } | null>(null);
   const [showCommit, setShowCommit] = useState(false);
@@ -47,27 +81,29 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
   const [bottomPct, setBottomPct] = useState(42);
   const [now, setNow] = useState(Date.now());
   const term = useRef<TerminalHandle>(null);
+  const center = useRef<HTMLElement>(null);
   const env = useRef<Record<string, string>>({ HOME: '/home/devsecops', USER: 'devsecops', NODE_ENV: 'development' });
   const settleTimer = useRef<number | undefined>(undefined);
 
-  const toast = useCallback((text: string) => {
+  const toast = useCallback((text: string, ok = false) => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text }]);
+    setToasts((t) => [...t, { id, text, ok }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4200);
   }, []);
 
   const finish = useCallback(
     (st: LabState) => {
-      const sc = score(def, st, mode);
-      const minutes = Math.round(((st.completedAt ?? Date.now()) - st.startedAt) / 60000);
+      const m: Mode = st.mode ?? dashboardMode;
+      const sc = score(def, st, m);
+      const minutes = Math.round(activeMs(st) / 60000);
       update((p) => {
         const prev = p.results[def.id];
         if (prev && prev.score >= sc.score) return p;
-        return { ...p, results: { ...p.results, [def.id]: { score: sc.score, max: sc.max, mode, minutes, completedAt: st.completedAt ?? Date.now() } } };
+        return { ...p, results: { ...p.results, [def.id]: { score: sc.score, max: sc.max, mode: m, minutes, completedAt: st.completedAt ?? Date.now() } } };
       });
       setShowDone(true);
     },
-    [def, mode, update],
+    [def, dashboardMode, update],
   );
 
   /** Re-evaluate the lab after any action. */
@@ -77,7 +113,7 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
     const { newlyAchieved, run } = settle(def, st);
     for (const id of newlyAchieved) {
       const o = def.objectives.find((x) => x.id === id)!;
-      toast(`✔ ${o.bonus ? 'Bonus' : 'Objective'} complete: ${o.title}`);
+      toast(`${o.bonus ? 'Bonus' : 'Objective'} complete: ${o.title}`, true);
     }
     if (run) {
       setAnimating({ id: run.id, start: Date.now() });
@@ -102,6 +138,34 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
     [active, afterAction, def],
   );
 
+  // Time away (tab hidden, lab closed or left for the dashboard) does not count towards the lab timer or the Expert
+  // speed bonus (UX-14). Declared before the first save so a gap since the last visit is accounted for.
+  useEffect(() => {
+    const back = () => {
+      const st = stateRef.current;
+      if (!st.awayAt) return;
+      if (!st.completedAt) st.pausedMs = (st.pausedMs ?? 0) + Math.max(0, Date.now() - st.awayAt);
+      st.awayAt = null;
+      saveLabState(st);
+      setNow(Date.now());
+    };
+    const leave = () => {
+      const st = stateRef.current;
+      if (st.completedAt || st.awayAt) return;
+      st.awayAt = Date.now();
+      saveLabState(st);
+    };
+    const onVis = () => (document.visibilityState === 'hidden' ? leave() : back());
+    back();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('pagehide', leave);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pagehide', leave);
+      leave();
+    };
+  }, []);
+
   useEffect(() => {
     if (s.completedAt) return;
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -124,6 +188,20 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
     }, 450);
   };
 
+  const newFile = () => {
+    const p = window.prompt('New file path (e.g. .dockerignore or .github/workflows/ci.yml)');
+    if (!p) return;
+    const path = p.replace(/^\.?\//, '');
+    if (s.files[path] === undefined) s.files[path] = '';
+    setActive(path);
+    afterAction();
+  };
+  const deleteFile = (p: string) => {
+    delete s.files[p];
+    if (active === p) setActive(s.files[def.openFile] !== undefined ? def.openFile : Object.keys(s.files)[0] ?? null);
+    afterAction();
+  };
+
   const gitMarks = useMemo(() => {
     const m: Record<string, string> = {};
     for (const e of status(s)) m[e.path] = e.untracked || e.staged === 'A' ? 'U' : 'M';
@@ -142,82 +220,109 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
   const doneN = req.filter((o) => s.achieved.includes(o.id)).length;
   const headDiff = active ? (ancestry(s.commits, s.head)[0]?.files[active] === s.files[active] ? null : ancestry(s.commits, s.head)[0]?.files[active] === undefined ? 'new' : 'modified') : null;
 
-  if (!isUnlocked(def.id, progress))
-    return (
-      <div className="page">
-        <div className="wrap section">
-          <h2>🔒 {def.title} is locked</h2>
-          <p className="sub">Complete the previous lab first, or switch to Expert mode on the dashboard to unlock everything.</p>
-          <button className="btn primary" onClick={() => go('/labs')}>
-            Back to my labs
-          </button>
-        </div>
-      </div>
-    );
-
-  const startDrag = (e: React.MouseEvent) => {
+  // Splitter between editor and bottom panel: pointer (mouse, touch, pen) and keyboard (arrows, Home/End).
+  const startDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const h = window.innerHeight;
-    const move = (ev: MouseEvent) => setBottomPct(Math.min(80, Math.max(15, ((h - ev.clientY) / (h - 48)) * 100)));
-    const up = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    const rect = center.current?.getBoundingClientRect();
+    const move = (ev: PointerEvent) => {
+      if (!rect) return;
+      setBottomPct(Math.min(80, Math.max(15, ((rect.bottom - ev.clientY) / rect.height) * 100)));
     };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
   };
+  const splitKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const step = e.shiftKey ? 10 : 5;
+    const next = e.key === 'ArrowUp' ? bottomPct + step : e.key === 'ArrowDown' ? bottomPct - step : e.key === 'Home' ? 80 : e.key === 'End' ? 15 : null;
+    if (next === null) return;
+    e.preventDefault();
+    setBottomPct(Math.min(80, Math.max(15, next)));
+  };
+
+  const tabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const i = TABS.indexOf(tab);
+    const n = e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+    if (n < 0) return;
+    e.preventDefault();
+    setTab(TABS[n]);
+    document.getElementById(`ws-tab-${TABS[n]}`)?.focus();
+  };
+  const tabProps = (t: Tab) => ({
+    id: `ws-tab-${t}`,
+    role: 'tab',
+    'aria-selected': tab === t,
+    'aria-controls': 'ws-tabpanel',
+    tabIndex: tab === t ? 0 : -1,
+    className: tab === t ? 'on' : '',
+    onClick: () => setTab(t),
+  });
 
   const idx = LABS.findIndex((l) => l.id === def.id);
   const nextLab = LABS[idx + 1];
   const sc = score(def, s, mode);
+  const elapsed = activeMs(s, now);
+
+  const resetLab = () => {
+    if (!window.confirm('Reset this lab? Your changes, scans and pipeline runs in this lab will be discarded, and a fresh attempt starts in the current dashboard mode.')) return;
+    clearLabState(def.id);
+    const fresh = createLabState(def);
+    fresh.mode = dashboardMode;
+    stateRef.current = fresh;
+    setActive(def.openFile);
+    setTermKey((k) => k + 1);
+    setAnimating(null);
+    afterAction();
+  };
 
   return (
     <div className="ws">
       <header className="wsbar">
         <button className="btn ghost sm" onClick={() => go('/labs')}>
-          ← Labs
+          <span aria-hidden="true">←</span> Labs
         </button>
         <span className="chip">L{def.level}</span>
-        <span className="title">{def.title}</span>
-        <span className={`chip ${mode === 'guided' ? 'green' : mode === 'standard' ? 'blue' : 'violet'}`}>{mode}</span>
+        <h1 className="title">{def.title}</h1>
+        <span className={`chip ${mode === 'guided' ? 'green' : mode === 'standard' ? 'blue' : 'violet'}`} title="Mode of this attempt">
+          {mode}
+        </span>
         <span className="spacer" />
         <span className="chip green">
           {doneN}/{req.length} objectives
         </span>
-        <span className="timer" title="Time in lab">
-          ⏱ {fmtTime((s.completedAt ?? now) - s.startedAt)}
+        <span className="timer" title="Active time in this lab (paused while you are away)">
+          <span aria-hidden="true">⏱ </span>
+          <span className="sr">Time in lab: </span>
+          {fmtTime(elapsed)}
           {mode === 'expert' ? ` / ${def.minutes}:00` : ''}
         </span>
         <button className="btn sm" onClick={() => setShowCommit(true)}>
-          ⎇ Commit &amp; Push
+          <span aria-hidden="true">⎇ </span>Commit &amp; Push
         </button>
         {s.completedAt && (
           <button className="btn sm primary" onClick={() => setShowDone(true)}>
             Results
           </button>
         )}
-        <button
-          className="btn sm ghost"
-          title="Reset this lab to its starting state"
-          onClick={() => {
-            if (!window.confirm('Reset this lab? Your changes, scans and pipeline runs in this lab will be discarded.')) return;
-            clearLabState(def.id);
-            stateRef.current = createLabState(def);
-            setActive(def.openFile);
-            setTermKey((k) => k + 1);
-            setAnimating(null);
-            afterAction();
-          }}
-        >
-          ↺ Reset
+        <button className="btn sm ghost" title="Reset this lab to its starting state" onClick={resetLab}>
+          <span aria-hidden="true">↺ </span>Reset
         </button>
       </header>
+      <SmallScreenNotice />
 
-      <div className="wsmain">
+      <main className="wsmain">
         <TaskPanel
           def={def}
           s={s}
           mode={mode}
+          dashboardMode={dashboardMode}
           onRun={(c) => {
             setTab('terminal');
             setTimeout(() => term.current?.run(c), 0);
@@ -233,50 +338,51 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
           }}
         />
 
-        <section className="center" style={{ '--bottom': `${bottomPct}%` } as React.CSSProperties}>
+        <section className="center" ref={center} aria-label="Code and tools" style={{ '--bottom': `${bottomPct}%` } as React.CSSProperties}>
           <div className="editorarea">
-            <FileTree
+            <FileTree files={Object.keys(s.files)} active={active} marks={gitMarks} findingsByFile={findingsByFile} onOpen={setActive} onNew={newFile} onDelete={deleteFile} />
+            <Editor
+              path={active && s.files[active] !== undefined ? active : null}
+              value={active ? (s.files[active] ?? '') : ''}
+              onChange={onEdit}
+              findings={currentFindings}
+              status={headDiff}
+              jumpTo={jump}
               files={Object.keys(s.files)}
-              active={active}
-              marks={gitMarks}
-              findingsByFile={findingsByFile}
               onOpen={setActive}
-              onNew={() => {
-                const p = window.prompt('New file path (e.g. .dockerignore or .github/workflows/ci.yml)');
-                if (!p) return;
-                const path = p.replace(/^\.?\//, '');
-                if (s.files[path] === undefined) s.files[path] = '';
-                setActive(path);
-                afterAction();
-              }}
-              onDelete={(p) => {
-                delete s.files[p];
-                if (active === p) setActive(def.openFile);
-                afterAction();
-              }}
+              onNew={newFile}
+              onDelete={deleteFile}
             />
-            <Editor path={active && s.files[active] !== undefined ? active : null} value={active ? (s.files[active] ?? '') : ''} onChange={onEdit} findings={currentFindings} status={headDiff} jumpTo={jump} />
           </div>
-          <div className="splitter" onMouseDown={startDrag} title="Drag to resize" />
+          <div
+            className="splitter"
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="Resize the editor and the bottom panel"
+            aria-valuemin={15}
+            aria-valuemax={80}
+            aria-valuenow={Math.round(bottomPct)}
+            aria-valuetext={`Bottom panel ${Math.round(bottomPct)}% of the height`}
+            tabIndex={0}
+            onPointerDown={startDrag}
+            onKeyDown={splitKey}
+            title="Drag, or use the arrow keys, to resize"
+          />
           <div className="bottom">
-            <div className="tabs">
-              <button className={tab === 'terminal' ? 'on' : ''} onClick={() => setTab('terminal')}>
-                Terminal
-              </button>
-              <button className={tab === 'findings' ? 'on' : ''} onClick={() => setTab('findings')}>
+            <div className="tabs" role="tablist" aria-label="Tools" onKeyDown={tabKey}>
+              <button {...tabProps('terminal')}>Terminal</button>
+              <button {...tabProps('findings')}>
                 Findings {allFindings.length > 0 && <span className="badge red">{allFindings.length}</span>}
               </button>
-              <button className={tab === 'pipeline' ? 'on' : ''} onClick={() => setTab('pipeline')}>
+              <button {...tabProps('pipeline')}>
                 Pipeline {lastRun && <span className={`badge ${lastRun.status === 'passed' ? 'green' : 'red'}`}>#{lastRun.id} {lastRun.status}</span>}
               </button>
-              <button className={tab === 'git' ? 'on' : ''} onClick={() => setTab('git')}>
+              <button {...tabProps('git')}>
                 Git {Object.keys(gitMarks).length > 0 && <span className="badge">{Object.keys(gitMarks).length}</span>}
               </button>
-              <button className={tab === 'activity' ? 'on' : ''} onClick={() => setTab('activity')}>
-                Activity
-              </button>
+              <button {...tabProps('activity')}>Activity</button>
             </div>
-            <div className="tabbody">
+            <div className="tabbody" id="ws-tabpanel" role="tabpanel" aria-labelledby={`ws-tab-${tab}`}>
               <div style={{ display: tab === 'terminal' ? 'block' : 'none', height: '100%' }}>
                 <Terminal
                   key={termKey}
@@ -319,7 +425,7 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
                   {[...s.activity].reverse().map((a, i) => (
                     <div key={i}>
                       <time>{new Date(a.t).toLocaleTimeString()}</time>
-                      <span style={{ color: a.kind === 'objective' ? 'var(--accent)' : a.kind === 'pipeline' ? 'var(--blue)' : a.kind === 'hint' ? 'var(--amber)' : undefined }}>{a.text}</span>
+                      <span style={{ color: a.kind === 'objective' ? 'var(--accent-text)' : a.kind === 'pipeline' ? 'var(--blue)' : a.kind === 'hint' ? 'var(--amber)' : undefined }}>{a.text}</span>
                     </div>
                   ))}
                 </div>
@@ -327,7 +433,7 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
             </div>
           </div>
         </section>
-      </div>
+      </main>
 
       {showCommit && (
         <CommitDialog
@@ -343,51 +449,56 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
       )}
 
       {showDone && (
-        <div className="modalbg" onClick={() => setShowDone(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <span className="chip green">Lab complete</span>
-            <h2 style={{ marginTop: 10 }}>{def.title}</h2>
-            <div style={{ display: 'flex', gap: 24, alignItems: 'baseline', margin: '10px 0' }}>
-              <div>
-                <div className="big">{sc.score}</div>
-                <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>points (max {sc.max})</div>
-              </div>
-              <div style={{ color: 'var(--muted)', fontSize: 13.5 }}>
-                ⏱ {fmtTime((s.completedAt ?? Date.now()) - s.startedAt)} · {mode} mode
-                <br />
-                {s.hintsUsed.length} hint(s) · {s.pipelineRuns.length} pipeline run(s) · {s.activity.filter((a) => a.kind === 'cmd' || a.kind === 'git').length} commands
-              </div>
+        <Modal title={def.title} onClose={() => setShowDone(false)}>
+          <span className="chip green">Lab complete</span>
+          <div style={{ display: 'flex', gap: 24, alignItems: 'baseline', margin: '10px 0', flexWrap: 'wrap' }}>
+            <div>
+              <div className="big">{sc.score}</div>
+              <div style={{ color: 'var(--muted)', fontSize: 12.5 }}>points (max {sc.max})</div>
             </div>
-            {def.objectives.map((o) => (
-              <div key={o.id} style={{ fontSize: 13.5, padding: '2px 0', color: s.achieved.includes(o.id) ? 'var(--text)' : 'var(--dim)' }}>
-                {s.achieved.includes(o.id) ? '✅' : '⬜'} {o.title} {o.bonus ? '(bonus)' : ''}
-              </div>
-            ))}
-            <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>Skills practised: {def.skills.join(', ')}.</p>
-            <div className="actions">
-              <button className="btn" onClick={() => downloadReport(def, s, mode)}>
-                ⬇ Download report
-              </button>
-              <button className="btn" onClick={() => setShowDone(false)}>
-                Keep exploring
-              </button>
-              {nextLab ? (
-                <button className="btn primary" onClick={() => go(`/lab/${nextLab.id}`)}>
-                  Next: {nextLab.title} →
-                </button>
-              ) : (
-                <button className="btn primary" onClick={() => go('/labs')}>
-                  Back to labs
-                </button>
-              )}
+            <div style={{ color: 'var(--muted)', fontSize: 13.5 }}>
+              <span aria-hidden="true">⏱ </span>
+              {fmtTime(activeMs(s))} · {mode} mode
+              <br />
+              {s.hintsUsed.length} hint(s) · {s.pipelineRuns.length} pipeline run(s) · {s.activity.filter((a) => a.kind === 'cmd' || a.kind === 'git').length} commands
             </div>
           </div>
-        </div>
+          <ul className="objlist">
+            {def.objectives.map((o) => (
+              <li key={o.id} style={{ color: s.achieved.includes(o.id) ? 'var(--text)' : 'var(--dim)' }}>
+                <span aria-hidden="true">{s.achieved.includes(o.id) ? '✅' : '⬜'} </span>
+                <span className="sr">{s.achieved.includes(o.id) ? 'Achieved: ' : 'Not achieved: '}</span>
+                {o.title} {o.bonus ? '(bonus)' : ''}
+              </li>
+            ))}
+          </ul>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 12 }}>Skills practised: {def.skills.join(', ')}.</p>
+          <div className="actions">
+            <button className="btn" onClick={() => downloadReport(def, s, mode)}>
+              <span aria-hidden="true">⬇ </span>Download report
+            </button>
+            <button className="btn" onClick={() => setShowDone(false)}>
+              Keep exploring
+            </button>
+            {nextLab ? (
+              <button className="btn primary" data-autofocus onClick={() => go(`/lab/${nextLab.id}`)}>
+                Next: {nextLab.title} <span aria-hidden="true">→</span>
+              </button>
+            ) : (
+              <button className="btn primary" data-autofocus onClick={() => go('/labs')}>
+                Back to labs
+              </button>
+            )}
+          </div>
+        </Modal>
       )}
 
-      <div className="toast">
+      <div className="toast" role="status" aria-live="polite">
         {toasts.map((t) => (
-          <div key={t.id}>{t.text}</div>
+          <div key={t.id} className={t.ok ? 'ok' : ''}>
+            {t.ok && <span aria-hidden="true">✔ </span>}
+            {t.text}
+          </div>
         ))}
       </div>
     </div>
@@ -402,17 +513,29 @@ function GitPanel({ s, onOpen }: { s: LabState; onOpen: (p: string) => void }) {
       <div className="scanhdr">
         <b>Branch main</b>
         <span className="chip">{s.remote.url ? `origin: ${s.remote.url}` : 'no remote configured'}</span>
-        <span className={s.remote.head === s.head ? 'fresh' : 'stale'}>{s.remote.head === s.head ? '● in sync with origin/main' : '● local commits not pushed'}</span>
+        <span className={s.remote.head === s.head ? 'fresh' : 'stale'}>
+          <span aria-hidden="true">● </span>
+          {s.remote.head === s.head ? 'in sync with origin/main' : 'local commits not pushed'}
+        </span>
       </div>
       {st.length === 0 ? (
         <p style={{ color: 'var(--muted)' }}>Working tree clean.</p>
       ) : (
-        st.map((e) => (
-          <div key={e.path} style={{ fontFamily: 'var(--mono)', fontSize: 12.5, cursor: 'pointer' }} onClick={() => s.files[e.path] !== undefined && onOpen(e.path)}>
-            <span style={{ color: e.staged ? 'var(--ok)' : 'var(--high)', display: 'inline-block', width: 90 }}>{e.untracked ? 'untracked' : e.staged ? `staged ${e.staged}` : `modified`}</span>
-            {e.path}
-          </div>
-        ))
+        <ul className="gitlist">
+          {st.map((e) => (
+            <li key={e.path}>
+              {s.files[e.path] !== undefined ? (
+                <button type="button" className="gitrow" onClick={() => onOpen(e.path)} title={`Open ${e.path}`}>
+                  <GitRowText e={e} />
+                </button>
+              ) : (
+                <span className="gitrow">
+                  <GitRowText e={e} />
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       <div className="scanhdr" style={{ marginTop: 16 }}>
         <b>History</b>
@@ -426,32 +549,51 @@ function GitPanel({ s, onOpen }: { s: LabState; onOpen: (p: string) => void }) {
   );
 }
 
+function GitRowText({ e }: { e: ReturnType<typeof status>[number] }) {
+  return (
+    <>
+      <span style={{ color: e.staged ? 'var(--ok)' : 'var(--high)', display: 'inline-block', width: 90 }}>{e.untracked ? 'untracked' : e.staged ? `staged ${e.staged}` : `modified`}</span>
+      {e.path}
+    </>
+  );
+}
+
 function CommitDialog({ s, onClose, onCommit }: { s: LabState; onClose: () => void; onCommit: (msg: string, push: boolean) => void }) {
   const [msg, setMsg] = useState('');
   const [push, setPush] = useState(true);
   const st = status(s);
   return (
-    <div className="modalbg" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Commit &amp; Push</h2>
-        <p style={{ color: 'var(--muted)', fontSize: 13.5, margin: '4px 0' }}>Runs <code>git add -A</code>, <code>git commit</code> and optionally <code>git push</code> in the terminal so you can see exactly what happens. Files listed in .gitignore are not added.</p>
-        <div className="changes">
-          {st.length ? st.map((e) => <div key={e.path}>{e.untracked ? 'A' : e.unstaged ?? e.staged} {e.path}</div>) : <div style={{ color: 'var(--dim)' }}>No changes — nothing to commit.</div>}
-        </div>
-        <input type="text" placeholder="Commit message, e.g. Fix SQL injection in orders route" value={msg} autoFocus onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && msg.trim() && onCommit(msg.trim(), push)} />
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, fontSize: 13.5 }}>
-          <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} /> Push to origin/main (triggers the CI pipeline)
-        </label>
-        <div className="actions">
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn primary" disabled={!msg.trim()} onClick={() => onCommit(msg.trim(), push)}>
-            Commit{push ? ' & Push' : ''}
-          </button>
-        </div>
+    <Modal title="Commit & Push" onClose={onClose} describedBy="commit-desc">
+      <p id="commit-desc" style={{ color: 'var(--muted)', fontSize: 13.5, margin: '4px 0' }}>
+        Runs <code>git add -A</code>, <code>git commit</code> and optionally <code>git push</code> in the terminal so you can see exactly what happens. Files listed in .gitignore are not added.
+      </p>
+      <div className="changes" aria-label="Changes to commit" role="group">
+        {st.length ? st.map((e) => <div key={e.path}>{e.untracked ? 'A' : e.unstaged ?? e.staged} {e.path}</div>) : <div style={{ color: 'var(--dim)' }}>No changes — nothing to commit.</div>}
       </div>
-    </div>
+      <label className="sr" htmlFor="commit-msg">
+        Commit message
+      </label>
+      <input
+        id="commit-msg"
+        type="text"
+        placeholder="Commit message, e.g. Fix SQL injection in orders route"
+        value={msg}
+        data-autofocus
+        onChange={(e) => setMsg(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && msg.trim() && onCommit(msg.trim(), push)}
+      />
+      <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, fontSize: 13.5 }}>
+        <input type="checkbox" checked={push} onChange={(e) => setPush(e.target.checked)} /> Push to origin/main (triggers the CI pipeline)
+      </label>
+      <div className="actions">
+        <button className="btn" onClick={onClose}>
+          Cancel
+        </button>
+        <button className="btn primary" disabled={!msg.trim()} onClick={() => onCommit(msg.trim(), push)}>
+          Commit{push ? ' & Push' : ''}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -463,7 +605,7 @@ function downloadReport(def: LabDef, s: LabState, mode: Mode) {
     '',
     `- Mode: ${mode}`,
     `- Score: ${sc.score} / ${sc.max}`,
-    `- Time: ${fmtTime((s.completedAt ?? Date.now()) - s.startedAt)}`,
+    `- Time: ${fmtTime(activeMs(s))}`,
     `- Hints used: ${s.hintsUsed.length}`,
     `- Pipeline runs: ${s.pipelineRuns.map((r) => `#${r.id} ${r.status}`).join(', ') || 'none'}`,
     '',

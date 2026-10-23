@@ -35,7 +35,7 @@ export function App() {
     {scenario ? <ScenarioPage id={scenario[1]!} back={() => go(`${BASE}scenarios`)} />
       : legacy ? <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />
       : domain ? <DomainPage slug={domain[1]!} go={go} />
-      : attempt ? <AttemptPage id={attempt[1]!} go={go} />
+      : attempt ? <AttemptPage key={attempt[1]!} id={attempt[1]!} go={go} />
       : historyRoute ? <HistoryPage go={go} />
       : summaryRoute ? <SummaryPage go={go} />
       : <DomainsPage go={go} />}
@@ -43,7 +43,7 @@ export function App() {
 }
 
 function Techniques({ list }: { list: Technique[] }) {
-  return <div className="tr-chips">{list.map(t => <span key={t.id} className="tr-chip" title={t.name}>{t.id}</span>)}</div>;
+  return <ul className="tr-chips ar-chip-list" aria-label="Techniques">{list.map(t => <li key={t.id} className="tr-chip">{t.id} · {t.name}</li>)}</ul>;
 }
 
 function ScenarioList({ open }: { open: (id: string) => void }) {
@@ -57,8 +57,8 @@ function ScenarioList({ open }: { open: (id: string) => void }) {
     <section className="tr-page-head"><div className="tr-wrap tr-page-head-in">
       <div>
         <span className="tr-eyebrow"><span className="tr-dot tr-dot-reasoning" aria-hidden="true" style={{ marginRight: 8 }} />Attack Reasoning Lab</span>
-        <h1 className="tr-h1">Think like a defender under pressure.</h1>
-        <p className="tr-lead">A real architecture with an active attack chain. Five questions, each built from your previous answer, scored on the five published rubric dimensions.</p>
+        <h1 className="tr-h1">Scenario briefs</h1>
+        <p className="tr-lead">Hand-authored scenarios planned for a later release: one architecture with an active attack chain and a series of questions. Live today are the AI-generated assessments: one generated scenario and one decision at a time.</p>
       </div>
       {data && <div className="tr-meta"><span><b className="tr-h3">{data.scenarios.length}</b>&nbsp;scenarios</span><span><b className="tr-h3">{live}</b>&nbsp;available now</span><span><b className="tr-h3">{data.levels.length}</b>&nbsp;levels</span></div>}
     </div></section>
@@ -84,9 +84,9 @@ function ScenarioList({ open }: { open: (id: string) => void }) {
             <span className="ar-more" aria-hidden="true">View scenario →</span>
           </div>
         </li>)}</ul>
-        <h2 className="tr-section-title">How a session works</h2>
+        <h2 className="tr-section-title">How these scenarios will work (planned)</h2>
         <div className="ar-facts">
-          <div className="tr-card"><span className="tr-eyebrow">Format</span><p>One architecture scenario, five adaptive questions. Each question is built from your previous answer.</p></div>
+          <div className="tr-card"><span className="tr-eyebrow">Format</span><p>Planned: one architecture scenario and a series of adaptive questions, each built from your previous answer. Until then, the live assessments ask one question per generated scenario.</p></div>
           <div className="tr-card"><span className="tr-eyebrow">Levels</span><p>{data.levels.map(l => `${l.level} (${l.minutes})`).join(' · ')}. Less help, more depth at each level.</p></div>
           <div className="tr-card"><span className="tr-eyebrow">Scoring</span><p>{data.dimensions.map(d => d.name).join(', ')}. Every score band is published in the rubric.</p></div>
         </div>
@@ -109,8 +109,9 @@ function ScenarioPage({ id, back }: { id: string; back: () => void }) {
           <p className="tr-lead">{s.summary}</p>
         </div>
         <div className="ar-start">
-          {s.available ? <button type="button" className="tr-btn tr-btn-primary">Start scenario</button>
-            : <><span className="tr-tag tr-tag-soon">Coming soon · {s.release}</span><button type="button" className="tr-btn tr-btn-primary" disabled aria-describedby="ar-start-note">Start scenario</button><span id="ar-start-note" className="tr-small tr-muted">Opens when the reasoning engine launches.</span></>}
+          <span className="tr-tag tr-tag-soon">{s.available ? 'Planned' : `Coming soon · ${s.release}`}</span>
+          <span className="tr-small tr-muted">This brief cannot be started yet. AI-generated assessments in this area are live now.</span>
+          <a className="tr-btn tr-btn-primary" href={BASE} onClick={e => { e.preventDefault(); history.pushState(null, '', BASE); dispatchEvent(new PopStateEvent('popstate')); }}>Choose a domain</a>
         </div>
       </div>}
     </div></section>
@@ -127,7 +128,7 @@ function ScenarioPage({ id, back }: { id: string; back: () => void }) {
         <aside className="ar-side">
           <section className="tr-card"><h2 className="tr-h3">Levels</h2>
             <table className="ar-table"><thead><tr><th>Level</th><th>Time</th><th>Hints</th></tr></thead><tbody>{data.levels.map(l => <tr key={l.level}><td>{l.level}</td><td>{l.minutes}</td><td>{l.hints}</td></tr>)}</tbody></table>
-            <p className="tr-small">Every level runs five adaptive questions.</p></section>
+            <p className="tr-small">Planned: every level runs a series of adaptive questions.</p></section>
           <section className="tr-card"><h2 className="tr-h3">Question categories</h2><div className="tr-chips">{s.categories.map(c => <span key={c} className="tr-tag tr-tag-plain">{c}</span>)}</div></section>
           <section className="tr-card"><h2 className="tr-h3">Scored on</h2><ul className="ar-list">{data.dimensions.map(d => <li key={d.code}><span className="tr-mono">{d.code}</span> {d.name}</li>)}</ul>
             <a className="ar-link" href="https://threatready.io/rubric.html" target="_blank" rel="noopener noreferrer">Read the published rubric</a></section>

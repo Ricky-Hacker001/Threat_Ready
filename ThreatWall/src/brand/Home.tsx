@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, FileDown, FileText, NotebookText, RotateCcw } from 'lucide-react';
+import { ArrowRight, FileDown, FileText, Info, NotebookText, RotateCcw } from 'lucide-react';
+import { SmallScreenNotice } from '../components/SmallScreenNotice';
 import { NOTEBOOK_PDF } from '../notebook/lessons';
 import { useStore } from '../state/store';
 import { ui } from '../state/ui';
@@ -10,7 +11,7 @@ import { lastRoute, levelSummary, nextTask } from './progress';
 
 /** ThreatReady home: who is learning, where they are, what is next. Lives outside the simulated appliance. */
 export function Home() {
-  const { state, setProgress, resetLab } = useStore();
+  const { state, setProgress, resetLab, storageNotice, dismissStorageNotice } = useStore();
   const p = state.progress;
   const [confirmReset, setConfirmReset] = useState(false);
 
@@ -36,6 +37,16 @@ export function Home() {
           <a className="tr-btn ghost" href="#/notebook"><NotebookText size={14} /> Learning notebook</a>
           <a className="tr-btn ghost" href="#/record"><FileText size={14} /> Training record</a>
         </>} />
+
+        <main>
+        <SmallScreenNotice />
+        {storageNotice ? (
+          <div className="tr-card tr-notice" role="status">
+            <Info size={18} aria-hidden="true" />
+            <p>{storageNotice}</p>
+            <button className="tr-btn" onClick={dismissStorageNotice}>OK</button>
+          </div>
+        ) : null}
 
         <header className="tr-hero">
           <h1>{PRODUCT}</h1>
@@ -73,11 +84,11 @@ export function Home() {
           <h2 id="h-notebook">Learning notebook</h2>
           <div className="tr-card tr-continue">
             <NotebookText size={34} color="var(--tr-teal)" aria-hidden="true" />
-            <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ flex: 1, minWidth: 'min(240px, 100%)' }}>
               <div className="t">Every task explained, with flow diagrams</div>
               <div className="s">What each feature really is, what happens inside the firewall, why every step matters, common mistakes and self-check questions. Read it here or download it as a PDF.</div>
             </div>
-            <span style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+            <span className="acts">
               <a className="tr-btn" href="#/notebook" data-guide="open-notebook">Read online</a>
               <a className="tr-btn primary" href={NOTEBOOK_PDF} download><FileDown size={15} /> Download PDF</a>
             </span>
@@ -144,7 +155,7 @@ export function Home() {
           <div className="tr-card tr-continue">
             <div className="s">Reset restores the appliance to factory defaults and clears all progress, notes and badges in this browser.</div>
             {confirmReset ? (
-              <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+              <span className="acts">
                 <button className="tr-btn ghost" onClick={() => setConfirmReset(false)}>Cancel</button>
                 <button className="tr-btn danger" data-guide="home-reset-confirm" onClick={() => { resetLab(); ui.closeLab(); setConfirmReset(false); }}>Yes, reset everything</button>
               </span>
@@ -159,6 +170,7 @@ export function Home() {
           <div>ThreatWall is a fictional appliance used for training.</div>
           <div>Progress is stored in this browser only. Clearing site data or pressing Reset starts again.</div>
         </div>
+        </main>
 
         <BrandFooter />
       </div>

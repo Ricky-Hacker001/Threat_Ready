@@ -3,12 +3,23 @@
   'use strict';
   var root = document.documentElement;
 
-  /* ---------- Theme ---------- */
+  /* ---------- Theme ----------
+     One choice for threatready.io and every app: the "tr-theme" cookie on the parent domain (the same cookie
+     the apps' theme-init.js reads and writes), with localStorage as the fallback. The inline <head> script
+     applies it before first paint. */
   function currentTheme() { return root.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function saveTheme(t) {
+    var onSite = /(^|\.)threatready\.io$/.test(location.hostname);
+    try {
+      document.cookie = 'tr-theme=' + t + '; path=/; max-age=31536000; samesite=lax' +
+        (onSite ? '; domain=threatready.io' : '') + (location.protocol === 'https:' ? '; secure' : '');
+    } catch (e) {}
+    try { localStorage.setItem('tr-theme', t); } catch (e) {}
+  }
   function setTheme(t) {
     if (t === 'light') root.setAttribute('data-theme', 'light');
     else root.setAttribute('data-theme', 'dark');
-    try { localStorage.setItem('tr-theme', t); } catch (e) {}
+    saveTheme(t);
     syncThemeButtons();
     if (window.__trSyncFallbacks) window.__trSyncFallbacks();
   }

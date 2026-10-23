@@ -74,6 +74,8 @@ interface ProceduralState {
   rig?: InterviewerRig;
   t: number;
   current?: ClipName;
+  /** The reduced-motion setting the current clip was started with. */
+  reduced?: boolean;
   lastTypingAt: number;
   nextBlink: number;
   blinkStart: number;
@@ -174,18 +176,24 @@ export function useInterviewerAnimation(rig: InterviewerRig | null, inputs: Anim
     // ---- clip selection & crossfade ------------------------------------------------------
     const wanted = clipForStatus(inp.status, { quietFor: s.t - s.lastTypingAt, reducedMotion: inp.reducedMotion });
     const next = rig.actions[wanted] ?? rig.actions.Idle;
+    const reduced = Boolean(inp.reducedMotion);
     if (next && s.current !== wanted) {
       const prev = s.current ? rig.actions[s.current] : undefined;
       const fade = wanted === 'Think' || s.current === 'Think' ? FADE_THINK_S : FADE_S;
       next.reset();
-      next.setEffectiveTimeScale(inp.reducedMotion ? 0.7 : 1);
-      // With reduced motion the Idle clip is blended at partial weight against the rest pose,
-      // which scales sway and breathing down without stopping them entirely.
-      next.setEffectiveWeight(inp.reducedMotion ? 0.4 : 1);
+      // With reduced motion the Idle clip holds its first frame: a natural still pose, with no
+      // sway or breathing. Blinks and lip sync (below) stay, because they carry meaning.
+      next.setEffectiveTimeScale(reduced ? 0 : 1);
+      next.setEffectiveWeight(1);
       next.play();
       if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
       else next.fadeIn(fade);
       s.current = wanted;
+      s.reduced = reduced;
+    } else if (next && s.reduced !== reduced) {
+      // The setting changed mid-session: freeze or resume the clip already playing.
+      next.setEffectiveTimeScale(reduced ? 0 : 1);
+      s.reduced = reduced;
     }
     rig.mixer.update(dt);
 

@@ -43,43 +43,69 @@ function build(paths: string[]): Node[] {
 export function FileTree({ files, active, marks, findingsByFile, onOpen, onNew, onDelete }: Props) {
   const tree = useMemo(() => build([...files]), [files]);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
+  const del = (path: string) => {
+    if (window.confirm(`Delete ${path}?`)) onDelete(path);
+  };
   const render = (ns: Node[], depth: number) =>
     ns.map((n) =>
       n.file ? (
-        <div
-          key={n.path}
-          className={`item ${active === n.path ? 'on' : ''}`}
-          style={{ paddingLeft: 10 + depth * 14 }}
-          onClick={() => onOpen(n.path)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            if (window.confirm(`Delete ${n.path}?`)) onDelete(n.path);
-          }}
-          title={n.path}
-        >
-          <span>📄</span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.name}</span>
-          {findingsByFile[n.path] ? <span className="mark F">●{findingsByFile[n.path]}</span> : marks[n.path] ? <span className={`mark ${marks[n.path]}`}>{marks[n.path]}</span> : null}
-        </div>
+        <li key={n.path} className={`row ${active === n.path ? 'on' : ''}`}>
+          <button
+            type="button"
+            className="item"
+            style={{ paddingLeft: 10 + depth * 14 }}
+            aria-current={active === n.path ? 'true' : undefined}
+            onClick={() => onOpen(n.path)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              del(n.path);
+            }}
+            title={n.path}
+          >
+            <span aria-hidden="true">📄</span>
+            <span className="name">{n.name}</span>
+            {findingsByFile[n.path] ? (
+              <span className="mark F">
+                <span aria-hidden="true">●</span>
+                {findingsByFile[n.path]}
+                <span className="sr"> finding{findingsByFile[n.path] > 1 ? 's' : ''}</span>
+              </span>
+            ) : marks[n.path] ? (
+              <span className={`mark ${marks[n.path]}`}>
+                <span aria-hidden="true">{marks[n.path]}</span>
+                <span className="sr">{marks[n.path] === 'U' ? ' untracked or added' : ' modified'}</span>
+              </span>
+            ) : null}
+          </button>
+          <button type="button" className="del" aria-label={`Delete ${n.path}`} title={`Delete ${n.path}`} onClick={() => del(n.path)}>
+            <span aria-hidden="true">✕</span>
+          </button>
+        </li>
       ) : (
-        <div key={n.path}>
-          <div className="item dir" style={{ paddingLeft: 10 + depth * 14 }} onClick={() => setClosed((c) => ({ ...c, [n.path]: !c[n.path] }))}>
-            <span>{closed[n.path] ? '▸' : '▾'}</span>
+        <li key={n.path}>
+          <button
+            type="button"
+            className="item dir"
+            style={{ paddingLeft: 10 + depth * 14 }}
+            aria-expanded={!closed[n.path]}
+            onClick={() => setClosed((c) => ({ ...c, [n.path]: !c[n.path] }))}
+          >
+            <span aria-hidden="true">{closed[n.path] ? '▸' : '▾'}</span>
             <span>{n.name}</span>
-          </div>
-          {!closed[n.path] && render(n.children, depth + 1)}
-        </div>
+          </button>
+          {!closed[n.path] && <ul>{render(n.children, depth + 1)}</ul>}
+        </li>
       ),
     );
   return (
-    <div className="tree">
+    <nav className="tree" aria-label="Files in aeroshop-api">
       <div className="hdr">
         <span>Explorer · aeroshop-api</span>
-        <button className="btn ghost sm" title="New file" onClick={onNew}>
-          ＋
+        <button className="btn ghost sm" title="New file" aria-label="New file" onClick={onNew}>
+          <span aria-hidden="true">＋</span>
         </button>
       </div>
-      {render(tree, 0)}
-    </div>
+      <ul>{render(tree, 0)}</ul>
+    </nav>
   );
 }

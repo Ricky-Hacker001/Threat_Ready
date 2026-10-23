@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "@/state/store";
 import type { LogEvent, LogType } from "@/engine/types";
 
@@ -13,6 +13,21 @@ export function LogsConsole() {
   const [selected, setSelected] = useState<LogEvent | null>(null);
   const [page, setPage] = useState(0);
   const pageSize = 40;
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  /** The row button that opened the detail, to return focus to on Close. */
+  const opener = useRef<HTMLButtonElement | null>(null);
+
+  // The detail panel opens below the table: bring it into view and move focus to it.
+  useEffect(() => {
+    if (!selected) return;
+    detailHeading.current?.focus({ preventScroll: true });
+    detailHeading.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  const closeDetail = () => {
+    setSelected(null);
+    if (opener.current?.isConnected) opener.current.focus();
+  };
 
   const marked = new Set(at.state.markedEvidenceIds);
 
@@ -46,13 +61,14 @@ export function LogsConsole() {
             className="input"
             style={{ maxWidth: 260 }}
             placeholder="Search fields, session…"
+            aria-label="Search logs"
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
               setPage(0);
             }}
           />
-          <select className="select" style={{ width: "auto" }} value={type} onChange={(e) => { setType(e.target.value as never); setPage(0); }}>
+          <select className="select" style={{ width: "auto" }} aria-label="Event type" value={type} onChange={(e) => { setType(e.target.value as never); setPage(0); }}>
             {TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -91,12 +107,25 @@ export function LogsConsole() {
                 <td>
                   <SevPill sev={e.severity} />
                 </td>
-                <td style={{ cursor: "pointer" }} onClick={() => setSelected(e)}>
-                  {summarise(e)}
+                <td>
+                  <button
+                    type="button"
+                    className="cell-btn"
+                    title="Show event detail"
+                    aria-expanded={selected?.id === e.id}
+                    onClick={(ev) => {
+                      opener.current = ev.currentTarget;
+                      setSelected(e);
+                    }}
+                  >
+                    {summarise(e)}
+                  </button>
                 </td>
                 <td>
                   <button
                     className={`btn sm ${marked.has(e.id) ? "primary" : "ghost"}`}
+                    aria-pressed={marked.has(e.id)}
+                    aria-label={`${marked.has(e.id) ? "Marked" : "Mark"} as evidence: ${e.type} at ${new Date(e.ts).toISOString().slice(11, 19)}`}
                     onClick={() => dispatch({ t: "toggleEvidence", eventId: e.id })}
                   >
                     {marked.has(e.id) ? "Marked" : "Mark"}
@@ -124,17 +153,19 @@ export function LogsConsole() {
       {selected && (
         <div className="card">
           <div className="row between">
-            <h3 style={{ margin: 0 }}>Event detail</h3>
-            <button className="btn sm ghost" onClick={() => setSelected(null)}>
+            <h3 style={{ margin: 0 }} ref={detailHeading} tabIndex={-1}>
+              Event detail
+            </h3>
+            <button className="btn sm ghost" onClick={closeDetail}>
               Close
             </button>
           </div>
-          <table className="data mt">
+          <table className="data mt" style={{ tableLayout: "fixed" }}>
             <tbody>
               {Object.entries(selected.fields).map(([k, v]) => (
                 <tr key={k}>
-                  <td style={{ width: 160, color: "var(--text-2)" }}>{k}</td>
-                  <td className="mono">{String(v)}</td>
+                  <td style={{ width: "min(160px, 38%)", color: "var(--text-2)", overflowWrap: "anywhere" }}>{k}</td>
+                  <td className="mono" style={{ overflowWrap: "anywhere" }}>{String(v)}</td>
                 </tr>
               ))}
             </tbody>

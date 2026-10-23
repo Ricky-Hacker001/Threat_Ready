@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, newRequestId, onConnection, store, fmt, signOut, onboardLinks, BASE } from './api';
-import { Catalog, TrackPage, trackBySlug } from './catalog';
+import { Catalog, TrackPage, NotFoundPage, trackBySlug } from './catalog';
 import { PlatformLoading, platformApps } from './shell';
-import { Ctx, Modal, Badge, Tabs, Note, Field, StatusDot, useLab as useLabCtx } from './ui';
+import { Ctx, Modal, Badge, Tabs, Note, Field, StatusDot, tabPanelProps, useLab as useLabCtx } from './ui';
 import { IamConsole, S3Console, Ec2Console, VpcConsole } from './services1';
 import { CloudTrailConsole, CloudWatchConsole, LambdaConsole, KmsConsole, SecretsConsole, OrgConsole } from './services2';
 import { ArchitectureCorner } from './architecture';
@@ -27,6 +27,22 @@ export const SERVICES = [
 const REGIONS = [['ap-south-1', 'Asia Pacific (Mumbai)'], ['ap-southeast-1', 'Asia Pacific (Singapore)'], ['us-east-1', 'US East (N. Virginia)'], ['eu-west-1', 'Europe (Ireland)']];
 const parseHash = () => { const [service = 'home', type = '', id = '', tab = ''] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent); return { service: service || 'home', type, id, tab }; };
 const toHash = (r: any) => '#/' + [r.service, r.type, r.id, r.tab].map(x => encodeURIComponent(x || '')).join('/').replace(/\/+$/, '');
+/** Above this width the services nav and the lab panel sit beside the console; below it they overlay it, so they start closed. */
+const wideConsole = () => typeof window.matchMedia !== 'function' || window.matchMedia('(min-width: 1101px)').matches;
+/** The services nav overlays the console at this width and below (styles.css). */
+const navOverlays = () => typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches;
+
+/** Plain-language titles for the server's error codes; the message under the title explains what happened. */
+const CODE_TITLE: Record<string, string> = {
+  AccessDenied: 'Access denied', NotSupportedByEvidence: 'Not supported by the evidence', EvidenceRequired: 'Inspect the evidence first',
+  PreconditionFailed: 'Not available yet', LabComplete: 'Lab complete', NotFound: 'Not found', TargetNotFoundException: 'Not found',
+  ValidationError: 'Check your input', InvalidParameterValue: 'Check your input', MalformedPolicy: 'Policy is not valid',
+  MalformedPolicyDocument: 'Policy is not valid', MalformedPolicyDocumentException: 'Policy is not valid', ConstraintViolationException: 'Change refused',
+  DuplicatePolicyAttachmentException: 'Already attached', PolicyNotAttachedException: 'Not attached', ResourceExistsException: 'Already exists',
+  KMSInvalidStateException: 'Key cannot be used right now', RotationFailed: 'Rotation failed', NotSupported: 'Not supported', UnknownAction: 'Action not recognised',
+};
+const initials = (name: string) => (name || '').split(/[\s._-]+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?';
+export const toastTitle = (tone: string, code?: string) => (tone === 'ok' ? 'Success' : code ? CODE_TITLE[code] ?? 'Action failed' : 'Something went wrong');
 
 /**
  * Lab Simulations, served under /labs/. `/labs/` is the catalog; `/labs/<id>` is one lab. Sign-in happens on
@@ -42,10 +58,13 @@ export function App() {
   if (err) return <div className="trp tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
   if (!user) return <PlatformLoading app="Lab Simulations" />;
   const open = (id: string) => go(`${BASE}${encodeURIComponent(id)}`);
-  const t = new RegExp(`^${BASE}tracks/([\\w-]{1,40})/?$`).exec(path);
-  if (t && trackBySlug(t[1])) return <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} />;
+  const t = new RegExp(`^${BASE}tracks/([^/]{1,80})/?$`).exec(path);
+  if (t) return trackBySlug(t[1]) ? <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} /> : <NotFoundPage user={user} go={go} what="track" />;
   const m = new RegExp(`^${BASE}([\\w-]{1,40})/?$`).exec(path);
   if (m && m[1] !== 'tracks') return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
+  // The catalog lives at /labs/ only; any other address under it is a broken link, not the catalog.
+  const home = path === BASE || path === BASE.replace(/\/$/, '') || path === `${BASE}index.html` || path === `${BASE}tracks` || path === `${BASE}tracks/`;
+  if (!home) return <NotFoundPage user={user} go={go} what="page" />;
   return <Catalog user={user} go={go} open={open} />;
 }
 
@@ -62,7 +81,9 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
   const [confirmReq, setConfirmReq] = useState<any>(null); const [reportFor, setReportFor] = useState<string | null>(null);
   const [online, setOnline] = useState(true); const [screen, setScreen] = useState<'briefing' | 'console' | 'report'>('console');
   const [levelUp, setLevelUp] = useState<number | null>(null); const [menu, setMenu] = useState<string | null>(null); const [resetOpen, setResetOpen] = useState(false);
-  const [navOpen, setNavOpen] = useState(true); const [side, setSide] = useState(true); const [sideW, setSideW] = useState(350); const [dock, setDock] = useState(true);
+  const [navOpen, setNavOpen] = useState(wideConsole); const [side, setSide] = useState(wideConsole); const [sideW, setSideW] = useState(350); const [dock, setDock] = useState(true);
+  // Which run's report is open: null = this run; otherwise an archived run's session id (read-only).
+  const [reportSid, setReportSid] = useState<string | null>(null); const [runsOpen, setRunsOpen] = useState(false);
   const dirty = useRef(new Set<string>()); const inspected = useRef(new Set<string>()); const prevLevel = useRef<number | null>(null); const snapRef = useRef<any>(null);
 
   const apply = useCallback((s: any) => { if (!s?.cloud) return; if (snapRef.current && s.session.id === snapRef.current.session.id && s.cloud.clock.minutes < snapRef.current.cloud.clock.minutes) return; snapRef.current = s; setSnap({ session: s.session, cloud: s.cloud, status: s.status }); }, []);
@@ -93,14 +114,18 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
     const next = typeof r === 'string' ? { service: r } : r;
     if (dirty.current.size && !(await askConfirm({ title: 'Discard unsaved changes?', body: 'You have edits that have not been saved. Leaving this view will discard them.', label: 'Discard changes', danger: true }))) return;
     dirty.current.clear(); setScreen('console'); location.hash = toHash(next); setRoute({ service: next.service, type: next.type || '', id: next.id || '', tab: next.tab || '' });
+    // On phones the services nav covers the console: close it once a destination is chosen.
+    if (navOverlays()) setNavOpen(false);
   };
+  const openReport = (sid: string | null = null) => { setReportSid(sid); setScreen('report'); };
   const reset = async () => { try { const s = await api(`/sessions/${sid}/reset`, { confirm: 'RESET' }); snapRef.current = null; apply(s); inspected.current = new Set(); prevLevel.current = 1; dirty.current.clear(); setResetOpen(false); location.hash = '#/home'; setRoute(parseHash()); setScreen('briefing'); toast('ok', `Lab reset. Run ${s.session.run} started; your previous run is archived.`); } catch (e: any) { toast('err', e.message); } };
 
-  if (loadErr) return <div className="gate"><div className="gate-card"><h1>Cannot load the lab</h1><Note tone="bad">{loadErr}</Note><button className="btn primary" onClick={load}>Retry</button><button className="btn" onClick={backToCatalog}>All labs</button></div></div>;
-  if (!def || !snap) return <div className="gate"><div className="gate-card"><div className="spinner" aria-label="Loading" /><p className="muted">Loading simulation…</p></div></div>;
+  if (loadErr) return <main className="gate"><div className="gate-card"><h1>Cannot load the lab</h1><Note tone="bad">{loadErr}</Note><button className="btn primary" onClick={load}>Retry</button><button className="btn" onClick={backToCatalog}>All labs</button></div></main>;
+  if (!def || !snap) return <main className="gate"><div className="gate-card" role="status" aria-live="polite"><div className="spinner" aria-hidden="true" /><p className="muted">Loading simulation…</p></div></main>;
 
   const { cloud, status } = snap;
-  const ctx = { def, cloud, status, session: snap.session, user, route, nav, region, act, busy, inspect, setDirty, toast, reportFinding: (resource: string) => setReportFor(resource), openReport: () => setScreen('report'), askConfirm };
+  // A completed run is read-only: every action that would change the run (and its score) is disabled.
+  const ctx = { def, cloud, status, session: snap.session, user, route, nav, region, act, busy: busy || !!status.complete, working: busy, inspect, setDirty, toast, reportFinding: (resource: string) => setReportFor(resource), openReport: () => openReport(null), askConfirm };
   const svc = SERVICES.find(s => s.id === route.service) || SERVICES[0];
   const wrongRegion = region !== 'ap-south-1' && !svc.global && !svc.lab && svc.id !== 'home';
   const page = () => {
@@ -116,27 +141,28 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
   const unread = cloud.cloudwatch.notifications.length + status.alerts.length;
 
   return <Ctx.Provider value={ctx}>
-    <div className="app" onClick={() => menu && setMenu(null)}>
+    <div className="app" onClick={() => (menu === 'bell' || menu === 'me') && setMenu(null)} onKeyDown={e => { if (e.key === 'Escape' && (menu === 'bell' || menu === 'me')) setMenu(null); }}>
       <a className="skip" href="#main">Skip to main content</a>
       <header className="top">
-        <button className="iconbtn" aria-label="Toggle navigation" onClick={() => setNavOpen(!navOpen)}>☰</button>
-        <div className="brand" onClick={() => nav('home')} role="link" tabIndex={0} onKeyDown={e => e.key === 'Enter' && nav('home')}><span className="logo" aria-hidden>TR</span>ThreatReady<span className="labtitle">{def.id} · {def.title}</span></div>
+        <button className="iconbtn" aria-label={navOpen ? 'Hide services navigation' : 'Show services navigation'} aria-expanded={navOpen} onClick={() => setNavOpen(!navOpen)}>☰</button>
+        {/* Under the ThreatReady strip only the lab's name shows here (one ThreatReady mark per page); standalone it keeps the mark. */}
+        <div className="brand" onClick={() => nav('home')} role="link" tabIndex={0} aria-label={`${def.id} · ${def.title}: Console Home`} onKeyDown={e => e.key === 'Enter' && nav('home')}><span className="brand-mark" aria-hidden><span className="logo">TR</span>ThreatReady</span><span className="labtitle"><span className="lab-id">{def.id}</span><span className="lab-name"> · {def.title}</span></span></div>
         <ServiceSearch />
         <div className="top-r">
-          <span className="timer" title="Simulated incident clock. It advances when you act, not in real time."><b>{fmt(status.time)}</b><small>T+{elapsed} · L{status.level}</small></span>
+          <span className="timer" title="Simulated incident clock. It is not real time: it moves forward with every step you take, including opening a resource's details to inspect it."><b>{fmt(status.time)}</b><small>T+{elapsed} · L{status.level}</small></span>
           <span className={`conn ${online ? 'ok' : 'bad'}`} role="status"><i aria-hidden />{online ? (busy ? 'Working…' : 'Connected') : 'Offline'}</span>
-          <div className="dd"><button className="topbtn" aria-label={`Notifications (${unread})`} onClick={e => { e.stopPropagation(); setMenu(menu === 'bell' ? null : 'bell'); }}>🔔{unread > 0 && <sup>{unread}</sup>}</button>
+          <div className="dd"><button className="topbtn" aria-label={`Notifications (${unread})`} aria-haspopup="true" aria-expanded={menu === 'bell'} onClick={e => { e.stopPropagation(); setMenu(menu === 'bell' ? null : 'bell'); }}><span aria-hidden>🔔</span>{unread > 0 && <sup aria-hidden>{unread}</sup>}</button>
             {menu === 'bell' && <div className="ddmenu wide" onClick={e => e.stopPropagation()}><h3>Notifications</h3>
               {status.alerts.map((a: any) => <div key={a.id} className="notif"><Badge tone="red">Alert</Badge> <b>{a.title}</b><small>{fmt(a.at)}</small></div>)}
               {[...cloud.cloudwatch.notifications].reverse().map((n: any, i: number) => <div key={i} className="notif"><Badge tone="orange">SNS · {n.topic}</Badge> {n.message}<small>{fmt(n.at)}</small></div>)}
-              {history.slice(0, 8).map(t => <div key={t.id} className="notif"><Badge tone={t.tone === 'ok' ? 'green' : 'red'}>{t.tone === 'ok' ? 'Success' : t.code || 'Error'}</Badge> {t.text}</div>)}
+              {history.slice(0, 8).map(t => <div key={t.id} className="notif"><Badge tone={t.tone === 'ok' ? 'green' : 'red'}>{toastTitle(t.tone, t.code)}</Badge> {t.text}</div>)}
               {!unread && !history.length && <p className="muted">Nothing yet.</p>}</div>}</div>
-          <button className="topbtn" aria-label="Help" onClick={() => setMenu('help')}>?</button>
+          <button className="topbtn" aria-label="Help: how this lab works" onClick={() => setMenu('help')}>?</button>
           <select className="region" aria-label="Region" value={region} onChange={e => setRegion(e.target.value)}>{REGIONS.map(([id, l]) => <option key={id} value={id}>{l} · {id}</option>)}</select>
           <span className="acct" title="Simulated account"><b>{cloud.account.alias}</b><small>{cloud.account.id}</small></span>
-          <div className="dd"><button className="topbtn name" onClick={e => { e.stopPropagation(); setMenu(menu === 'me' ? null : 'me'); }}>{user.name} ▾</button>
-            {menu === 'me' && <div className="ddmenu"><p className="muted">Signed in as <b>{user.name}</b><br />Role: ThreatReady-SecurityAnalyst<br />Run {snap.session.run}</p>
-              <button onClick={() => setScreen('briefing')}>View briefing</button><button onClick={() => setScreen('report')}>Incident report</button><button onClick={() => setResetOpen(true)}>Reset lab…</button>
+          <div className="dd"><button className="topbtn name" aria-label={`Account and lab menu (${user.name})`} aria-haspopup="true" aria-expanded={menu === 'me'} onClick={e => { e.stopPropagation(); setMenu(menu === 'me' ? null : 'me'); }}><span className="nm">{user.name}</span><span className="ini" aria-hidden>{initials(user.name)}</span> <span aria-hidden>▾</span></button>
+            {menu === 'me' && <div className="ddmenu"><p className="muted">Signed in as <b>{user.name}</b><br />Role: ThreatReady-SecurityAnalyst<br />Run {snap.session.run} · Level {status.level}<br />Simulated clock: {fmt(status.time)} (T+{elapsed})</p>
+              <button onClick={() => setScreen('briefing')}>View briefing</button><button onClick={() => openReport(null)}>Incident report</button><button onClick={() => setRunsOpen(true)}>Previous runs…</button><button onClick={() => setResetOpen(true)}>Reset lab…</button>
               <button onClick={() => { if (!dirty.current.size || confirm('Discard unsaved changes?')) backToCatalog(); }}>All labs</button><a className="ddlink" href={onboardLinks.profile}>Profile and overview</a><button onClick={logout}>Sign out of ThreatReady</button></div>}</div>
         </div>
       </header>
@@ -147,13 +173,15 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
           <div className="left-foot"><Badge tone={sevTone(status.incident.severity)}>Incident: {status.incident.severity}</Badge><small>{status.incident.id} · {status.incident.containment}</small></div>
         </nav>}
         <div className="center">
-          <div className="mainwrap"><main id="main" className="main" tabIndex={-1}>{screen === 'report' ? <ReportScreen onBack={() => setScreen('console')} /> : page()}</main>
+          <div className="mainwrap"><main id="main" className="main" tabIndex={-1}>
+            {status.complete && screen !== 'report' && <div className="donebar" role="note"><b>This run is complete and read-only.</b> Actions that would change it are turned off. <button className="btn sm" onClick={() => openReport(null)}>Open the incident report</button> <button className="btn sm" onClick={() => setResetOpen(true)}>Reset the lab to start a new run</button></div>}
+            {screen === 'report' ? <ReportScreen key={reportSid ?? 'current'} sid={reportSid} onBack={() => { setReportSid(null); setScreen('console'); }} /> : page()}</main>
             {screen !== 'report' && <ArchitectureCorner />}</div>
           <Dock open={dock} setOpen={setDock} />
         </div>
         {side ? <SidePanel width={sideW} setWidth={setSideW} close={() => setSide(false)} /> : <button className="sidetab" onClick={() => setSide(true)} aria-label="Open lab panel">Lab panel ‹</button>}
       </div>
-      <div className="toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`toast t-${t.tone}`}><b>{t.tone === 'ok' ? 'Success' : t.code === 'AccessDenied' ? 'Access denied' : t.code ? `Failed · ${t.code}` : 'Error'}</b><span>{t.text}</span><button aria-label="Dismiss" onClick={() => setToasts(x => x.filter(y => y.id !== t.id))}>×</button></div>)}</div>
+      <div className="toasts" aria-live="polite">{toasts.map(t => <div key={t.id} className={`toast t-${t.tone}`}><b>{toastTitle(t.tone, t.code)}</b><span>{t.text}</span><button aria-label="Dismiss" onClick={() => setToasts(x => x.filter(y => y.id !== t.id))}>×</button></div>)}</div>
 
       {screen === 'briefing' && <Briefing onEnter={() => { store.set(`tr_brief_${sid}`, '1'); setScreen('console'); }} />}
       {confirmReq && <Modal title={confirmReq.title} onClose={() => { confirmReq.resolve(false); setConfirmReq(null); }} footer={<><button className="btn" onClick={() => { confirmReq.resolve(false); setConfirmReq(null); }}>Cancel</button><button className={`btn ${confirmReq.danger ? 'danger' : 'primary'}`} onClick={() => { confirmReq.resolve(true); setConfirmReq(null); }}>{confirmReq.label || 'Confirm'}</button></>}>
@@ -161,8 +189,9 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
       {reportFor && <ReportFindingModal resource={reportFor} onClose={() => setReportFor(null)} />}
       {levelUp && <LevelSummary level={levelUp} onClose={() => setLevelUp(null)} />}
       {resetOpen && <ResetModal onClose={() => setResetOpen(false)} onReset={reset} />}
+      {runsOpen && <RunsModal onClose={() => setRunsOpen(false)} onOpen={(id) => { setRunsOpen(false); openReport(id === snap.session.id ? null : id); }} />}
       {menu === 'help' && <Modal title="How this lab works" onClose={() => setMenu(null)} footer={<button className="btn primary" onClick={() => setMenu(null)}>Close</button>}>
-        <ol className="steps"><li><b>Investigate.</b> Open a service from the left, select a resource and read its tabs.</li><li><b>Report.</b> When configuration looks unsafe, use <i>Report finding</i> on that resource and pick the matching vulnerability.</li><li><b>Act.</b> Change the configuration yourself and confirm the change.</li><li><b>Verify.</b> Use the access test, reachability test, policy simulator or test event to prove the fix. A finding is only marked Verified after a passing test.</li><li><b>Watch production.</b> The App health tab in the bottom dock shows whether AeroCart is still working.</li></ol>
+        <ol className="steps"><li><b>Investigate.</b> Open a service from the left, select a resource and read its tabs. The simulated clock is not real time: it moves forward with every step you take, including opening a resource's details, and the intruder keeps working as it does.</li><li><b>Report.</b> When configuration looks unsafe, use <i>Report finding</i> on that resource and pick the matching vulnerability.</li><li><b>Act.</b> Change the configuration yourself and confirm the change.</li><li><b>Verify.</b> Use the access test, reachability test, policy simulator or test event to prove the fix. A finding is only marked Verified after a passing test.</li><li><b>Watch production.</b> The App health tab in the bottom dock shows whether AeroCart is still working.</li></ol>
         <p className="muted">Company policies that define "correct" are in the Incident Center. Hints are per objective, in the lab panel.</p></Modal>}
     </div>
   </Ctx.Provider>;
@@ -170,9 +199,11 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
 
 function ServiceSearch() {
   const lab = useLabCtx();
-  const [q, setQ] = useState(''); const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(''); const [open, setOpen] = useState(false); const input = useRef<HTMLInputElement>(null);
+  // "/" jumps to the service search (as the placeholder says), unless the learner is typing somewhere.
+  useEffect(() => { const k = (e: KeyboardEvent) => { const t = e.target as HTMLElement; if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || document.querySelector('[aria-modal="true"]') || !input.current?.offsetParent) return; e.preventDefault(); input.current.focus(); }; window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k); }, []);
   const hits = SERVICES.filter(s => s.label.toLowerCase().includes(q.toLowerCase()) || (s.desc || '').toLowerCase().includes(q.toLowerCase()));
-  return <div className="svcsearch"><input type="search" aria-label="Search services" placeholder="Search services  [/]" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={e => { if (e.key === 'Enter' && hits[0]) { lab.nav(hits[0].id); setQ(''); (e.target as HTMLInputElement).blur(); } }} />
+  return <div className="svcsearch"><input ref={input} type="search" aria-label="Search services" placeholder="Search services  [/]" value={q} onChange={e => { setQ(e.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} onKeyDown={e => { if (e.key === 'Enter' && hits[0]) { lab.nav(hits[0].id); setQ(''); (e.target as HTMLInputElement).blur(); } }} />
     {open && q && <div className="ddmenu">{hits.length ? hits.map(s => <button key={s.id} onMouseDown={() => { lab.nav(s.id); setQ(''); }}>{s.label}<small>{s.desc}</small></button>) : <p className="muted">No services match.</p>}</div>}</div>;
 }
 
@@ -196,9 +227,9 @@ function Briefing({ onEnter }: { onEnter: () => void }) {
 function ReportFindingModal({ resource, onClose }: { resource: string; onClose: () => void }) {
   const { def, status, act } = useLabCtx(); const [sel, setSel] = useState('');
   return <Modal title="Report a finding" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" disabled={!sel} onClick={async () => { const r = await act('finding.report', { findingId: sel, resource }); if (r?.ok) onClose(); }}>Submit finding</button></>}>
-    <p>Which vulnerability does the configuration of <code>{resource.split('/').slice(1).join(' / ')}</code> demonstrate?</p>
+    <p id="rf-q">Which vulnerability does the configuration of <code>{resource.split('/').slice(1).join(' / ')}</code> demonstrate?</p>
     <p className="muted">The server checks your claim against the evidence you have inspected. Unsupported reports cost points.</p>
-    <div className="radio-list" role="radiogroup">{def.vulnerabilities.map((v: any) => { const st = status.findings.find((f: any) => f.id === v.id).status; return <label key={v.id} className={st !== 'Not found' ? 'dim' : ''}><input type="radio" name="vuln" value={v.id} disabled={st !== 'Not found'} checked={sel === v.id} onChange={() => setSel(v.id)} /> {v.title} {st !== 'Not found' && <Badge tone="grey">already recorded</Badge>}</label>; })}</div>
+    <div className="radio-list" role="radiogroup" aria-labelledby="rf-q">{def.vulnerabilities.map((v: any) => { const st = status.findings.find((f: any) => f.id === v.id).status; return <label key={v.id} className={st !== 'Not found' ? 'dim' : ''}><input type="radio" name="vuln" value={v.id} disabled={st !== 'Not found'} checked={sel === v.id} onChange={() => setSel(v.id)} /> {v.title} {st !== 'Not found' && <Badge tone="grey">already recorded</Badge>}</label>; })}</div>
   </Modal>;
 }
 
@@ -215,20 +246,20 @@ function LevelSummary({ level, onClose }: { level: number; onClose: () => void }
 function ResetModal({ onClose, onReset }: { onClose: () => void; onReset: () => void }) {
   const [t, setT] = useState('');
   return <Modal title="Reset lab" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn danger" disabled={t !== 'RESET'} onClick={onReset}>Reset lab</button></>}>
-    <p>This restores the AeroCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived, not deleted.</p>
+    <p>This restores the AeroCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived, not deleted: open them later from <b>Previous runs</b> in the account menu.</p>
     <Field label='Type RESET to confirm'><input value={t} onChange={e => setT(e.target.value)} autoFocus /></Field></Modal>;
 }
 
 function SidePanel({ width, setWidth, close }: { width: number; setWidth: (n: number) => void; close: () => void }) {
-  const { status, nav } = useLabCtx(); const [tab, setTab] = useState('objectives');
+  const { status, nav, openReport } = useLabCtx(); const [tab, setTab] = useState('objectives');
   const drag = (e: React.MouseEvent) => { e.preventDefault(); const x0 = e.clientX, w0 = width; const mv = (m: MouseEvent) => setWidth(Math.max(280, Math.min(560, w0 + x0 - m.clientX))); const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); }; window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up); };
   const cur = status.objectives.filter((o: any) => o.level === status.level);
-  return <aside className="side" style={{ width }} aria-label="Lab panel">
+  return <aside className="side" style={{ width: `min(${width}px, 90vw)` }} aria-label="Lab panel">
     <div className="side-drag" onMouseDown={drag} role="separator" aria-orientation="vertical" aria-label="Resize lab panel" />
     <div className="side-h"><div><b>Level {status.level}</b> · {status.progress}% complete<div className="bar"><i style={{ width: `${status.progress}%` }} /></div></div><button className="x" onClick={close} aria-label="Collapse lab panel">›</button></div>
-    <Tabs value={tab} onChange={setTab} tabs={[{ id: 'objectives', label: 'Objectives' }, { id: 'vulns', label: `Vulnerabilities ${status.posture.resolved}/${status.posture.total}` }, { id: 'verify', label: 'Verify' }, { id: 'score', label: 'Score' }]} />
-    <div className="side-b">
-      {tab === 'objectives' && <><p className="chapter"><b>{status.chapters[status.chapters.length - 1].title}.</b> {status.chapters[status.chapters.length - 1].text}</p><ObjectiveList objectives={cur} />{status.complete ? <Note tone="ok">Lab complete. Open the incident report from your profile menu.</Note> : <a href="#" onClick={e => { e.preventDefault(); nav('objectives'); }}>All levels and objectives</a>}</>}
+    <Tabs label="Lab panel" panelId="lab-side-panel" value={tab} onChange={setTab} tabs={[{ id: 'objectives', label: 'Objectives' }, { id: 'vulns', label: `Vulnerabilities ${status.posture.resolved}/${status.posture.total}` }, { id: 'verify', label: 'Verify' }, { id: 'score', label: 'Score' }]} />
+    <div className="side-b" {...tabPanelProps('lab-side-panel', tab)}>
+      {tab === 'objectives' && <><p className="chapter"><b>{status.chapters[status.chapters.length - 1].title}.</b> {status.chapters[status.chapters.length - 1].text}</p><ObjectiveList objectives={cur} />{status.complete ? <Note tone="ok">Lab complete. <button className="btn sm" onClick={openReport}>Open the incident report</button></Note> :<a href="#" onClick={e => { e.preventDefault(); nav('objectives'); }}>All levels and objectives</a>}</>}
       {tab === 'vulns' && <ul className="vulnlist">{status.findings.map((f: any) => <li key={f.id} className={f.status === 'Verified' ? 'done' : f.status === 'Not found' ? '' : 'found'}>
         <span className="tick" aria-hidden>{f.status === 'Verified' ? '✓' : f.status === 'Not found' ? '' : '◐'}</span><div><b>{f.title}</b><small><Badge tone={statusTone(f.status)}>{f.status}</Badge>{f.severity && <Badge tone={sevTone(f.severity)}>{f.severity}</Badge>}</small></div></li>)}
         <li className="more"><a href="#" onClick={e => { e.preventDefault(); nav('findings'); }}>Open Security Findings</a></li></ul>}
@@ -258,13 +289,31 @@ export function describeTest(t: any) {
   }
 }
 
+/** Every run of this lab (the current one and those archived by a reset), each with its report, read-only. */
+function RunsModal({ onClose, onOpen }: { onClose: () => void; onOpen: (sessionId: string) => void }) {
+  const { def, session } = useLabCtx(); const [runs, setRuns] = useState<any[] | null>(null); const [err, setErr] = useState('');
+  const load = useCallback(() => { setErr(''); api(`/labs/${encodeURIComponent(def.id)}/runs`).then(r => Array.isArray(r) ? setRuns([...r].reverse()) : setErr('Unexpected response from the server. Retry in a moment.'), (e: any) => setErr(e.message)); }, [def.id]);
+  useEffect(load, [load]);
+  return <Modal wide title="Previous runs" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
+    <p className="muted">A reset archives the run it ends. Archived runs are read-only; their incident report shows what was done and verified in that run.</p>
+    {err && <Note tone="bad">{err} <button className="btn sm" onClick={load}>Retry</button></Note>}
+    {!runs && !err && <div role="status"><div className="spinner" aria-hidden="true" /><span className="sr">Loading runs…</span></div>}
+    {runs && <div className="dt-scroll"><table><thead><tr><th>Run</th><th>Started</th><th>Status</th><th>Level</th><th className="num">Score</th><th><span className="sr">Report</span></th></tr></thead>
+      <tbody>{runs.map(r => <tr key={r.id}><td>Run {r.run}{r.id === session.id && <> <Badge tone="blue">Current</Badge></>}</td><td className="nowrap">{fmt(r.createdAt)}</td>
+        <td>{r.complete ? <Badge tone="green">Completed</Badge> : r.status === 'archived' ? <Badge tone="grey">Archived</Badge> : <Badge tone="orange">In progress</Badge>}</td>
+        <td>{r.level ?? '—'}</td><td className="num">{r.score ?? '—'} / {r.max ?? '—'}</td>
+        <td><button className="btn sm" onClick={() => onOpen(r.id)} aria-label={`Open the incident report for run ${r.run}`}>{r.complete ? 'Report' : 'Draft report'}</button></td></tr>)}
+        {!runs.length && <tr><td colSpan={6} className="empty">No runs yet.</td></tr>}</tbody></table></div>}
+  </Modal>;
+}
+
 function Dock({ open, setOpen }: { open: boolean; setOpen: (b: boolean) => void }) {
   const { status, session } = useLabCtx(); const [tab, setTab] = useState('activity'); const [page, setPage] = useState(1); const [data, setData] = useState<any>({ rows: [], total: 0 }); const [err, setErr] = useState('');
   useEffect(() => { if (!open || tab !== 'activity') return; let live = true; api(`/sessions/${session.id}/activity?page=${page}`).then(d => { if (live && Array.isArray(d?.rows)) { setData(d); setErr(''); } }).catch(e => live && setErr(e.message)); return () => { live = false; }; }, [open, tab, page, status.minutes, status.failedActions, session.id]);
   const bad = status.health.filter((h: any) => !h.ok).length;
   return <section className={`dock ${open ? 'open' : ''}`} aria-label="Activity dock">
-    <div className="dock-h"><Tabs value={open ? tab : ''} onChange={t => { setTab(t); setOpen(true); }} tabs={[{ id: 'activity', label: 'Activity' }, { id: 'timeline', label: 'Incident timeline' }, { id: 'health', label: <>App health {bad > 0 ? <Badge tone="red">{bad} failing</Badge> : <Badge tone="green">OK</Badge>}</> }]} /><button className="x" onClick={() => setOpen(!open)} aria-label={open ? 'Collapse dock' : 'Expand dock'}>{open ? '▾' : '▴'}</button></div>
-    {open && <div className="dock-b">
+    <div className="dock-h"><Tabs label="Activity dock" panelId={open ? 'lab-dock-panel' : undefined} value={open ? tab : ''} onChange={t => { setTab(t); setOpen(true); }} tabs={[{ id: 'activity', label: 'Activity' }, { id: 'timeline', label: 'Incident timeline' }, { id: 'health', label: <>App health {bad > 0 ? <Badge tone="red">{bad} failing</Badge> : <Badge tone="green">OK</Badge>}</> }]} /><button className="x" onClick={() => setOpen(!open)} aria-label={open ? 'Collapse dock' : 'Expand dock'}>{open ? '▾' : '▴'}</button></div>
+    {open && <div className="dock-b" {...tabPanelProps('lab-dock-panel', tab)}>
       {tab === 'activity' && <>{err && <Note tone="bad">{err}</Note>}{!data.rows.length && !err && <p className="muted">Your actions will be recorded here. This history is append-only.</p>}
         <table className="plain log"><tbody>{data.rows.map((e: any) => <tr key={e.seq}><td className="mono">#{e.seq}</td><td className="nowrap">{fmt(e.at)}</td><td className="mono">{e.type}</td><td><Badge tone={e.outcome === 'Success' ? 'green' : 'red'}>{e.outcome}</Badge></td><td>{e.message}</td></tr>)}</tbody></table>
         {data.total > 20 && <div className="pager"><button className="btn sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹ Newer</button> {page} / {Math.ceil(data.total / 20)} <button className="btn sm" disabled={page * 20 >= data.total} onClick={() => setPage(page + 1)}>Older ›</button></div>}</>}

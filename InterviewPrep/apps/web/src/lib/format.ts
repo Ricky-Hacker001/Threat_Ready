@@ -18,7 +18,7 @@ export function relativeTime(iso: string): string {
   return d < 30 ? `${d} d ago` : new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export const STATE_LABEL: Record<SessionState, { label: string; tone: 'ok' | 'warn' | 'accent' | 'info' | '' }> = {
+export const STATE_LABEL: Record<SessionState, { label: string; tone: 'ok' | 'warn' | 'accent' | 'info' | 'bad' | '' }> = {
   parsing: { label: 'Analysing documents', tone: 'info' },
   profiled: { label: 'Ready to configure', tone: 'warn' },
   planned: { label: 'Ready to start', tone: 'warn' },
@@ -26,12 +26,14 @@ export const STATE_LABEL: Record<SessionState, { label: string; tone: 'ok' | 'wa
   awaiting_answer: { label: 'In progress', tone: 'accent' },
   evaluating: { label: 'In progress', tone: 'accent' },
   paused: { label: 'Paused', tone: 'warn' },
-  completed: { label: 'Scoring', tone: 'info' },
-  scoring: { label: 'Generating report', tone: 'info' },
+  // Interview over, report job queued; then the worker scores it.
+  completed: { label: 'Report queued', tone: 'info' },
+  scoring: { label: 'Scoring answers', tone: 'info' },
   report_ready: { label: 'Report ready', tone: 'ok' },
-  failed: { label: 'Failed', tone: 'accent' },
+  failed: { label: 'Failed', tone: 'bad' },
   expired: { label: 'Expired', tone: '' },
   cancelled: { label: 'Cancelled', tone: '' },
 };
 
-export const scoreTone = (score: number | null | undefined) => (score == null ? '' : score >= 70 ? 'ok' : score >= 50 ? 'warn' : 'accent');
+/** Score bands: 70+ strong, 50-69 developing, under 50 needs work (the platform's red, never the brand violet). */
+export const scoreTone = (score: number | null | undefined): '' | 'ok' | 'warn' | 'bad' => (score == null ? '' : score >= 70 ? 'ok' : score >= 50 ? 'warn' : 'bad');

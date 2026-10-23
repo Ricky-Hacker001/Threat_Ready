@@ -1,9 +1,90 @@
-import { AlertCircle, CheckCircle2, Info, X, type LucideIcon } from 'lucide-react';
-import { Component, createContext, useCallback, useContext, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react';
+import { AlertCircle, CheckCircle2, CircleAlert, Info, X, type LucideIcon } from 'lucide-react';
+import { Component, createContext, useCallback, useContext, useEffect, useRef, useState, type ErrorInfo, type ReactNode, type RefObject } from 'react';
 import { ApiError, messageFor } from '../lib/api';
 import { scoreTone } from '../lib/format';
 
 const prefersReducedMotion = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/* ---------- Page titles and focus ---------- */
+
+/** Sets the tab title for the current screen, e.g. "Interview history · InterviewPrep · ThreatReady". */
+export function usePageTitle(title: string | null | undefined) {
+  useEffect(() => {
+    document.title = title ? `${title} · InterviewPrep · ThreatReady` : 'InterviewPrep · ThreatReady';
+  }, [title]);
+}
+
+/**
+ * Moves focus to the screen's h1 (after a route or screen change), so screen readers announce the new
+ * page. Pages load lazily and their data arrives later, so this waits briefly for the heading.
+ */
+export function focusMainHeading() {
+  let tries = 0;
+  const attempt = () => {
+    const h1 = document.querySelector<HTMLElement>('main h1');
+    if (h1) {
+      if (!h1.hasAttribute('tabindex')) h1.setAttribute('tabindex', '-1');
+      h1.focus({ preventScroll: true });
+      return;
+    }
+    if (++tries < 40) window.setTimeout(attempt, 75);
+    else document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true });
+  };
+  window.setTimeout(attempt, 0);
+}
+
+/* ---------- Modal dialogs ---------- */
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Modal behaviour for a dialog rendered outside #root: initial focus, Tab kept inside, Escape to
+ * close, the page behind made inert, and focus returned to where it was when the dialog closes.
+ */
+export function useModal(box: RefObject<HTMLElement | null>, onClose: () => void, initial?: RefObject<HTMLElement | null>) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    const root = document.getElementById('root');
+    root?.setAttribute('inert', '');
+    (initial?.current ?? box.current?.querySelector<HTMLElement>(FOCUSABLE) ?? box.current)?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        close.current();
+        return;
+      }
+      if (e.key !== 'Tab' || !box.current) return;
+      const items = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (items.length === 0) return e.preventDefault();
+      const first = items[0]!;
+      const last = items[items.length - 1]!;
+      if (e.shiftKey && (document.activeElement === first || !box.current.contains(document.activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !box.current.contains(document.activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      root?.removeAttribute('inert');
+      if (before?.isConnected) before.focus();
+    };
+  }, [box, initial]);
+}
+
+/** A spinner with a visible label, so a busy button keeps its accessible name. */
+export function Busy({ label }: { label: string }) {
+  return (
+    <>
+      <span className="spinner" aria-hidden /> {label}
+    </>
+  );
+}
 
 /** Animates a number from 0 to `value` once it is known. Respects reduced motion. */
 export function useCountUp(value: number | null | undefined, ms = 900): number | null {
@@ -35,7 +116,7 @@ export function CountUp({ value, suffix }: { value: number | null | undefined; s
 }
 
 /** Shows the catalogue message and a copyable request id (ADD §10 frontend contract). */
-export function ErrorAlert({ error, onRetry, title }: { error: unknown; onRetry?: () => void; title?: string }) {
+export function ErrorAlert({ error, onRetry, title, retryLabel = 'Try again' }: { error: unknown; onRetry?: () => void; title?: string; retryLabel?: string }) {
   const [copied, setCopied] = useState(false);
   const requestId = error instanceof ApiError ? error.requestId : null;
   const retryable = error instanceof ApiError ? error.retryable : true;
@@ -63,7 +144,7 @@ export function ErrorAlert({ error, onRetry, title }: { error: unknown; onRetry?
       </div>
       {onRetry && retryable && (
         <button className="btn sm" type="button" onClick={onRetry}>
-          Try again
+          {retryLabel}
         </button>
       )}
     </div>
@@ -87,7 +168,7 @@ export function CardSkeleton({ lines = 3 }: { lines?: number }) {
 
 export function Meter({ value, label, tone, thin }: { value: number | null; label?: ReactNode; tone?: string; thin?: boolean }) {
   const pct = value == null ? 0 : Math.max(0, Math.min(100, value));
-  const t = tone ?? (scoreTone(value) === 'accent' ? '' : scoreTone(value));
+  const t = tone ?? scoreTone(value);
   return (
     <div className="stack" style={{ gap: 7 }}>
       {label && (
@@ -103,33 +184,37 @@ export function Meter({ value, label, tone, thin }: { value: number | null; labe
   );
 }
 
-const ringColor = (score: number) => (score >= 70 ? 'var(--ok)' : score >= 50 ? 'var(--warn)' : 'var(--accent)');
+const ringColor = (score: number) => (score >= 70 ? 'var(--ok)' : score >= 50 ? 'var(--warn)' : 'var(--bad)');
+
+/** A score out of 100. Under 50 it is red with a warning icon and the words "needs work" for screen readers. */
+export function ScorePill({ score }: { score: number | null | undefined }) {
+  const tone = scoreTone(score);
+  return (
+    <span className={`score-pill ${tone}`}>
+      {tone === 'bad' && <CircleAlert className="icon" aria-hidden />}
+      {score ?? '—'}
+      {score != null && <span className="sr-only">{` out of 100${tone === 'bad' ? ', needs work' : ''}`}</span>}
+    </span>
+  );
+}
 
 export function ScoreRing({ score, size = 148, label = 'Overall', stroke = 11 }: { score: number; size?: number; label?: string; stroke?: number }) {
   const shown = useCountUp(score) ?? 0;
   const r = (size - stroke - 4) / 2;
   const c = 2 * Math.PI * r;
-  const id = `ring-${label.replace(/\W/g, '')}`;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${label} score ${score} out of 100`}>
-      <defs>
-        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor={ringColor(score)} stopOpacity="0.7" />
-          <stop offset="100%" stopColor={ringColor(score)} />
-        </linearGradient>
-      </defs>
       <circle cx={size / 2} cy={size / 2} r={r} stroke="var(--surface-3)" strokeWidth={stroke} fill="none" />
       <circle
         cx={size / 2}
         cy={size / 2}
         r={r}
-        stroke={`url(#${id})`}
+        stroke={ringColor(score)}
         strokeWidth={stroke}
         fill="none"
         strokeLinecap="round"
         strokeDasharray={`${(c * shown) / 100} ${c}`}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ filter: `drop-shadow(0 0 8px ${ringColor(score)}55)` }}
       />
       <text x="50%" y="49%" textAnchor="middle" dominantBaseline="middle" fill="var(--text)" fontSize={size / 3.6} fontWeight="750" style={{ fontVariantNumeric: 'tabular-nums' }}>
         {shown}
@@ -161,7 +246,7 @@ export function RadarChart({ data, size = 280 }: { data: { label: string; value:
         const [x, y] = pt(i, 100);
         return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke="var(--border)" />;
       })}
-      <polygon points={poly} fill="rgba(109, 93, 252,0.22)" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" style={{ animation: 'fadeUp 0.6s var(--ease) both' }} />
+      <polygon points={poly} fill="var(--accent)" fillOpacity={0.2} stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" style={{ animation: 'fadeUp 0.6s var(--ease) both' }} />
       {data.map((d, i) => {
         const [x, y] = pt(i, d.value ?? 0);
         return <circle key={i} cx={x} cy={y} r="4" fill="var(--accent-strong)" stroke="var(--bg)" strokeWidth="2" />;
@@ -186,13 +271,7 @@ export function Sparkline({ values, width = 220, height = 48 }: { values: number
   const area = `4,${height - 2} ${pts} ${width - 4},${height - 2}`;
   return (
     <svg width={width} height={height} role="img" aria-label={`Score trend: ${values.join(', ')}`}>
-      <defs>
-        <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <polygon points={area} fill="url(#spark)" />
+      <polygon points={area} fill="var(--accent)" fillOpacity={0.12} />
       <polyline points={pts} fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
       <circle cx={xy[xy.length - 1]![0]} cy={xy[xy.length - 1]![1]} r="3.5" fill="var(--accent-strong)" />
     </svg>
@@ -225,6 +304,26 @@ interface ToastItem {
 const ToastCtx = createContext<(t: Omit<ToastItem, 'id'>) => void>(() => undefined);
 export const useToast = () => useContext(ToastCtx);
 
+const Toast = ({ t, onDismiss }: { t: ToastItem; onDismiss: () => void }) => {
+  const I = { ok: CheckCircle2, info: Info, error: AlertCircle }[t.tone];
+  return (
+    <div className={`toast ${t.tone}`}>
+      <I className="icon" aria-hidden />
+      <div className="t-body">
+        <strong>{t.title}</strong>
+        {t.body && <p>{t.body}</p>}
+      </div>
+      <button type="button" aria-label={`Dismiss: ${t.title}`} onClick={onDismiss}>
+        <X className="icon sm" aria-hidden />
+      </button>
+    </div>
+  );
+};
+
+/**
+ * Toasts. Confirmations and tips are announced politely and leave after 6 s; errors are announced
+ * at once (role=alert) and stay until dismissed, so they can't vanish before they are read.
+ */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
   const seq = useRef(0);
@@ -232,31 +331,22 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const push = useCallback(
     (t: Omit<ToastItem, 'id'>) => {
       const id = ++seq.current;
-      setItems((xs) => [...xs.slice(-3), { ...t, id }]);
-      window.setTimeout(() => dismiss(id), 6000);
+      // At most three of each kind; a burst of confirmations never pushes an error out.
+      setItems((xs) => [...xs.filter((x) => (x.tone === 'error') !== (t.tone === 'error')), ...xs.filter((x) => (x.tone === 'error') === (t.tone === 'error')).slice(-2), { ...t, id }]);
+      if (t.tone !== 'error') window.setTimeout(() => dismiss(id), 6000);
     },
     [dismiss],
   );
-  const Icon = { ok: CheckCircle2, info: Info, error: AlertCircle };
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="toasts" aria-live="polite">
-        {items.map((t) => {
-          const I = Icon[t.tone];
-          return (
-            <div key={t.id} className={`toast ${t.tone}`} role="status">
-              <I className="icon" aria-hidden />
-              <div className="t-body">
-                <strong>{t.title}</strong>
-                {t.body && <p>{t.body}</p>}
-              </div>
-              <button type="button" aria-label="Dismiss" onClick={() => dismiss(t.id)}>
-                <X className="icon sm" />
-              </button>
-            </div>
-          );
-        })}
+      <div className="toasts">
+        <div className="toast-region" role="status">
+          {items.filter((t) => t.tone !== 'error').map((t) => <Toast key={t.id} t={t} onDismiss={() => dismiss(t.id)} />)}
+        </div>
+        <div className="toast-region" role="alert">
+          {items.filter((t) => t.tone === 'error').map((t) => <Toast key={t.id} t={t} onDismiss={() => dismiss(t.id)} />)}
+        </div>
       </div>
     </ToastCtx.Provider>
   );

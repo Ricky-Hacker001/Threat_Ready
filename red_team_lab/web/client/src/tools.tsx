@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { RawRequest, RawResponse, Sev, StatusBadge, Field, SEV_ORDER, useToast } from './ui';
+import { RawRequest, RawResponse, Sev, StatusBadge, Field, SEV_ORDER, useToast, Dialog } from './ui';
 import { api } from './api';
 
 export interface ToolProps {
@@ -98,7 +98,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
 
   return <div>
     <div className="bchrome">
-      <select className="wl-select" style={{ width: 90 }} value={method} onChange={e => setMethod(e.target.value)}><option>GET</option><option>POST</option></select>
+      <select className="wl-select" aria-label="HTTP method" style={{ width: 90 }} value={method} onChange={e => setMethod(e.target.value)}><option>GET</option><option>POST</option></select>
       <span className="code2">{host}</span>
       <input className="wl-input grow mono" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }} placeholder="/path?query" />
       <button className="wl-btn primary" onClick={() => go()}>Go</button>
@@ -129,7 +129,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
       : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>}
 
     {links.length > 0 && <div style={{ marginTop: 8 }}><span className="muted small">Links on this page:</span><br />
-      {links.map((l, i) => <span key={i} className="linkchip" onClick={() => go(l.href, 'GET')}>{l.text || l.href}</span>)}</div>}
+      {links.map((l, i) => <button type="button" key={i} className="linkchip" onClick={() => go(l.href, 'GET')}>{l.text || l.href}</button>)}</div>}
 
     <div className="card" style={{ marginTop: 10 }}>
       <h3>Browser cookie jar</h3>
@@ -151,10 +151,10 @@ export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
   const rows = [...view.history].reverse();
   const selected = sel ? histById(view, sel) : rows[0];
   return <div>
-    <div className="card" style={{ padding: 0, maxHeight: '34vh', overflow: 'auto' }}>
+    <div className="card" style={{ padding: 0, maxHeight: '34vh', overflow: 'auto' }} tabIndex={0} role="region" aria-label="Request history">
       <table className="htable">
         <thead><tr><th>#</th><th>Tool</th><th>Method</th><th>Path</th><th>Status</th><th>Len</th><th>Time</th><th>Flags</th></tr></thead>
-        <tbody>{rows.map((h: any) => <tr key={h.id} className={selected?.id === h.id ? 'sel' : ''} onClick={() => setSel(h.id)}>
+        <tbody>{rows.map((h: any) => <tr key={h.id} className={selected?.id === h.id ? 'sel' : ''} tabIndex={0} aria-label={`Request ${h.id}: ${h.request.method} ${h.request.path}`} aria-selected={selected?.id === h.id} onClick={() => setSel(h.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSel(h.id); } }}>
           <td className="mono">{h.id}</td><td>{h.tool}</td>
           <td className={`method m-${h.request.method}`}>{h.request.method}</td>
           <td className="mono">{h.request.path}{h.request.query ? '?' + h.request.query.slice(0, 40) : ''}</td>
@@ -188,7 +188,7 @@ export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
   return <div className="rawgrid">
     <div>
       <div className="row">
-        <select className="wl-select" style={{ width: 90 }} value={r.method} onChange={e => set({ method: e.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m}>{m}</option>)}</select>
+        <select className="wl-select" aria-label="HTTP method" style={{ width: 90 }} value={r.method} onChange={e => set({ method: e.target.value })}>{['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => <option key={m}>{m}</option>)}</select>
         <button className="wl-btn primary" onClick={send}>Send</button>
       </div>
       <Field label="Path"><input className="wl-input mono" value={r.path} onChange={e => set({ path: e.target.value })} /></Field>
@@ -210,32 +210,44 @@ export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
 /* ---------------- Terminal (xterm.js) ---------------- */
 export function TerminalTool({ def, act, termInject }: ToolProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const helpRef = useRef<HTMLParagraphElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const buf = useRef(''); const hist = useRef<string[]>([]); const hpos = useRef(0); const busy = useRef(false);
+  const buf = useRef(''); const hist = useRef<string[]>([]); const hpos = useRef(0); const busy = useRef(false); const noted = useRef(false);
   const commands = (def?.terminalCommands || []) as string[];
 
   useEffect(() => {
     if (termRef.current || !hostRef.current) return;
-    const term = new Terminal({ fontFamily: "'JetBrains Mono Variable', monospace", fontSize: 13, theme: { background: '#05080f', foreground: '#d7def0', cursor: '#6d5dfc' }, cursorBlink: true, convertEol: true });
+    // screenReaderMode exposes output to assistive tech (A11Y-01).
+    const term = new Terminal({ fontFamily: "'JetBrains Mono Variable', monospace", fontSize: 13, theme: { background: '#05080f', foreground: '#d7def0', cursor: '#6d5dfc' }, cursorBlink: true, convertEol: true, screenReaderMode: true });
     const fit = new FitAddon(); term.loadAddon(fit);
     term.open(hostRef.current); try { fit.fit(); } catch {}
     termRef.current = term; fitRef.current = fit;
     term.writeln('ThreatReady lab terminal — type `help`. Tools act on the lab target only (simulation).');
+    term.writeln('Keyboard: Esc then Tab leaves the terminal.');
     prompt(term);
     term.onData(d => onData(d, term));
+    // Esc releases the terminal's key capture so Tab moves focus out instead of being swallowed.
+    term.attachCustomKeyEventHandler((e) => {
+      // Focus lands on the help line after the terminal, so the next Tab moves on instead of back into xterm.
+      if (e.type === 'keydown' && e.key === 'Escape') { helpRef.current?.focus(); return false; }
+      return true;
+    });
     const onResize = () => { try { fit.fit(); } catch {} };
     window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('resize', onResize); };
+    const ro = new ResizeObserver(() => { try { fit.fit(); } catch {} });
+    if (hostRef.current) ro.observe(hostRef.current);
+    return () => { window.removeEventListener('resize', onResize); ro.disconnect(); };
   }, []);
 
-  // refit when becoming visible
+  // refit when becoming visible (fit uses the host's own width, so lines never run past it — OVF-13)
   useEffect(() => { const t = setTimeout(() => { try { fitRef.current?.fit(); } catch {} }, 60); return () => clearTimeout(t); });
 
   const prompt = (term: Terminal) => term.write('\r\n\x1b[38;5;99manalyst@threatready\x1b[0m:\x1b[38;5;75m~\x1b[0m$ ');
 
   const onData = (d: string, term: Terminal) => {
-    if (busy.current) return;
+    // Rather than silently drop keystrokes during a running command, say so once (A11Y-01).
+    if (busy.current) { if (!noted.current && (d === '\r' || d.charCodeAt(0) >= 32)) { noted.current = true; term.write('\r\n\x1b[2m(still running — please wait)\x1b[0m'); } return; }
     const code = d.charCodeAt(0);
     if (d === '\r') { const line = buf.current; buf.current = ''; term.write('\r\n'); runLine(line, term); }
     else if (d === '\u007f') { if (buf.current.length) { buf.current = buf.current.slice(0, -1); term.write('\b \b'); } }
@@ -251,7 +263,7 @@ export function TerminalTool({ def, act, termInject }: ToolProps) {
     if (!cmd) { prompt(term); return; }
     hist.current.push(cmd); hpos.current = hist.current.length;
     if (cmd === 'clear') { term.clear(); prompt(term); return; }
-    busy.current = true;
+    busy.current = true; noted.current = false;
     try { const r = await act('terminal.exec', { line: cmd }); const out = r?.result?.output ?? ''; if (out) term.write(out.replace(/\n/g, '\r\n')); }
     catch (e: any) { term.write(`\x1b[31m${e.message}\x1b[0m`); }
     busy.current = false; prompt(term);
@@ -265,7 +277,10 @@ export function TerminalTool({ def, act, termInject }: ToolProps) {
     runLine(termInject.cmd, term);
   }, [termInject?.seq]);
 
-  return <div className="termwrap"><div className="xterm-host" ref={hostRef} /></div>;
+  return <div className="termwrap">
+    <div className="xterm-host" ref={hostRef} tabIndex={-1} />
+    <p className="term-help muted small" ref={helpRef} tabIndex={-1}>Kali-style shell against the lab target. Type <code className="code2">help</code> for commands. <b>Esc then Tab</b> moves focus out of the terminal.</p>
+  </div>;
 }
 function complete(buf: string, commands: string[]): string | null {
   if (buf.includes(' ')) return null;
@@ -282,36 +297,48 @@ export function FindingsTool({ status, act }: ToolProps) {
   </div>;
 }
 function FindingCard({ f, act }: { f: any; act: ToolProps['act'] }) {
-  const [sev, setSev] = useState(f.reportedSeverity || f.severity || 'High');
+  // No prefilled severity — the learner must choose (UX-13); the reference severity is never sent
+  // before they document, so it cannot be read off the card.
+  const [sev, setSev] = useState(f.reportedSeverity || '');
   const [note, setNote] = useState(f.note || '');
   const [opt, setOpt] = useState('');
+  // A per-finding outcome line that persists until the next action replaces it (UX-16).
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const run = async (type: string, params: any) => {
+    try { const r = await act(type, params); if (r) setResult({ ok: r.ok !== false, text: r.message }); return r; }
+    catch (e: any) { setResult({ ok: false, text: e?.message || 'That action could not be completed.' }); }
+  };
   if (!f.confirmed) return <div className="find"><div className="fh"><span className="ftitle">{f.title}</span><span className="grow" /><StatusBadge status="Not found" /></div><div className="meta muted">Not yet demonstrated. Use the browser, proxy, repeater or terminal to prove it, then it appears here with its details.</div></div>;
   return <div className="find">
-    <div className="fh"><span className="ftitle">{f.title}</span> <Sev s={f.severity} /> <span className="grow" /><StatusBadge status={f.status} /></div>
+    <div className="fh"><span className="ftitle">{f.title}</span> {f.severity && <Sev s={f.severity} />} <span className="grow" /><StatusBadge status={f.status} /></div>
     <div className="meta">{f.impact}</div>
     <div className="small muted">{f.cwe} · {f.owasp} · affected: <span className="code2">{(f.routes || []).join(', ')}</span> · proof: <span className="code2 mono">{f.proof ? `${f.proof.method} ${f.proof.path}${f.proof.query ? '?' + f.proof.query : ''}` : '—'}</span></div>
 
     {!f.reported && <div style={{ marginTop: 10 }}>
       <div className="row">
-        <Field label="Severity"><select className="wl-select" style={{ width: 130 }} value={sev} onChange={e => setSev(e.target.value)}>{SEV_ORDER.map(s => <option key={s}>{s}</option>)}</select></Field>
+        <Field label="Severity"><select className="wl-select" style={{ width: 150 }} value={sev} onChange={e => setSev(e.target.value)}><option value="">Choose a severity…</option>{SEV_ORDER.map(s => <option key={s}>{s}</option>)}</select></Field>
         <div className="grow"><Field label="Analyst note (optional)"><input className="wl-input" value={note} onChange={e => setNote(e.target.value)} placeholder="reproduction / impact note" /></Field></div>
       </div>
-      <button className="wl-btn primary sm" style={{ marginTop: 8 }} onClick={() => act('finding.report', { findingId: f.id, severity: sev, note })}>Document finding</button>
+      <button className="wl-btn primary sm" style={{ marginTop: 8 }} disabled={!sev} onClick={() => run('finding.report', { findingId: f.id, severity: sev, note })}>Document finding</button>
     </div>}
     {f.reported && <div className="meta small">Documented as <Sev s={f.reportedSeverity} />{f.note ? ` — “${f.note}”` : ''}</div>}
 
     {f.reported && !f.verified && <div style={{ marginTop: 10 }}>
-      <label className="fld">Remediation — choose the fix that addresses the root cause</label>
-      {f.options.map((o: any) => <label key={o.id} className="opt"><input type="radio" name={'rem-' + f.id} checked={opt === o.id} onChange={() => setOpt(o.id)} disabled={f.remediated} /> {o.label}</label>)}
+      <label className="fld" id={`rem-label-${f.id}`}>Remediation — choose the fix that addresses the root cause</label>
+      <div role="radiogroup" aria-labelledby={`rem-label-${f.id}`}>
+        {f.options.map((o: any) => <label key={o.id} className="opt"><input type="radio" name={'rem-' + f.id} checked={opt === o.id} onChange={() => setOpt(o.id)} disabled={f.remediated} /> {o.label}</label>)}
+      </div>
       <div className="row" style={{ marginTop: 6 }}>
-        {!f.remediated && <button className="wl-btn sm" disabled={!opt} onClick={() => act('finding.remediate', { findingId: f.id, optionId: opt })}>Apply remediation</button>}
-        {f.remediated && <button className="wl-btn primary sm" onClick={() => act('finding.retest', { findingId: f.id })}>Re-test to verify</button>}
+        {!f.remediated && <button className="wl-btn sm" disabled={!opt} onClick={() => run('finding.remediate', { findingId: f.id, optionId: opt })}>Apply remediation</button>}
+        {f.remediated && <button className="wl-btn primary sm" onClick={() => run('finding.retest', { findingId: f.id })}>Re-test to verify</button>}
         {f.remediated && <span className="muted small">{f.verifyRetest}</span>}
       </div>
     </div>}
 
+    {result && <p className={`find-result ${result.ok ? 'ok' : 'bad'}`} role="status"><span aria-hidden="true">{result.ok ? '✓' : '✕'}</span> {result.text}</p>}
+
     {f.verified && <div style={{ marginTop: 10 }}>
-      <div className="badge st-Verified" style={{ marginBottom: 6 }}>✓ Verified fixed</div>
+      <div className="badge st-Verified" style={{ marginBottom: 6 }}><span aria-hidden="true">✓</span> Verified fixed</div>
       <div className="small"><b>Root cause:</b> {f.rootCause}</div>
       <div className="small"><b>Remediation:</b> {f.remediation}</div>
     </div>}
@@ -323,16 +350,23 @@ export function ReportTool({ status, act, sid }: ToolProps) {
   const toast = useToast();
   const [summary, setSummary] = useState('');
   const [report, setReport] = useState<any>(null);
+  const [confirm, setConfirm] = useState(false);
   const load = () => api.report(sid).then(setReport).catch(e => toast(e.message, 'err'));
   useEffect(() => { if (status.complete) load(); }, [status.complete]);
   if (status.complete && report) return <RenderedReport report={report} />;
   if (status.complete) return <div className="muted">Loading report…</div>;
   if (status.level < 4) return <div className="card muted">The report unlocks at Level 4, after you have remediated and verified the findings. Confirmed: {status.posture.confirmed}/{status.posture.total}, verified: {status.posture.verified}/{status.posture.total}.</div>;
+  const submit = () => { setConfirm(false); act('report.submit', { summary }).then(load); };
   return <div className="report">
     <h2>Deliver the penetration-test report</h2>
     <p className="muted small">Documented findings: {status.posture.documented}/{status.posture.total} · verified: {status.posture.verified}/{status.posture.total} · evidence items: {status.evidence.length}</p>
     <Field label="Executive summary (min 80 chars)"><textarea className="wl-area" style={{ minHeight: 120 }} value={summary} onChange={e => setSummary(e.target.value)} placeholder="Summarise the engagement: what you assessed, the key risks, and the overall posture after remediation." /></Field>
-    <button className="wl-btn primary" style={{ marginTop: 10 }} disabled={summary.trim().length < 80} onClick={() => act('report.submit', { summary }).then(load)}>Submit report</button>
+    <button className="wl-btn primary" style={{ marginTop: 10 }} disabled={summary.trim().length < 80} onClick={() => setConfirm(true)}>Submit report</button>
+    {/* The report can be submitted only once, so confirm first (FUNC-12). */}
+    {confirm && <Dialog title="Submit the report?" onClose={() => setConfirm(false)} maxWidth={460}>
+      <p className="muted small">This delivers the engagement and cannot be undone — the report becomes read-only. Documented {status.posture.documented}/{status.posture.total}, verified {status.posture.verified}/{status.posture.total}.</p>
+      <div className="row" style={{ marginTop: 12 }}><button className="wl-btn primary" data-autofocus onClick={submit}>Submit report</button><button className="wl-btn" onClick={() => setConfirm(false)}>Keep editing</button></div>
+    </Dialog>}
   </div>;
 }
 
@@ -346,6 +380,21 @@ function RenderedReport({ report }: { report: any }) {
     <h2>Executive summary</h2>
     <p>{report.summary.learnerText}</p>
     <p className="small">Findings: {report.summary.confirmed} confirmed, {report.summary.documented} documented, {report.summary.verified} verified fixed, of {report.summary.total} total. Report quality score: {report.reportAssessment ? `${report.reportAssessment.total}/${report.reportAssessment.max}` : '—'}.</p>
+
+    <h2>Scoring</h2>
+    {report.performance?.score && <>
+      <p className="small">Engagement score: <b>{report.performance.score.total}/{report.performance.score.max}</b> ({report.performance.score.percent}%).</p>
+      <table><thead><tr><th>Category</th><th>Points</th></tr></thead><tbody>
+        {Object.entries(report.performance.score.categories || {}).map(([c, v]: any) => <tr key={c}><td>{c}</td><td>{v.got}/{v.max}</td></tr>)}
+        {(report.performance.score.penalties || []).map((p: any) => <tr key={p.label}><td>{p.label}</td><td>−{p.points}</td></tr>)}
+      </tbody></table>
+    </>}
+    {report.reportAssessment?.breakdown && <>
+      <h3 style={{ marginBottom: 4 }}>Report quality — {report.reportAssessment.total}/{report.reportAssessment.max}</h3>
+      <table><thead><tr><th>Criterion</th><th>Points</th></tr></thead><tbody>
+        {report.reportAssessment.breakdown.map((b: any) => <tr key={b.label}><td>{b.label}</td><td>{b.got}/{b.max}</td></tr>)}
+      </tbody></table>
+    </>}
 
     <h2>Scope &amp; rules of engagement</h2>
     <ul className="tight">{report.scope.map((s: string, i: number) => <li key={i}>{s}</li>)}</ul>

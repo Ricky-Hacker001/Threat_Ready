@@ -146,7 +146,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   });
   api.get('/labs/:labId/runs', (req, res) => {
     const user = (req as any).user; const e = ENGINES[req.params.labId]; if (!e) return res.status(404).json({ error: 'Lab not found.' });
-    res.json(store.sessionsOf(user.id, e.labId).map(s => { const st = e.status(s.state); return { id: s.id, run: s.run, status: s.status, createdAt: s.createdAt, level: st.level, score: st.score.total, max: st.score.max, complete: st.complete }; }));
+    // safeStatus: one run saved by an older engine must not hide the others ("Previous runs" in the console).
+    res.json(store.sessionsOf(user.id, e.labId).map(s => { const st = safeStatus(e, s); return { id: s.id, run: s.run, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, level: st?.level ?? null, score: st?.score.total ?? null, max: st?.score.max ?? null, complete: !!st?.complete }; }));
   });
 
   // Ownership check for every session route. 404 (not 403) so session IDs are not confirmed to other users.

@@ -1,7 +1,7 @@
 // SOC home (#/). The signed-in analyst's name is fixed for the session; levels,
 // progress and permissions all come from the server.
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, session } from './api.js';
 import { stamp, ErrorNote } from './components/bits.jsx';
 import { Shield } from './components/Badge.jsx';
@@ -33,9 +33,15 @@ export function NameChip() {
       {session.homeUrl
         // Inside ThreatReady the platform owns sign-in, and its strip above the page links to the catalog.
         ? null
-        : <button type="button" className="link signout" onClick={signOut} title="Signing out ends this session. Your records stay only until the daily reset and cannot be reopened under a new sign-in.">Sign out</button>}
+        : <button type="button" className="link signout" onClick={signOut} title={session.dailyWipe ? 'Signing out ends this session. Your records stay only until the daily reset and cannot be reopened under a new sign-in.' : 'Signing out ends this session. Your records cannot be reopened under a new sign-in.'}>Sign out</button>}
     </p>
   );
+}
+
+// The daily-wipe notice is only true when the server runs the wipe (it is off inside ThreatReady).
+export function ResetNote() {
+  if (!session.dailyWipe) return null;
+  return <p className="reset-note">Practice records reset daily at 00:00 UTC.</p>;
 }
 
 export function Footer() {
@@ -77,10 +83,12 @@ function LevelCard({ l, go }) {
 
 export function AttemptsTable({ attempts, go, onAbandon, showLevel = true }) {
   const [confirm, setConfirm] = useState(null);
+  const confirmRef = useRef(null);
+  useEffect(() => { if (confirm) confirmRef.current?.focus(); }, [confirm]);
   return (
     <div className="table-wrap">
       <table className="grid cases">
-        <thead><tr><th>Ticket</th>{showLevel && <th>Level</th>}<th>Scenario</th><th>Stage</th><th className="num">Score</th><th>Passed</th><th>Started (UTC)</th><th /></tr></thead>
+        <thead><tr><th>Ticket</th>{showLevel && <th>Level</th>}<th>Scenario</th><th>Stage</th><th className="num">Score</th><th>Passed</th><th>Started (UTC)</th><th><span className="sr">Actions</span></th></tr></thead>
         <tbody>
           {attempts.map((a) => (
             <tr key={a.attemptId}>
@@ -97,10 +105,10 @@ export function AttemptsTable({ attempts, go, onAbandon, showLevel = true }) {
                   : <button type="button" className="link" onClick={() => go(`#/case/${a.caseId}`)}>{a.status === 'open' ? 'Resume' : 'Open'}</button>}
                 {a.status === 'open' && onAbandon && (confirm === a.attemptId ? (
                   <>
-                    <button type="button" className="link danger" onClick={async () => { setConfirm(null); await onAbandon(a); }}>Abandon (scores 0)</button>
+                    <button type="button" className="link danger" ref={confirmRef} onClick={async () => { setConfirm(null); await onAbandon(a); }}>Confirm abandon (scores 0)</button>
                     <button type="button" className="link" onClick={() => setConfirm(null)}>Cancel</button>
                   </>
-                ) : <button type="button" className="link" onClick={() => setConfirm(a.attemptId)}>Delete</button>)}
+                ) : <button type="button" className="link" onClick={() => setConfirm(a.attemptId)} aria-label={`Abandon ${a.code} ${a.title}`}>Abandon</button>)}
               </td>
             </tr>
           ))}
@@ -131,7 +139,7 @@ export default function Console({ go, startTour, openDemo }) {
   const abandon = async (a) => { try { await api.abandon(a.attemptId); await load(); } catch (e) { setErr(e); } };
 
   return (
-    <div className="page">
+    <main className="page">
       <header className="home-head">
         <div>
           <Brand />
@@ -162,7 +170,7 @@ export default function Console({ go, startTour, openDemo }) {
 
       <section data-tour="home-scenarios" aria-labelledby="your-levels">
         <h2 id="your-levels">Your levels</h2>
-        {!levels && <p className="muted">Loading…</p>}
+        {!levels && !err && <p className="muted" role="status">Loading…</p>}
         <div className="levels">{(levels || []).map((l) => <LevelCard key={l.id} l={l} go={go} />)}</div>
       </section>
 
@@ -197,8 +205,8 @@ export default function Console({ go, startTour, openDemo }) {
         {att && att.total > att.attempts.length && <p><button type="button" className="btn btn-sm" onClick={() => { const n = limit + 20; setLimit(n); load(n); }}>Show more</button></p>}
       </section>
 
-      <p className="reset-note">Practice records reset daily at 00:00 UTC.</p>
+      <ResetNote />
       <Footer />
-    </div>
+    </main>
   );
 }

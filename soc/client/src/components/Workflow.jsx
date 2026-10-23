@@ -90,7 +90,7 @@ function Field({ f, value, onChange, cs, links, onLinks, fb }) {
     case 'multi': {
       const v = value || [];
       control = (
-        <div className="options">
+        <div className="options" role="group" aria-labelledby={`${id}-l`}>
           {f.options.map((o) => (
             <label key={o.value} className={`option${v.includes(o.value) ? ' is-on' : ''}`}>
               <input type="checkbox" checked={v.includes(o.value)} onChange={() => onChange(v.includes(o.value) ? v.filter((x) => x !== o.value) : [...v, o.value])} disabled={locked} />
@@ -121,7 +121,7 @@ function Field({ f, value, onChange, cs, links, onLinks, fb }) {
       const n = (value || '').trim().length;
       control = (
         <>
-          <textarea className="input" id={id} rows={4} value={value || ''} onChange={(e) => onChange(e.target.value)} />
+          <textarea className="input" id={id} rows={4} value={value || ''} onChange={(e) => onChange(e.target.value)} disabled={locked} />
           {f.min && <span className={`counter${n >= f.min ? ' ok' : ''}`}>{n} / {f.min} characters minimum</span>}
         </>
       );
@@ -223,6 +223,8 @@ function StageForm({ cs, onCase }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [confirm, setConfirm] = useState(false);
+  const confirmRef = useRef(null);
+  useEffect(() => { if (confirm) confirmRef.current?.focus(); }, [confirm]);
   const dirty = useRef(false);
 
   // Lets the guided tour read the answers as they stand, for a pre-check.
@@ -284,9 +286,9 @@ function StageForm({ cs, onCase }) {
         <button type="submit" className="btn btn-primary" data-tour="submit" disabled={busy}>{busy ? 'Submitting…' : st.submitLabel || 'Submit'}</button>
         {multi && !st.noFinalize && st.attemptsUsed > 0 && !confirm && <button type="button" className="btn" onClick={() => setConfirm(true)} disabled={busy}>Finalise as is</button>}
         {confirm && (
-          <span className="confirm">
+          <span className="confirm" role="group" aria-label="Confirm finalising">
             Unaccepted findings will score zero.
-            <button type="button" className="btn btn-danger btn-sm" onClick={() => submit(true)} disabled={busy}>Finalise findings</button>
+            <button type="button" className="btn btn-danger btn-sm" ref={confirmRef} onClick={() => submit(true)} disabled={busy}>Finalise findings</button>
             <button type="button" className="link" onClick={() => setConfirm(false)}>Keep working</button>
           </span>
         )}
@@ -359,7 +361,7 @@ export default function Workflow({ cs, onCase, review, setReview, ctx }) {
   const st = cs.current;
   const reviewed = review ? cs.stages.find((s) => s.id === review && s.status === 'done') : null;
   return (
-    <aside className="workflow" aria-label="Workflow" data-tour="workflow">
+    <aside className="workflow" id="soc-workflow" tabIndex={-1} aria-label="Workflow" data-tour="workflow">
       {reviewed && <StageReview stage={reviewed} onClose={() => setReview(null)} />}
       {cs.status === 'closed' && (
         <div className="closed-card" data-tour="closed-card">

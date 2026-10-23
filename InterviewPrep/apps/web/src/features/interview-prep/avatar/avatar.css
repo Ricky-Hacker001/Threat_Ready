@@ -56,7 +56,7 @@
   padding: 0 12px 0 10px;
   border-radius: 999px;
   border: 1px solid var(--border-strong);
-  background: rgba(13, 15, 18, 0.72);
+  background: var(--chip-bg);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   font-size: 12.5px;
@@ -70,7 +70,7 @@
   height: 7px;
   border-radius: 50%;
   background: var(--text-3);
-  box-shadow: 0 0 0 3px rgba(128, 136, 150, 0.16);
+  box-shadow: 0 0 0 3px var(--surface-3);
   transition: background 0.3s var(--ease), box-shadow 0.3s var(--ease);
 }
 .ivw-pill[data-status='asking'] .ivw-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
@@ -87,7 +87,7 @@
   width: 2px;
   height: 100%;
   border-radius: 2px;
-  background: var(--accent-strong);
+  background: var(--accent-text);
   transform-origin: center;
   animation: ivw-wave 0.9s ease-in-out infinite;
 }

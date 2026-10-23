@@ -26,10 +26,10 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { api } from '../../../lib/api';
 import { titleCase } from '../../../lib/format';
-import { CardSkeleton, ErrorAlert, useToast } from '../../../ui/components';
+import { Busy, CardSkeleton, ErrorAlert, useToast } from '../../../ui/components';
 
 const TYPES: { id: InterviewType; label: string; hint: string; icon: LucideIcon }[] = [
   { id: 'technical', label: 'Technical', hint: 'Concepts and practical application', icon: Blocks },
@@ -59,6 +59,39 @@ const TRACKS: { id: Track; label: string }[] = [
 ];
 const LEVELS: SkillLevel[] = ['aware', 'working', 'proficient', 'expert'];
 
+/** Arrow keys, Home and End move between the radios of a group and select, like native radio buttons. */
+function radioKeys(e: KeyboardEvent<HTMLElement>) {
+  if (!['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(e.key)) return;
+  const group = e.currentTarget.closest('[role="radiogroup"]');
+  const radios = group ? [...group.querySelectorAll<HTMLElement>('[role="radio"]:not([aria-disabled="true"])')] : [];
+  const i = radios.indexOf(e.currentTarget);
+  if (i < 0) return;
+  e.preventDefault();
+  const n = radios.length;
+  const next = e.key === 'Home' ? 0 : e.key === 'End' ? n - 1 : (i + (e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+  radios[next]!.focus();
+  radios[next]!.click();
+}
+
+interface Draft {
+  config: InterviewConfig | null;
+  removeC: string[];
+  removeJ: string[];
+  levels: Record<string, SkillLevel>;
+}
+/** The configure choices, kept for this tab so a reload doesn't throw them away. */
+function loadDraft(key: string): Draft | null {
+  try {
+    const d = JSON.parse(window.sessionStorage.getItem(key) ?? 'null') as Draft | null;
+    if (!d?.config) return null;
+    // A draft from a browser with voice, reopened in one without it, falls back to text.
+    if (d.config.voiceAnswers && !voiceSupported()) d.config = { ...d.config, voiceAnswers: false };
+    return d;
+  } catch {
+    return null;
+  }
+}
+
 /** Browser speech recognition (Chrome, Edge, Safari) is required for voice answers; Brave has none. */
 const voiceSupported = () => typeof window !== 'undefined' && !isBrave && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
 const voiceHint = () => (voiceSupported() ? 'Alex speaks; you answer out loud, like a real interview' : isBrave ? 'Brave blocks speech recognition. For voice answers use Chrome, Edge or Safari' : 'Speaking answers isn’t supported in this browser (try Chrome, Edge or Safari)');
@@ -67,10 +100,32 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
   const qc = useQueryClient();
   const toast = useToast();
   const q = useQuery({ queryKey: ['briefing', sessionId], queryFn: () => api.briefing(sessionId) });
-  const [config, setConfig] = useState<InterviewConfig | null>(null);
-  const [removeC, setRemoveC] = useState<string[]>([]);
-  const [removeJ, setRemoveJ] = useState<string[]>([]);
-  const [levels, setLevels] = useState<Record<string, SkillLevel>>({});
+  const draftKey = `tr:configure:${sessionId}`;
+  const [draft] = useState(() => loadDraft(draftKey));
+  const [config, setConfig] = useState<InterviewConfig | null>(draft?.config ?? null);
+  const [removeC, setRemoveC] = useState<string[]>(draft?.removeC ?? []);
+  const [removeJ, setRemoveJ] = useState<string[]>(draft?.removeJ ?? []);
+  const [levels, setLevels] = useState<Record<string, SkillLevel>>(draft?.levels ?? {});
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancelBtn = useRef<HTMLButtonElement>(null);
+  const keepBtn = useRef<HTMLButtonElement>(null);
+  const cancelAsked = useRef(false);
+
+  useEffect(() => {
+    if (!config) return;
+    try {
+      window.sessionStorage.setItem(draftKey, JSON.stringify({ config, removeC, removeJ, levels } satisfies Draft));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [draftKey, config, removeC, removeJ, levels]);
+
+  // The cancel confirmation takes focus when it opens, and gives it back to its button when dismissed.
+  useEffect(() => {
+    if (confirmCancel) keepBtn.current?.focus();
+    else if (cancelAsked.current) cancelBtn.current?.focus();
+    cancelAsked.current = confirmCancel;
+  }, [confirmCancel]);
 
   useEffect(() => {
     if (q.data && !config) {
@@ -83,6 +138,11 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
   const plan = useMutation({
     mutationFn: () => api.plan(sessionId, { config: config!, corrections: { removeCandidateSkills: removeC, removeRequiredSkills: removeJ, candidateSkillLevels: levels } }),
     onSuccess: (s) => {
+      try {
+        window.sessionStorage.removeItem(draftKey);
+      } catch {
+        /* storage unavailable */
+      }
       qc.setQueryData(['session', sessionId], s);
       toast({ tone: 'ok', title: 'Your interview is ready', body: 'Alex has prepared questions from your resume and the role.' });
     },
@@ -103,7 +163,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
         <section aria-labelledby="confirm-title">
           <div className="section-title" style={{ marginTop: 0 }}>
             <h2 id="confirm-title"><ListChecks className="icon" aria-hidden /> Confirm what we extracted</h2>
-            <span className="hint">Remove anything that is wrong. Nothing you type here reaches the AI.</span>
+            <span className="hint">Remove anything that is wrong. Alex plans the questions from what is left.</span>
           </div>
           <div className="grid cols-2 stagger" style={{ alignItems: 'start' }}>
             <CandidateCard b={b} removed={removeC} onToggle={(id) => setRemoveC(toggle(removeC, id))} levels={levels} onLevel={(id, l) => setLevels({ ...levels, [id]: l })} />
@@ -168,7 +228,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
               <span>Mode</span>
               <div className="segmented" style={{ width: '100%' }}>
                 {(['realistic', 'practice'] as InterviewMode[]).map((m) => (
-                  <button key={m} type="button" role="radio" aria-selected={config.mode === m} aria-checked={config.mode === m} style={{ flex: 1 }} onClick={() => set('mode', m)}>
+                  <button key={m} type="button" role="radio" aria-checked={config.mode === m} tabIndex={config.mode === m ? 0 : -1} onKeyDown={radioKeys} style={{ flex: 1 }} onClick={() => set('mode', m)}>
                     {titleCase(m)}
                   </button>
                 ))}
@@ -236,11 +296,24 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
           </ul>
           {plan.error && <ErrorAlert error={plan.error} title="Could not build the interview" />}
           <button className="btn primary lg" type="button" onClick={() => plan.mutate()} disabled={plan.isPending}>
-            {plan.isPending ? <span className="spinner" /> : <><Sparkles className="icon sm" aria-hidden /> Build my interview</>}
+            {plan.isPending ? <Busy label="Building your interview…" /> : <><Sparkles className="icon sm" aria-hidden /> Build my interview</>}
           </button>
-          <button className="btn ghost sm" type="button" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
-            Cancel this interview
-          </button>
+          {cancel.error != null && <ErrorAlert error={cancel.error} title="Could not cancel the interview" />}
+          {confirmCancel ? (
+            <div className="alert warn wrap" role="group" aria-labelledby="cancel-q">
+              <p id="cancel-q" style={{ flex: '1 1 100%', fontSize: 13.5 }}>
+                <strong>Cancel this interview?</strong> This setup is discarded. To practise again you start a new interview.
+              </p>
+              <button className="btn danger sm" type="button" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+                {cancel.isPending ? <Busy label="Cancelling…" /> : 'Yes, cancel it'}
+              </button>
+              <button ref={keepBtn} className="btn ghost sm" type="button" onClick={() => setConfirmCancel(false)}>Keep it</button>
+            </div>
+          ) : (
+            <button ref={cancelBtn} className="btn ghost sm" type="button" onClick={() => setConfirmCancel(true)}>
+              Cancel this interview
+            </button>
+          )}
         </div>
       </aside>
     </div>
@@ -260,7 +333,7 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 
 function Choice({ checked, onClick, title, hint, recommended, icon: Icon, compact, disabled }: { checked: boolean; onClick: () => void; title: string; hint: string; recommended?: boolean; icon?: LucideIcon; compact?: boolean; disabled?: boolean }) {
   return (
-    <button type="button" role="radio" aria-checked={checked} aria-disabled={disabled || undefined} className="choice" onClick={disabled ? undefined : onClick} style={compact ? { padding: '12px 12px' } : undefined}>
+    <button type="button" role="radio" aria-checked={checked} aria-disabled={disabled || undefined} tabIndex={checked ? 0 : -1} onKeyDown={radioKeys} className="choice" onClick={disabled ? undefined : onClick} style={compact ? { padding: '12px 12px' } : undefined}>
       {checked ? (
         <span className="tick" aria-hidden><Check className="icon sm" style={{ width: 12, height: 12 }} /></span>
       ) : (
@@ -322,7 +395,10 @@ function CandidateCard({ b, removed, onToggle, levels, onLevel }: { b: Briefing;
         </div>
       )}
       <div className="stack" style={{ gap: 2 }}>
-        <span className="field-label" style={{ marginBottom: 6 }}>Skills Alex will verify</span>
+        <span className="field-label">Skills Alex will verify</span>
+        <p className="hint" style={{ marginBottom: 6 }}>
+          Set how well you know each one. <b>Aware</b>: you know what it is. <b>Working</b>: you have used it with some help. <b>Proficient</b>: you use it on your own. <b>Expert</b>: you could design it or teach it.
+        </p>
         {p.skills.length === 0 && <span className="hint">No catalogue skills were found. The interview will focus on the job's requirements.</span>}
         {p.skills.map((s) => {
           const off = removed.includes(s.skill_id);
@@ -374,6 +450,9 @@ function RoleCard({ b, removed, onToggle }: { b: Briefing; removed: string[]; on
       {b.focusPreview.length > 0 && (
         <div className="stack" style={{ gap: 8 }}>
           <span className="field-label">Alex will focus on</span>
+          <p className="hint">
+            <b>Verify</b>: a skill your resume claims; Alex checks it with you. <b>Probe</b>: a skill the job needs that your resume doesn’t show; Alex explores it.
+          </p>
           <div className="row wrap tight">
             {b.focusPreview.map((f) => (
               <span key={`${f.reason}${f.skillId}`} className={`badge ${f.reason === 'verify_claim' ? 'info' : 'warn'}`}>

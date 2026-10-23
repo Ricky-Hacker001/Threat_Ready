@@ -14,7 +14,7 @@
     box.setAttribute('role', 'alert');
     var p = el('p');
     p.appendChild(el('strong', 'You’re using a browser ThreatReady doesn’t fully support. '));
-    p.appendChild(document.createTextNode(why + ' For the full experience open ThreatReady in Chrome, Edge, Safari or Firefox.'));
+    p.appendChild(document.createTextNode(why + ' For the full experience open ThreatReady in Chrome, Edge or Safari (Firefox works for everything except voice interviews).'));
     var ok = el('button', 'Continue anyway');
     ok.type = 'button';
     ok.onclick = function () { box.remove(); try { sessionStorage.setItem(KEY, '1'); } catch (e) { /* ignore */ } };

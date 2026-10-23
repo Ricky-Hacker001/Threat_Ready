@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../api.js';
+import { api, apiUrl } from '../api.js';
 import { stamp, duration, Verdict, ErrorNote } from './bits.jsx';
 
 // Level attempts: result banner at the top of the review.
@@ -122,8 +122,8 @@ export default function ReportPanel({ cs, go }) {
           {cs.metrics.map((m) => <div key={m.id}><dt>{m.label}</dt><dd>{duration(m.seconds)}</dd></div>)}
         </dl>
         <div className="rep-export" data-tour="report-export">
-          <a className="btn btn-sm" href={`/api/cases/${cs.id}/export?format=md`}>Download case file (Markdown)</a>
-          <a className="btn btn-sm" href={`/api/cases/${cs.id}/export?format=json`}>Download case file (JSON)</a>
+          <a className="btn btn-sm" href={apiUrl(`/api/cases/${cs.id}/export?format=md`)}>Download case file (Markdown)</a>
+          <a className="btn btn-sm" href={apiUrl(`/api/cases/${cs.id}/export?format=json`)}>Download case file (JSON)</a>
         </div>
 
         {r.result && <SkillsTested skills={r.result.skills} />}

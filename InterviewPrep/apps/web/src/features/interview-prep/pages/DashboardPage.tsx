@@ -19,8 +19,8 @@ import { lazy, Suspense, useState } from 'react';
 import { Link } from 'react-router';
 import { useMe } from '../../../lib/auth';
 import { api } from '../../../lib/api';
-import { relativeTime, scoreTone, STATE_LABEL } from '../../../lib/format';
-import { CardSkeleton, CountUp, Empty, ErrorAlert, Meter, Skeleton, Sparkline } from '../../../ui/components';
+import { relativeTime, STATE_LABEL } from '../../../lib/format';
+import { CardSkeleton, CountUp, Empty, ErrorAlert, Meter, ScorePill, Skeleton, Sparkline, usePageTitle } from '../../../ui/components';
 import { AvatarFallback } from '../avatar/AvatarFallback';
 import { hasWebGL } from '../avatar/webgl';
 
@@ -28,6 +28,7 @@ const InterviewerStage = lazy(() => import('../avatar/InterviewerStage'));
 
 /** Screen A. Every number shown here comes from persisted sessions and evaluations. */
 export default function DashboardPage() {
+  usePageTitle('Dashboard');
   const q = useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
   const { data: me } = useMe();
   const d = q.data;
@@ -37,7 +38,7 @@ export default function DashboardPage() {
 
   return (
     <div className="page">
-      <Hero firstName={firstName} />
+      <Hero firstName={firstName} returning={Boolean(d && (d.recent.length > 0 || d.completedCount > 0))} />
 
       {q.error && <div style={{ marginTop: 20 }}><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>}
 
@@ -84,7 +85,7 @@ export default function DashboardPage() {
                       d.averageScore == null ? 'Shown after your first report' : 'Across all reports'
                     ) : (
                       <>
-                        <TrendingUp className="icon sm" aria-hidden style={{ color: trend >= 0 ? 'var(--ok-text)' : 'var(--accent-strong)', transform: trend < 0 ? 'scaleY(-1)' : undefined }} />
+                        <TrendingUp className="icon sm" aria-hidden style={{ color: trend >= 0 ? 'var(--ok-text)' : 'var(--bad-text)', transform: trend < 0 ? 'scaleY(-1)' : undefined }} />
                         {trend >= 0 ? '+' : ''}
                         {trend} since last interview
                       </>
@@ -136,7 +137,7 @@ export default function DashboardPage() {
                       <span className="muted" style={{ fontSize: 13 }}>{relativeTime(s.createdAt)}</span>
                     </div>
                     <span className={`badge ${st?.tone ?? ''}`}>{st?.label ?? s.state}</span>
-                    <span className={`score-pill ${scoreTone(s.overallScore)}`}>{s.overallScore ?? '—'}</span>
+                    <ScorePill score={s.overallScore} />
                     <ChevronRight className="icon sm chev" aria-hidden />
                   </Link>
                 );
@@ -151,13 +152,13 @@ export default function DashboardPage() {
   );
 }
 
-function Hero({ firstName }: { firstName: string }) {
+function Hero({ firstName, returning }: { firstName: string; returning: boolean }) {
   const [webgl] = useState(() => hasWebGL());
   return (
     <section className="hero fade-in" aria-label="InterviewPrep">
       <div className="hero-copy">
         <div className="eyebrow"><Sparkles className="icon sm" aria-hidden /> InterviewPrep</div>
-        <h1>Welcome back, {firstName}. Ready for your next interview?</h1>
+        <h1>{returning ? `Welcome back, ${firstName}. Ready for your next interview?` : `Welcome, ${firstName}. Ready for your first interview?`}</h1>
         <p>Mock interviews built from your resume and the job you want. Alex asks questions, adapts to your answers and scores you against a rubric.</p>
         <div className="row wrap" style={{ marginTop: 4 }}>
           <Link to="/interview-prep/new" className="btn primary lg">
@@ -188,7 +189,7 @@ function Hero({ firstName }: { firstName: string }) {
 
 function Kpi({ icon: Icon, tone, label, value, note, extra }: { icon: typeof Award; tone: string; label: string; value: React.ReactNode; note?: React.ReactNode; extra?: React.ReactNode }) {
   return (
-    <div className="card kpi interactive">
+    <div className="card kpi">
       <div className="kpi-top">
         <span className={`icon-tile ${tone}`}><Icon className="icon" aria-hidden /></span>
         {extra}
@@ -206,7 +207,7 @@ function HowItWorks() {
   const steps = [
     { icon: Upload, title: 'Upload your resume', text: 'PDF or DOCX. Contact details are removed before analysis.' },
     { icon: FileText, title: 'Add the job description', text: 'Paste it or upload it. We extract skills, level and responsibilities.' },
-    { icon: MessagesSquare, title: 'Interview with Alex', text: 'Answer by typing. Questions adapt to what you say.' },
+    { icon: MessagesSquare, title: 'Interview with Alex', text: 'Answer out loud or by typing. Questions adapt to what you say.' },
     { icon: ClipboardCheck, title: 'Get your report', text: 'Scores, gaps against the role and a practice plan.' },
   ];
   return (
@@ -233,11 +234,11 @@ function SkillsPanel({ loading, strengths, improve }: { loading: boolean; streng
       <div className="card-title">
         <h2><Award className="icon" aria-hidden /> Skills</h2>
       </div>
-      <div className="segmented" role="tablist" style={{ marginBottom: 16, width: '100%' }}>
-        <button type="button" role="tab" aria-selected={tab === 'strengths'} style={{ flex: 1 }} onClick={() => setTab('strengths')}>
+      <div className="segmented" role="group" aria-label="Show skills" style={{ marginBottom: 16, width: '100%' }}>
+        <button type="button" aria-pressed={tab === 'strengths'} style={{ flex: 1 }} onClick={() => setTab('strengths')}>
           Demonstrated <span className="muted">{strengths.length}</span>
         </button>
-        <button type="button" role="tab" aria-selected={tab === 'improve'} style={{ flex: 1 }} onClick={() => setTab('improve')}>
+        <button type="button" aria-pressed={tab === 'improve'} style={{ flex: 1 }} onClick={() => setTab('improve')}>
           To improve <span className="muted">{improve.length}</span>
         </button>
       </div>

@@ -17,7 +17,10 @@ export const onApi = (kind, fn) => { listeners[kind].add(fn); return () => liste
 const emit = (kind, v) => listeners[kind].forEach((fn) => { try { fn(v); } catch { /* listener error */ } });
 
 // The API sits under the page's base path (/ standalone, /labs/soc/ inside ThreatReady).
-const BASE = import.meta.env.BASE_URL.replace(/\/+$/, '');
+export const BASE = import.meta.env.BASE_URL.replace(/\/+$/, '');
+// Full URL of an API path for links, downloads and the EventSource, which
+// cannot go through call(): apiUrl('/api/me/export').
+export const apiUrl = (url) => BASE + url;
 
 async function call(method, url, body) {
   const res = await fetch(BASE + url, {
@@ -96,4 +99,4 @@ export const demoApi = {
 };
 
 // The signed-in analyst, set at start-up or sign-in (App.jsx).
-export const session = { me: null, homeUrl: null };
+export const session = { me: null, homeUrl: null, dailyWipe: true };

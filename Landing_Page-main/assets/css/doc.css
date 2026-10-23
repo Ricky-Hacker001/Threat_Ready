@@ -80,7 +80,7 @@
 
 /* Table of contents */
 .ltoc,.ltoc-sticky{border:1px solid var(--border);border-radius:var(--r2);background:var(--surface);padding:var(--s4) var(--s5);margin-bottom:var(--s5)}
-.ltoc h4,.ltoc-sticky h4{margin:0 0 var(--s2);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600}
+.ltoc h4,.ltoc-sticky h4,.ltoc .toc-h,.ltoc-sticky .toc-h{margin:0 0 var(--s2);font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:600}
 .ltoc ol{columns:2;column-gap:var(--s6);margin:0;padding-left:20px;font-size:15px}
 .ltoc li{break-inside:avoid;margin:4px 0}
 .ltoc a,.ltoc-sticky a{text-decoration:none;color:var(--text-2)}

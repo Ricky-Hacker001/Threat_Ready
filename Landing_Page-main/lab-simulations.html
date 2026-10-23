@@ -3,19 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-pLwWvcjLaaqgbRUxCC7XN9givw+p6XobD6zlNB+9q08='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()">
-<script>try{if(localStorage.getItem('tr-theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
-<title>Lab Simulations — role-based security tasks (in development) · ThreatReady</title>
-<meta name="description" content="Lab Simulations are in development: role-based tasks that mirror daily security work — triage, review and remediation — released one role track at a time.">
+<script>try{var m=document.cookie.match(/(?:^|;\s*)tr-theme=(light|dark)/),t=m?m[1]:localStorage.getItem('tr-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
+<title>Lab Simulations — hands-on, role-based security labs · ThreatReady</title>
+<meta name="description" content="Hands-on labs that mirror daily security work: incident response in AWS, SOC triage, DevSecOps, web pentesting, AI security and firewall administration, across four tracks.">
 <link rel="canonical" href="https://threatready.io/lab-simulations.html">
 <meta name="theme-color" content="#0B1020">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ThreatReady">
 <meta property="og:url" content="https://threatready.io/lab-simulations.html">
-<meta property="og:title" content="Lab Simulations — role-based security tasks (in development) · ThreatReady">
-<meta property="og:description" content="Lab Simulations are in development: role-based tasks that mirror daily security work — triage, review and remediation — released one role track at a time.">
+<meta property="og:title" content="Lab Simulations — hands-on, role-based security labs · ThreatReady">
+<meta property="og:description" content="Hands-on labs that mirror daily security work: incident response in AWS, SOC triage, DevSecOps, web pentesting, AI security and firewall administration, across four tracks.">
 <meta property="og:image" content="https://threatready.io/threatready-logo.png">
 <meta name="twitter:card" content="summary">
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -39,7 +39,7 @@
           <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-product" aria-current="page">Product <svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg></button>
           <ul class="menu" id="menu-product">
             <li><a href="attack-reasoning-lab.html"><span class="dot dot-lab"></span><span><span class="mi-t">Attack Reasoning Lab</span><span class="mi-d">Reason through a live attack chain</span></span></a></li>
-            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Role-based daily work · in development</span></span></a></li>
+            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Hands-on labs for the daily work of a role</span></span></a></li>
             <li><a href="interviewprep.html"><span class="dot dot-int"></span><span><span class="mi-t">InterviewPrep</span><span class="mi-d">An interview built from a real job description</span></span></a></li>
           </ul>
         </li>
@@ -64,30 +64,30 @@
         <svg class="icon i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         <svg class="icon i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a class="nav-link nav-signin" href="https://threatready.io/app/">Sign in</a>
-      <a class="btn btn-primary btn-sm" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
+      <a class="nav-link nav-signin" href="https://onboard.threatready.io/">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="https://onboard.threatready.io/?mode=signup">Start free</a>
       <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Open menu">
         <svg class="icon i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         <svg class="icon i-close" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
   </div>
-  <div class="drawer" id="drawer">
-    <h3>Product</h3>
-    <ul>
+  <nav class="drawer" id="drawer" aria-label="Menu">
+    <p class="drawer-h" id="drawer-product">Product</p>
+    <ul aria-labelledby="drawer-product">
       <li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li>
-      <li><a href="lab-simulations.html">Lab Simulations <span class="tag tag-soon" style="margin-left:8px">In development</span></a></li>
+      <li><a href="lab-simulations.html">Lab Simulations</a></li>
       <li><a href="interviewprep.html">InterviewPrep</a></li>
     </ul>
-    <h3>Company</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-company">Company</p>
+    <ul aria-labelledby="drawer-company">
       <li><a href="pilot.html">For Teams</a></li>
       <li><a href="transparent-scoring.html">Scoring</a></li>
       <li><a href="pricing.html">Pricing</a></li>
       <li><a href="contact.html">Contact</a></li>
     </ul>
-    <h3>Resources</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-resources">Resources</p>
+    <ul aria-labelledby="drawer-resources">
       <li><a href="resources.html">All resources</a></li>
       <li><a href="sample-report.html">Sample report</a></li>
       <li><a href="rubric.html">Scoring rubric</a></li>
@@ -95,10 +95,10 @@
       <li><a href="security.html">Security</a></li>
     </ul>
     <div class="drawer-cta">
-      <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
-      <a class="btn btn-secondary" href="https://threatready.io/app/">Sign in</a>
+      <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a>
+      <a class="btn btn-secondary" href="https://onboard.threatready.io/">Sign in</a>
     </div>
-  </div>
+  </nav>
 </header>
 <!-- /@nav -->
 
@@ -106,21 +106,21 @@
 <section class="hero backdrop" aria-labelledby="h">
   <div class="wrap">
     <p class="crumbs"><a href="index.html">Home</a> / Products / Lab Simulations</p>
-    <p class="status-bar" style="margin-bottom:28px"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--warn);flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span><b>In development.</b> Lab Simulations are being built and will be released one role track at a time. Nothing on this page is available in the product yet; the walkthrough is a preview of the format.</span></p>
+    <p class="status-bar" style="margin-bottom:28px;border-left-color:var(--ok)"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="color:var(--ok);flex-shrink:0;margin-top:2px"><path d="M5 12l5 5L20 7"/></svg><span><b>Live.</b> Six labs are open in four tracks: Cloud Security, Blue Team, Red Team and Network Security. Every lab runs in a simulated environment; nothing touches real systems.</span></p>
     <div class="duo">
       <div>
         <span class="eyebrow"><span class="dot dot-sim" aria-hidden="true"></span> Lab Simulations</span>
         <h1 class="h1" id="h">Do the job before you have it.</h1>
         <p class="lead" style="margin-top:16px">Role-based tasks that mirror the daily work of a security team — triage, review and remediation — done by you, step by step, from beginner to experienced.</p>
         <div class="hero-ctas">
-          <a class="btn btn-primary" href="mailto:admin@aerovanttech.com?subject=Lab%20Simulations%20early%20access">Ask about early access</a>
-          <a class="btn btn-secondary" href="attack-reasoning-lab.html">Start with the Lab today</a>
+          <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a>
+          <a class="btn btn-secondary" href="https://labs.threatready.io/labs/">Browse the labs</a>
         </div>
       </div>
       <figure class="frame" style="margin:0">
-        <div class="frame-bar"><span class="frame-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="frame-url">Lab Simulations · preview</span></div>
+        <div class="frame-bar"><span class="frame-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="frame-url">Lab Simulations · example</span></div>
         <div class="tabpanel">
-          <div class="ui-meta"><span class="ui-label">SOC Analyst · Beginner</span><span class="tag tag-soon">Preview</span></div>
+          <div class="ui-meta"><span class="ui-label">SOC Analyst · Beginner</span><span class="tag tag-sample">Example</span></div>
           <div class="ui-box">
             <div class="ui-row"><span class="muted">Task</span><span>Triage a sign-in alert</span></div>
             <div class="ui-row"><span class="muted">Evidence</span><span class="mono">signin_logs.csv · alert.json</span></div>
@@ -133,7 +133,7 @@
           </ol>
           <div class="ui-input">Your decision and the evidence behind it…</div>
         </div>
-        <figcaption class="caption"><span><b>Preview</b> · illustrative format, not live data</span></figcaption>
+        <figcaption class="caption"><span><b>Example</b> · illustrative format, not live data</span></figcaption>
       </figure>
     </div>
   </div>
@@ -157,18 +157,30 @@
 <section class="section" aria-labelledby="plan-h">
   <div class="wrap">
     <div class="section-head">
-      <span class="eyebrow">Planned structure</span>
-      <h2 class="h2" id="plan-h">15 role tracks, four levels each.</h2>
-      <p class="lead">Every track is planned at all four levels. As each track is released, its status will be shown here. <span class="xsmall">Dashed cell = planned, not yet available.</span></p>
+      <span class="eyebrow">Live now</span>
+      <h2 class="h2" id="plan-h">Six labs in four tracks.</h2>
+      <p class="lead">Each lab keeps its own runs, objectives and reports, and your progress also shows on your ThreatReady profile.</p>
     </div>
-    <div class="grid g2" style="align-items:start"><div class="matrix-wrap"><table class="matrix"><thead><tr><th scope="col">Track</th><th scope="col"><span class="lv-full">Beginner</span><span class="lv-short" aria-hidden="true">Beg</span></th><th scope="col"><span class="lv-full">Intermediate</span><span class="lv-short" aria-hidden="true">Int</span></th><th scope="col"><span class="lv-full">Advanced</span><span class="lv-short" aria-hidden="true">Adv</span></th><th scope="col"><span class="lv-full">Expert</span><span class="lv-short" aria-hidden="true">Exp</span></th></tr></thead><tbody><tr><th scope="row">Cloud Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">DevSecOps</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Application Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Network Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Product Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Security Architect</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">DFIR &amp; Incident Response</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">GRC &amp; Compliance</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr></tbody></table></div><div class="matrix-wrap"><table class="matrix"><thead><tr><th scope="col">Track</th><th scope="col"><span class="lv-full">Beginner</span><span class="lv-short" aria-hidden="true">Beg</span></th><th scope="col"><span class="lv-full">Intermediate</span><span class="lv-short" aria-hidden="true">Int</span></th><th scope="col"><span class="lv-full">Advanced</span><span class="lv-short" aria-hidden="true">Adv</span></th><th scope="col"><span class="lv-full">Expert</span><span class="lv-short" aria-hidden="true">Exp</span></th></tr></thead><tbody><tr><th scope="row">IAM Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Data Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">SOC Analyst</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Threat Hunter</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Red Team</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">Blue Team</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr><tr><th scope="row">AI/LLM Security</th><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td><td class="cell"><span class="sr-only">Planned</span></td></tr></tbody></table></div></div>
+    <div class="cmp-wrap">
+      <table class="ctable">
+        <thead><tr><th scope="col">Track</th><th scope="col">Lab</th><th scope="col">Level and size</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud Security</td><td><b>The Compromised Startup</b><br>Investigate, contain and secure a vulnerable AWS environment while an intruder is active.</td><td>Intermediate · about 2 hours</td></tr>
+          <tr><td>Cloud Security</td><td><b>DevSecOps Lab</b><br>Run secrets, SAST, dependency, container and IaC scanners on a real-looking repo, fix what they find and ship through a gated pipeline.</td><td>Guided to Expert · 8 labs</td></tr>
+          <tr><td>Blue Team</td><td><b>SOC Simulation</b><br>Watch a live log stream, pick up an alert and work the ticket from L1 triage through L3 response to closure.</td><td>Foundation to Expert · 36 scenarios</td></tr>
+          <tr><td>Red Team</td><td><b>The Breach Files: AeroCart</b><br>Run an authorised web pentest against a vulnerable shop: recon, exploit, remediate, verify and report.</td><td>Beginner to Advanced · about 2.5 hours</td></tr>
+          <tr><td>Red Team</td><td><b>AI Security Lab</b><br>Attack a fintech&#39;s AI assistant, then detect, fix, re-test and report: prompt injection, data exfiltration, plugin abuse and more.</td><td>Foundations to Expert · 30 scenarios</td></tr>
+          <tr><td>Network Security</td><td><b>ThreatReady Firewall</b><br>Administer a training firewall from first cable to incident containment: zones, NAT, VPN, IPS and high availability.</td><td>Fresher to Expert · 30 tasks</td></tr>
+        </tbody>
+      </table>
+    </div>
   </div>
 </section>
 
 <section class="closing" aria-labelledby="c-h">
   <div class="wrap closing-in">
-    <div><h2 class="h2" id="c-h">Want a track first?</h2><p>Tell us which role you or your team needs most — it shapes the release order.</p></div>
-    <div class="hero-ctas" style="margin:0"><a class="btn btn-primary" href="mailto:admin@aerovanttech.com?subject=Lab%20Simulations%20early%20access">Ask about early access</a><a class="btn btn-secondary" href="pilot.html">Teams &amp; colleges</a></div>
+    <div><h2 class="h2" id="c-h">Ready to do the work?</h2><p>Create a free account and open the labs, or set up a pilot for your team.</p></div>
+    <div class="hero-ctas" style="margin:0"><a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a><a class="btn btn-secondary" href="pilot.html">Teams &amp; colleges</a></div>
   </div>
 </section>
 </main>
@@ -184,7 +196,7 @@
       </div>
       <nav aria-labelledby="f-product"><h2 id="f-product">Product</h2><ul><li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li><li><a href="lab-simulations.html">Lab Simulations</a></li><li><a href="interviewprep.html">InterviewPrep</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="pilot.html">For teams</a></li></ul></nav>
       <nav aria-labelledby="f-resources"><h2 id="f-resources">Resources</h2><ul><li><a href="resources.html" target="_blank" rel="noopener noreferrer">All resources<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="sample-report.html" target="_blank" rel="noopener noreferrer">Sample report<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="rubric.html" target="_blank" rel="noopener noreferrer">Scoring rubric<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="transparent-scoring.html" target="_blank" rel="noopener noreferrer">How scoring works<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="how-it-works.html" target="_blank" rel="noopener noreferrer">How it works<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
-      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html" target="_blank" rel="noopener noreferrer">Contact<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html">Contact</a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
       <nav aria-labelledby="f-legal"><h2 id="f-legal">Legal</h2><ul><li><a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="terms.html" target="_blank" rel="noopener noreferrer">Terms of service<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="dpa.html" target="_blank" rel="noopener noreferrer">Data processing agreement<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="security.html" target="_blank" rel="noopener noreferrer">Security<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
     </div>
     <div class="footer-bottom">

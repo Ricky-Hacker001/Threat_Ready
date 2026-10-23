@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React from "react";
 import { useApp } from "@/state/store";
+import type { WorkspaceTab as Tab } from "@/state/routes";
 import { TargetApp } from "@/components/TargetApp";
 import { LogsConsole } from "@/components/LogsConsole";
 import { GuardrailPanel } from "@/components/GuardrailPanel";
@@ -7,17 +8,15 @@ import { DetectionBuilder } from "@/components/DetectionBuilder";
 import { RetestRunner } from "@/components/RetestRunner";
 import { ExpertReport } from "@/components/ExpertReport";
 import { ArchitectureMap } from "@/components/ArchitectureMap";
+import { Crumbs, LevelTag } from "@/components/common";
 import { judgeMapFix } from "@/engine/validation";
 import type { NodeId } from "@/engine/types";
 import { nodeName } from "./Briefing";
-
-type Tab = "target" | "map" | "logs" | "guardrails" | "detection" | "retest" | "report";
 
 export function Workspace() {
   const { state, dispatch } = useApp();
   const at = state.attempt!;
   const s = at.scenario;
-  const [tab, setTab] = useState<Tab>("target");
 
   const needDetection = s.detection.required;
   const isExpert = s.level === "expert";
@@ -31,28 +30,38 @@ export function Workspace() {
     { id: "retest", label: "Re-test", show: true },
     { id: "report", label: "Report", show: isExpert },
   ];
+  // A tab from an old link that this level doesn't have falls back to the target app.
+  const tab: Tab = tabs.some((t) => t.show && t.id === state.tab) ? state.tab : "target";
 
   return (
     <div className="stack">
-      <div className="crumbs">
-        <span style={{ cursor: "pointer" }} onClick={() => dispatch({ t: "mission" })}>
-          Mission Control
-        </span>
-        <span className="sep">/</span>
-        <span>
-          {s.taskTitle} · {s.title}
-        </span>
-        <span className="sep">/</span>
-        <span style={{ color: "var(--text-0)", textTransform: "capitalize" }}>{at.state.phase}</span>
+      <Crumbs
+        onHome={() => dispatch({ t: "requestExit" })}
+        trail={[
+          `${s.taskTitle} · ${s.title}`,
+          <span style={{ textTransform: "capitalize" }}>{at.state.phase}</span>,
+        ]}
+      />
+
+      <div className="row wrap" style={{ gap: 10 }}>
+        <h1 style={{ margin: 0 }}>
+          {s.taskTitle}: {s.title}
+        </h1>
+        <LevelTag level={s.level} />
       </div>
 
       <PhaseGuide />
 
-      <div className="tabs">
+      <div className="tabs" role="group" aria-label="Workspace sections">
         {tabs
           .filter((t) => t.show)
           .map((t) => (
-            <button key={t.id} className={`tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+            <button
+              key={t.id}
+              className={`tab ${tab === t.id ? "active" : ""}`}
+              aria-current={tab === t.id ? "true" : undefined}
+              onClick={() => dispatch({ t: "setTab", tab: t.id })}
+            >
               {t.label}
             </button>
           ))}
@@ -98,7 +107,8 @@ function MapTab() {
       <div className="card">
         <h3>Architecture Map — select the fix layer</h3>
         <p className="small muted">
-          Before configuring your fix, click the node where the correct fix belongs. This is scored.
+          Before configuring your fix, select the node where the correct fix belongs (click it, or Tab to it and
+          press Enter). This is scored.
         </p>
         <ArchitectureMap
           mode="fix-select"
@@ -106,13 +116,16 @@ function MapTab() {
           selectedFix={at.state.mapFixSelection}
           onFixSelect={(n: NodeId) => dispatch({ t: "setMapFix", node: n })}
         />
-        {at.state.mapFixSelection && (
-          <div className={`pill ${correct ? "green" : "amber"} mt`}>
-            {correct
-              ? `Correct — the fix belongs at ${nodeName(at.state.mapFixSelection)}.`
-              : `Reconsider — ${nodeName(at.state.mapFixSelection)} isn't where this fix belongs.`}
-          </div>
-        )}
+        {/* Always rendered, so the verdict is announced when a node is chosen. */}
+        <div role="status">
+          {at.state.mapFixSelection && (
+            <div className={`pill ${correct ? "green" : "amber"} mt`} style={{ whiteSpace: "normal" }}>
+              {correct
+                ? `Correct — the fix belongs at ${nodeName(at.state.mapFixSelection)}.`
+                : `Reconsider — ${nodeName(at.state.mapFixSelection)} isn't where this fix belongs.`}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -142,7 +155,7 @@ function PhaseGuide() {
 
       {s.level === "foundation" && (
         <details style={{ marginTop: 10 }}>
-          <summary className="small" style={{ cursor: "pointer", color: "var(--accent)" }}>
+          <summary className="small" style={{ cursor: "pointer", color: "var(--accent-text)" }}>
             Show guided steps
           </summary>
           <ol className="small" style={{ margin: "8px 0 0", paddingLeft: 18 }}>
@@ -165,22 +178,24 @@ function PhaseGuide() {
         </div>
       )}
 
-      <div className="row wrap mt" style={{ gap: 8 }}>
-        <span className={`pill ${at.state.attackSucceeded ? "green" : "grey"}`}>
-          {at.state.attackSucceeded ? "✓" : "○"} Attack reproduced
-        </span>
-        <span className={`pill ${at.state.markedEvidenceIds.length > 0 ? "green" : "grey"}`}>
-          {at.state.markedEvidenceIds.length > 0 ? "✓" : "○"} Evidence marked ({at.state.markedEvidenceIds.length})
-        </span>
-        {s.detection.required && (
-          <span className={`pill ${at.detectionRule ? "green" : "grey"}`}>
-            {at.detectionRule ? "✓" : "○"} Detection rule
-          </span>
-        )}
-        <span className={`pill ${at.lastRetest?.overall ? "green" : "grey"}`}>
-          {at.lastRetest?.overall ? "✓" : "○"} Re-test passed
-        </span>
-      </div>
+      <ul className="row wrap mt checklist" style={{ gap: 8 }} aria-label="Progress">
+        <Check done={at.state.attackSucceeded} label="Attack reproduced" />
+        <Check
+          done={at.state.markedEvidenceIds.length > 0}
+          label={`Evidence marked (${at.state.markedEvidenceIds.length})`}
+        />
+        {s.detection.required && <Check done={!!at.detectionRule} label="Detection rule" />}
+        <Check done={!!at.lastRetest?.overall} label="Re-test passed" />
+      </ul>
     </div>
+  );
+}
+
+function Check({ done, label }: { done: boolean; label: string }) {
+  return (
+    <li className={`pill ${done ? "green" : "grey"}`}>
+      <span aria-hidden="true">{done ? "✓" : "○"}</span> {label}
+      <span className="sr-only">{done ? "(done)" : "(not yet)"}</span>
+    </li>
   );
 }

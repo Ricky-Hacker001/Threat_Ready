@@ -4,7 +4,7 @@ Honest account of what is built, verified, and still outstanding against the mas
 
 ## Complete and verified
 
-- **Shared deterministic engine** — simulated Nova brain, pipeline runner, seeded randomiser, event logger with ≥500 noise events/scenario, structured (no-`eval`) detection-rule evaluator, validation/re-test, scoring, progress store, admin-feed adapter.
+- **Shared deterministic engine** — simulated Aero brain, pipeline runner, seeded randomiser, event logger with ≥500 noise events/scenario, structured (no-`eval`) detection-rule evaluator, validation/re-test, scoring, progress store, admin-feed adapter.
 - **All 30 scenarios** (10 tasks × Foundation/Intermediate/Expert) as data-driven config, with attack + bypass variants, accepted evidence, required controls, wrong-layer controls, benign tests and OWASP/ATLAS/ISO mappings.
 - **Full workflow**: Mission Control → Briefing → Workspace (target app, architecture map, logs, guardrails, detection, re-test, expert report) → Results.
 - **Scoring, deductions, pass mark, badges, per-task unlock** (configurable: per-task or all-foundations-first).
@@ -14,12 +14,12 @@ Honest account of what is built, verified, and still outstanding against the mas
 - **Detection-rule builder** — structured conditions, AND/OR, aggregation + time window, test against synthetic logs, judged vs scenario targets.
 - **Re-test runner** — original attack + bypass variants (by level) + chained path (Expert) + benign suite; pass only if attacks contained AND legitimate traffic intact.
 - **Results** with full breakdown, explanations, and a **real downloadable per-scenario PDF** (jsPDF, ThreatReady/Aerovant branded).
-- **Local persistence** (localStorage with in-memory fallback) + reset.
+- **Local persistence** (localStorage with in-memory fallback) + reset. The attempt in progress is saved too (per ThreatReady account), so reload resumes it; screens are hash routes, so Back/Forward stay in the lab. Inside ThreatReady, if the signed-in user can't be confirmed within ~5 s, progress is kept for that tab only (with a notice) instead of under a shared key.
 - **Logo** processed to transparent-background PNG (navy + white variants).
 
 ### Testing
 
-- **197 automated tests**: 16 targeted engine tests + a generic acceptance suite asserting, for every one of the 30 scenarios, that the primary attack is vulnerable pre-fix, the intended fix contains the primary + all exercised bypasses, benign traffic is not over-blocked, a wrong-layer control alone does not contain the attack, and required controls cover every variant.
+- **202 automated tests**: 18 targeted engine tests, 3 hash-route tests + a generic acceptance suite asserting, for every one of the 30 scenarios, that the primary attack is vulnerable pre-fix, the intended fix contains the primary + all exercised bypasses, benign traffic is not over-blocked, a wrong-layer control alone does not contain the attack, and required controls cover every variant.
 - **Browser smoke tests** (Playwright) drove two different task shapes end to end (Task 1 prompt-leak, Task 6 refund tool-call): attack → evidence → guardrails → re-test → results, with no console errors.
 
 ## Added in later passes

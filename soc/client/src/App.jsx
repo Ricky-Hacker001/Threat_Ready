@@ -26,7 +26,9 @@ const parse = () => {
   m = h.match(/^#\/demo\/([a-z0-9]+)(?:\?at=([a-z0-9-]+))?/i);
   if (m) return { page: 'demo', id: m[1], at: m[2] };
   if (/^#\/demo\/?$/.test(h)) return { page: 'intro' };
-  return { page: 'home' };
+  if (/^(#\/?)?$/.test(h)) return { page: 'home' };
+  // Anything else (a mistyped level, an old bookmark) says so instead of silently showing home.
+  return { page: 'notfound' };
 };
 const go = (hash) => { window.location.hash = hash; };
 
@@ -43,6 +45,7 @@ async function boot() {
   }
   const info = await api.sessionInfo();
   session.homeUrl = info.homeUrl;
+  session.dailyWipe = info.dailyWipe !== false;
   if (!info.signedIn) return { signedIn: false, tokenError };
   session.me = await api.me();
   return { signedIn: true };
@@ -65,11 +68,11 @@ function SignIn({ tokenError, onSignedIn }) {
     } catch (x) { setErr(x); setBusy(false); }
   };
   return (
-    <div className="page nosession">
+    <main className="page nosession">
       <p className="brand" aria-label="ThreatReady, by Aerovant Technologies">
         <img src={`${import.meta.env.BASE_URL}logo-sm.png`} alt="" width="26" height="25" /><span className="brand-name">ThreatReady</span>
         <span className="brand-sep" aria-hidden="true" />
-        <span className="brand-product">ThreatReady</span>
+        <span className="brand-product">SOC Simulation</span>
       </p>
       <h1>SOC simulation</h1>
       <p className="lead">Work security alerts the way a SOC does, from the first log line to the closed ticket. Enter the name you want on your tickets and reports.</p>
@@ -78,10 +81,23 @@ function SignIn({ tokenError, onSignedIn }) {
         <input id="signin-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Asha Rivera" maxLength={40} autoFocus autoComplete="name" />
         <button type="submit" className="btn btn-primary" disabled={busy || name.trim().length < 2}>{busy ? 'Signing in…' : 'Start'}</button>
       </form>
-      {err && <p className="note note-bad">{err.message}</p>}
-      <p className="muted small">No account or password. Your progress is kept in this browser until you sign out, and all practice records reset daily at 00:00 UTC.</p>
+      {err && <p className="note note-bad" role="alert">{err.message}</p>}
+      <p className="muted small">No account or password. Your progress is kept in this browser until you sign out{session.dailyWipe ? ', and all practice records reset daily at 00:00 UTC' : ''}.</p>
       <footer className="brand-foot">© {new Date().getFullYear()} Aerovant Technologies · ThreatReady</footer>
-    </div>
+    </main>
+  );
+}
+
+function NotFound({ go }) {
+  return (
+    <main className="page">
+      <h1>Page not found</h1>
+      <p className="lead">There is no SOC simulation page at <span className="mono break">{window.location.hash || '/'}</span>. The link may be mistyped or out of date.</p>
+      <p className="record-row">
+        <button type="button" className="btn btn-primary" onClick={() => go('#/')}>Go to SOC home</button>
+        <button type="button" className="btn" onClick={() => go('#/report')}>Final analyst report</button>
+      </p>
+    </main>
   );
 }
 
@@ -103,7 +119,7 @@ export default function App() {
 
   const closeBadge = useCallback(() => setBadges((q) => q.slice(1)), []);
 
-  if (!state.ready) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (!state.ready) return <main className="page"><p className="muted" role="status">Loading…</p></main>;
   if (!state.signedIn) return <SignIn tokenError={state.tokenError} onSignedIn={() => { setState({ ready: true, signedIn: true }); go('#/'); }} />;
 
   const nav = {
@@ -124,6 +140,7 @@ export default function App() {
   else if (route.page === 'intro') page = <DemoIntro {...nav} />;
   else if (route.page === 'demo') page = <DemoPage key={`${route.id}:${route.at || ''}`} id={route.id} startAt={route.at} {...nav} />;
   else if (route.page === 'summary') page = <DemoSummary key={route.id} id={route.id} {...nav} />;
+  else if (route.page === 'notfound') page = <NotFound go={go} />;
   else page = <Console go={go} startTour={() => setTour(0)} openDemo={nav.goIntro} />;
 
   return (

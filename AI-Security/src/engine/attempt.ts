@@ -94,7 +94,7 @@ export function finaliseScore(
 
   const failedAfterSecond = Math.max(0, state.retests - 2 - (retest.overall ? 1 : 0));
 
-  const score = scoreAttempt({
+  const points = scoreAttempt({
     level,
     attackSucceeded: state.attackSucceeded,
     evidenceFraction: evidence.fraction,
@@ -107,6 +107,13 @@ export function finaliseScore(
     wrongLayerApplied: state.wrongLayerApplied,
     failedRetestsAfterSecond: failedAfterSecond,
   });
+
+  // A learner may finish with a failed re-test ("Finish anyway"); that attempt is recorded as not
+  // passed even if its points would reach the pass mark, since the fix was never proven.
+  const score =
+    !retest.overall && points.passed
+      ? { ...points, passed: false, lines: [...points.lines, "Not passed: the re-test failed, so the fix is not proven."] }
+      : points;
 
   return { score, retest, evidence, detection, fixFraction, reportFraction };
 }

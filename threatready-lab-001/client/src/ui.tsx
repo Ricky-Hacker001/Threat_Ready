@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, ReactNode } from 'react';
 
 export const Ctx = createContext<any>(null);
 export const useLab = () => useContext(Ctx);
@@ -6,9 +6,31 @@ export const useLab = () => useContext(Ctx);
 export const Badge = ({ tone = 'grey', children }: { tone?: string; children: ReactNode }) => <span className={`badge b-${tone}`}>{children}</span>;
 export const StatusDot = ({ ok, label }: { ok: boolean; label: string }) => <span className="statusdot"><i className={ok ? 'ok' : 'bad'} aria-hidden />{label}</span>;
 
-export function Tabs({ tabs, value, onChange }: { tabs: { id: string; label: ReactNode }[]; value: string; onChange: (id: string) => void }) {
-  return <div className="tabs" role="tablist">{tabs.map(t => <button key={t.id} role="tab" aria-selected={t.id === value} className={t.id === value ? 'on' : ''} onClick={() => onChange(t.id)}>{t.label}</button>)}</div>;
+/** Arrow-key handling for a row of tabs (Left/Right wrap, Home/End): selects and focuses the new tab. */
+export function tabKeys(e: React.KeyboardEvent, ids: string[], current: number, select: (id: string) => void) {
+  const n = ids.length; let j = -1;
+  if (e.key === 'ArrowRight') j = (current + 1) % n; else if (e.key === 'ArrowLeft') j = (current - 1 + n) % n; else if (e.key === 'Home') j = 0; else if (e.key === 'End') j = n - 1;
+  if (j < 0 || !n) return;
+  e.preventDefault(); select(ids[j]);
+  const list = (e.currentTarget as HTMLElement).closest('[role="tablist"]');
+  list?.querySelectorAll<HTMLElement>('[role="tab"]')[j]?.focus();
 }
+
+/**
+ * Tabs (WAI-ARIA tabs pattern): one tab stop, arrow keys move between tabs, and the content passed as children
+ * is the tab panel, labelled by the selected tab. `hideList` renders only the content (no tabs to choose from).
+ * When the panel has to live elsewhere in the layout, pass `panelId` and render it with `tabPanelProps(panelId, value)`.
+ */
+export function Tabs({ tabs, value, onChange, label, hideList, panelId: outside, children }: { tabs: { id: string; label: ReactNode }[]; value: string; onChange: (id: string) => void; label?: string; hideList?: boolean; panelId?: string; children?: ReactNode }) {
+  const uid = useId(); const base = outside ?? uid; const tabId = (id: string) => `${base}-tab-${id}`; const panelId = outside ?? `${uid}-panel`;
+  const ids = tabs.map(t => t.id); const cur = Math.max(0, ids.indexOf(value)); const hasPanel = (!!outside || children !== undefined) && ids.includes(value);
+  if (hideList) return <>{children}</>;
+  return <>
+    <div className="tabs" role="tablist" aria-label={label}>{tabs.map((t, i) => <button key={t.id} type="button" role="tab" id={tabId(t.id)} aria-selected={t.id === value} aria-controls={hasPanel ? panelId : undefined} tabIndex={i === cur ? 0 : -1} className={t.id === value ? 'on' : ''} onClick={() => onChange(t.id)} onKeyDown={e => tabKeys(e, ids, i, onChange)}>{t.label}</button>)}</div>
+    {children !== undefined && (hasPanel && !outside ? <div role="tabpanel" id={panelId} aria-labelledby={tabId(value)} className="tabpanel">{children}</div> : children)}
+  </>;
+}
+export const tabPanelProps = (panelId: string, value: string) => ({ role: 'tabpanel', id: panelId, 'aria-labelledby': `${panelId}-tab-${value}` });
 
 export function PageHeader({ crumbs, title, desc, actions }: { crumbs: { label: string; to?: any }[]; title: ReactNode; desc?: ReactNode; actions?: ReactNode }) {
   const { nav } = useLab();
@@ -36,12 +58,35 @@ export function DataTable({ cols, rows, rowKey, onRow, selected, search = true, 
   </div>;
 }
 
+const FOCUSABLE = 'a[href], area[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/**
+ * Accessible dialog: role, aria-modal and a label; focus moves in (an autofocused field keeps it), Tab and
+ * Shift+Tab stay inside, Escape closes the topmost dialog only, and focus returns to what opened it.
+ */
 export function Modal({ title, children, onClose, footer, wide }: { title: string; children: ReactNode; onClose: () => void; footer?: ReactNode; wide?: boolean }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { const prev = document.activeElement as HTMLElement | null; ref.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); }; window.addEventListener('keydown', k); return () => { window.removeEventListener('keydown', k); prev?.focus?.(); }; }, []);
+  const ref = useRef<HTMLDivElement>(null); const titleId = useId();
+  const close = useRef(onClose); close.current = onClose;
+  useEffect(() => {
+    const prev = document.activeElement as HTMLElement | null;
+    if (!ref.current?.contains(document.activeElement)) ref.current?.focus();
+    const topmost = () => { const all = document.querySelectorAll('[role="dialog"][aria-modal="true"]'); return all[all.length - 1] === ref.current; };
+    const k = (e: KeyboardEvent) => {
+      if (!ref.current || !topmost()) return;
+      if (e.key === 'Escape') { e.stopPropagation(); close.current(); return; }
+      if (e.key !== 'Tab') return;
+      const items = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(el => el.offsetParent !== null || el === document.activeElement);
+      if (!items.length) { e.preventDefault(); ref.current.focus(); return; }
+      const first = items[0], last = items[items.length - 1], active = document.activeElement;
+      if (e.shiftKey && (active === first || active === ref.current || !ref.current.contains(active))) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (active === last || !ref.current.contains(active))) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', k, true);
+    return () => { window.removeEventListener('keydown', k, true); if (prev && document.contains(prev)) prev.focus?.(); };
+  }, []);
   return <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={ref}>
-      <div className="modal-h"><h2>{title}</h2><button className="x" onClick={onClose} aria-label="Close">×</button></div>
+    <div className={`modal ${wide ? 'wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} ref={ref}>
+      <div className="modal-h"><h2 id={titleId}>{title}</h2><button className="x" onClick={onClose} aria-label="Close">×</button></div>
       <div className="modal-b">{children}</div>{footer && <div className="modal-f">{footer}</div>}
     </div></div>;
 }

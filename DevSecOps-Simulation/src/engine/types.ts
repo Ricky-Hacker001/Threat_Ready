@@ -149,6 +149,12 @@ export interface LabState {
   startedAt: number;
   completedAt: number | null;
   achieved: string[];
+  /** Mode this attempt was started in; scoring and guidance use it even if the dashboard mode changes later. */
+  mode?: 'guided' | 'standard' | 'expert';
+  /** Time away from the lab (tab hidden, lab closed) — not counted in the lab timer. */
+  pausedMs?: number;
+  /** When the learner left the lab (tab hidden / lab closed); cleared on return. */
+  awayAt?: number | null;
 }
 
 export interface CmdResult {

@@ -1,5 +1,6 @@
 /* ================= Layout: stage (browser + lab tools) + training panel ================= */
-.tw-root { display: flex; height: 100vh; overflow: hidden; }
+/* Fill the viewport below the ThreatReady strip when it is present (--tr-labnav-h is unset standalone). */
+.tw-root { display: flex; height: calc(100vh - var(--tr-labnav-h, 0px)); height: calc(100dvh - var(--tr-labnav-h, 0px)); overflow: hidden; }
 .tw-stage { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .tw-stage-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
 .tw-pill.info { background: #e6f1fb; color: #1b5f9c; }
@@ -18,7 +19,7 @@
 .tw-panel-modes { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); flex: none; background: #fff; }
 .tw-seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 3px; overflow: hidden; }
 .tw-seg button { border: 0; background: #fff; padding: 3px 12px; font-size: 12px; font-weight: 600; color: var(--text-2); }
-.tw-seg button.on { background: var(--tw-accent); color: #fff; }
+.tw-seg button.on { background: var(--tw-accent-strong); color: #fff; }
 .tw-beginner { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-2); }
 .tw-panel-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 12px 24px; }
 
@@ -59,11 +60,11 @@
 .tw-step-title { display: flex; gap: 7px; align-items: flex-start; font-weight: 600; line-height: 1.35; }
 .tw-step .n { flex: none; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; background: #e8eaed; font-size: 10.5px; font-weight: 700; color: var(--text-2); margin-top: 0; }
 .tw-step.done .n { background: var(--tw-ok); color: #fff; }
-.tw-step.cur .n { background: var(--tw-accent); color: #fff; }
+.tw-step.cur .n { background: var(--tw-accent-strong); color: #fff; }
 .tw-step-body { margin: 6px 0 0 25px; }
 .tw-step-body p { margin: 4px 0; line-height: 1.45; }
 .tw-expect { display: flex; align-items: baseline; gap: 6px; background: var(--tw-accent-soft); border-radius: 3px; padding: 4px 7px; margin: 2px 0 4px; }
-.tw-expect span { font-size: 10.5px; text-transform: uppercase; font-weight: 700; color: var(--tw-accent-2); }
+.tw-expect span { font-size: 10.5px; text-transform: uppercase; font-weight: 700; color: var(--tw-accent-strong-2); }
 .tw-expect code { font-family: var(--mono); font-size: 12px; word-break: break-word; }
 .tw-why { color: var(--text-2); }
 .tw-beg { display: flex; gap: 6px; background: #eef5fc; border-radius: 3px; padding: 5px 7px; color: #22476b; }
@@ -99,7 +100,7 @@
 .tw-guide { position: fixed; inset: 0; pointer-events: none; z-index: 900; }
 .tw-guide-ring { position: fixed; border: 2px solid var(--tw-accent); border-radius: 4px; box-shadow: 0 0 0 4px #ef6c1f33; animation: tw-pulse 1.4s ease-out 2; }
 @keyframes tw-pulse { 0% { box-shadow: 0 0 0 0 #ef6c1f88; } 100% { box-shadow: 0 0 0 12px #ef6c1f00; } }
-.tw-guide-tip { position: fixed; max-width: 290px; background: #232830; color: #fff; font-size: 12px; line-height: 1.35; padding: 5px 9px; border-radius: 3px; box-shadow: 0 4px 14px #0004; }
+.tw-guide-tip { position: fixed; max-width: min(290px, calc(100vw - 16px)); background: #232830; color: #fff; font-size: 12px; line-height: 1.35; padding: 5px 9px; border-radius: 3px; box-shadow: 0 4px 14px #0004; }
 .tw-guide-tip.above { transform: translateY(-100%); }
 .tw-guide-tip::after { content: ''; position: absolute; left: 14px; border: 6px solid transparent; }
 .tw-guide-tip.above::after { top: 100%; border-top-color: #232830; }
@@ -109,9 +110,10 @@
 .tw-lab { flex: none; border-top: 2px solid #2d333c; background: #f7f8fa; display: flex; flex-direction: column; }
 .tw-lab.open { height: min(44vh, 400px); }
 .tw-lab-bar { display: flex; align-items: center; gap: 10px; height: 30px; padding: 0 8px; background: #2d333c; color: #e8edf3; flex: none; }
-.tw-lab-toggle { display: inline-flex; align-items: center; gap: 5px; background: var(--tw-accent); color: #fff; border: 0; border-radius: 3px; height: 22px; padding: 0 9px; font-weight: 700; font-size: 12px; }
-.tw-lab-sub { font-size: 11.5px; color: #aab4c0; }
-.tw-lab-tabs { display: flex; gap: 2px; }
+.tw-lab-toggle { display: inline-flex; align-items: center; gap: 5px; background: var(--tw-accent-strong); color: #fff; border: 0; border-radius: 3px; height: 22px; padding: 0 9px; font-weight: 700; font-size: 12px; white-space: nowrap; flex: none; }
+.tw-lab-sub { font-size: 11.5px; color: #aab4c0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tw-lab-tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tw-lab-tabs button { white-space: nowrap; flex: none; }
 .tw-lab-tabs button { background: none; border: 0; color: #c7d0db; height: 30px; padding: 0 11px; font-size: 12.5px; border-bottom: 2px solid transparent; }
 .tw-lab-tabs button.on { color: #fff; border-bottom-color: var(--tw-accent); font-weight: 600; }
 .tw-lab-x { margin-left: auto; background: none; border: 0; color: #c7d0db; display: grid; place-items: center; width: 26px; height: 26px; }
@@ -130,7 +132,7 @@
 .tw-term-in { display: flex; align-items: center; gap: 4px; padding: 4px 12px 8px; color: #d7e3d9; font-size: 12.5px; }
 .tw-term-in input { flex: 1; background: none; border: 0; outline: 0; color: #fff; font-size: 12.5px; }
 
-.tw-tester { display: grid; grid-template-columns: minmax(330px, 420px) minmax(0, 1fr); gap: 12px; height: 100%; }
+.tw-tester { display: grid; grid-template-columns: minmax(min(330px, 100%), 420px) minmax(0, 1fr); gap: 12px; height: 100%; }
 .tw-tester-form { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 5px 8px; align-items: center; align-content: start; font-size: 12.5px; }
 .tw-tester-form .tw-input, .tw-tester-form .tw-select { height: 26px; width: 100%; }
 .tw-tester-form .tw-btn { justify-self: start; }
@@ -161,12 +163,21 @@
   .tw-pc, .tw-tester { grid-template-columns: 1fr; height: auto; }
   .tw-term-wrap { min-height: 220px; }
 }
-@media (max-width: 760px) {
-  .tw-root { flex-direction: column; height: auto; min-height: 100vh; }
-  .tw-stage { height: 100vh; }
+@media (max-width: 767px) {
+  .tw-root { flex-direction: column; height: auto; min-height: calc(100vh - var(--tr-labnav-h, 0px)); }
+  .tw-stage { height: calc(100vh - var(--tr-labnav-h, 0px)); height: calc(100dvh - var(--tr-labnav-h, 0px)); }
+  .tw-lab-sub { display: none; }
   .tw-panel { width: 100%; border-left: 0; border-top: 1px solid var(--line-2); max-height: 70vh; }
   .tw-panel.collapsed { width: 100%; flex-direction: row; padding: 4px 8px; }
   .tw-panel-vert { writing-mode: horizontal-tb; margin: 0 0 0 8px; }
 }
 .tw-pending { display: flex; gap: 6px; background: var(--tw-warn-soft); color: #7a4d00; border-radius: 3px; padding: 5px 7px; margin: 4px 0; line-height: 1.4; }
 .tw-pending svg { flex: none; margin-top: 2px; }
+
+/* Small-screen notice (phones): the lab is usable but cramped; dismissible. */
+.tw-small-notice { display: flex; align-items: flex-start; gap: 8px; padding: 8px 12px; background: #fff7e6; border-bottom: 1px solid #f1d9a6; color: #6b4b00; font-size: 12.5px; line-height: 1.45; flex: none; }
+.tw-small-notice p { margin: 0; flex: 1; }
+.tw-small-notice svg { flex: none; margin-top: 2px; }
+.tw-small-notice button { flex: none; background: none; border: 1px solid #c9a24f; border-radius: 3px; color: #6b4b00; padding: 2px 8px; font-size: 12px; }
+.tr-page .tw-small-notice { margin: 0 0 14px; border: 1px solid #5b4a1f; border-radius: 8px; background: #2a2416; color: #fde68a; }
+.tr-page .tw-small-notice button { border-color: #8a6d2a; color: #fde68a; }

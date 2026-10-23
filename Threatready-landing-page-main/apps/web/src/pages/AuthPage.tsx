@@ -2,13 +2,12 @@ import {
   OTP_LENGTH,
   OTP_TTL_SECONDS,
   PASSWORD_MIN,
-  PLAN_LIMITS,
   emailSchema,
   otpSchema,
   passwordSchema,
   usernameSchema,
 } from "@threatready/contracts";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import type { ZodType } from "zod";
 import { CaseFile } from "../components/CaseFile";
@@ -37,7 +36,21 @@ function check<T>(schema: ZodType<T>, value: unknown): string | null {
 }
 
 const otpMinutes = Math.round(OTP_TTL_SECONDS / 60);
-const trial = PLAN_LIMITS.trial;
+
+/**
+ * After a submit that failed client-side checks, move focus to the first field
+ * marked invalid. Its aria-describedby includes the error text, so screen
+ * readers announce what to fix. Runs after React has rendered the errors.
+ */
+function focusFirstInvalid(form: HTMLFormElement) {
+  requestAnimationFrame(() => form.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus());
+}
+
+const TABS = [
+  { name: "signin", label: "Sign in" },
+  { name: "signup", label: "Create account" },
+] as const;
+type TabName = (typeof TABS)[number]["name"];
 
 /* ------------------------------------------------------------------ */
 
@@ -67,20 +80,27 @@ export function AuthPage() {
   }, []);
 
   // Drop one-shot query params once read so a refresh doesn't replay them.
+  // ?mode=signup (the site's "Start free" links) also opens Create account if
+  // this page is already open when the link is followed.
   useEffect(() => {
+    if (params.get("mode") === "signup") setView((v) => (v.name === "signup" ? v : { name: "signup" }));
     if (params.has("error") || params.has("username") || params.has("mode")) setParams({}, { replace: true });
   }, [params, setParams]);
 
   // Move focus to the new heading when the view changes (screen readers,
   // keyboard users). Not on first load: the first field gets focus instead.
+  // Not when switching tabs either: focus stays on the tab (ARIA tabs pattern).
   const firstView = useRef(true);
+  const keepFocus = useRef(false);
   useEffect(() => {
-    if (firstView.current) {
+    if (firstView.current || keepFocus.current) {
       firstView.current = false;
+      keepFocus.current = false;
       return;
     }
     headingRef.current?.focus();
   }, [view.name]);
+  const tabRefs = useRef<Partial<Record<TabName, HTMLButtonElement | null>>>({});
 
   const user = session?.user as { isAnonymous?: boolean | null } | undefined;
   if (!isPending && session && !user?.isAnonymous) return <Navigate to="/app" replace />;
@@ -88,6 +108,23 @@ export function AuthPage() {
 
   const siteKey = config?.turnstileSiteKey ?? null;
   const go = (v: View) => setView(v);
+  const selectTab = (name: TabName, focus = false) => {
+    keepFocus.current = view.name !== name;
+    setView({ name } as View);
+    if (focus) tabRefs.current[name]?.focus();
+  };
+  function onTabKey(e: KeyboardEvent<HTMLButtonElement>) {
+    const i = TABS.findIndex((t) => t.name === view.name);
+    const next =
+      e.key === "ArrowRight" ? TABS[(i + 1) % TABS.length] :
+      e.key === "ArrowLeft" ? TABS[(i - 1 + TABS.length) % TABS.length] :
+      e.key === "Home" ? TABS[0] :
+      e.key === "End" ? TABS[TABS.length - 1] :
+      null;
+    if (!next) return;
+    e.preventDefault();
+    selectTab(next.name, true);
+  }
 
   let heading: string;
   let lead: ReactNode;
@@ -95,7 +132,7 @@ export function AuthPage() {
   switch (view.name) {
     case "signin":
       heading = "Sign in to ThreatReady";
-      lead = "Pick up your interview prep, simulations and reasoning practice.";
+      lead = "Pick up where you left off in InterviewPrep, Lab Simulations and the Attack Reasoning Lab.";
       body = <SignIn view={view} siteKey={siteKey} go={go} />;
       break;
     case "signup":
@@ -141,8 +178,8 @@ export function AuthPage() {
         <div className="auth-form-wrap" id="auth-form">
           {inTrial ? (
             <Notice tone="info">
-              You're in a free trial. Create an account to keep going, or{" "}
-              <Link to="/app">go back to your trial</Link>.
+              You're browsing as a guest. Create a free account to start a session, or{" "}
+              <Link to="/app">go back to browsing</Link>.
             </Notice>
           ) : null}
 
@@ -152,24 +189,28 @@ export function AuthPage() {
 
           {showTabs ? (
             <div className="tabs" role="tablist" aria-label="Account">
-              <button
-                type="button"
-                role="tab"
-                className="tab"
-                aria-selected={view.name === "signin"}
-                onClick={() => go({ name: "signin" })}
-              >
-                Sign in
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className="tab"
-                aria-selected={view.name === "signup"}
-                onClick={() => go({ name: "signup" })}
-              >
-                Create account
-              </button>
+              {TABS.map((t) => {
+                const selected = view.name === t.name;
+                return (
+                  <button
+                    key={t.name}
+                    ref={(el) => {
+                      tabRefs.current[t.name] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`auth-tab-${t.name}`}
+                    className="tab"
+                    aria-selected={selected}
+                    aria-controls="auth-panel"
+                    tabIndex={selected ? 0 : -1}
+                    onClick={() => selectTab(t.name)}
+                    onKeyDown={onTabKey}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <div className="back-row">
@@ -182,22 +223,27 @@ export function AuthPage() {
             </div>
           )}
 
-          <div className="auth-heading">
-            <h1 ref={headingRef} tabIndex={-1}>
-              {heading}
-            </h1>
-            {lead ? <p>{lead}</p> : null}
+          <div
+            className="auth-panel"
+            {...(showTabs ? { role: "tabpanel", id: "auth-panel", "aria-labelledby": `auth-tab-${view.name}` } : {})}
+          >
+            <div className="auth-heading">
+              <h1 ref={headingRef} tabIndex={-1}>
+                {heading}
+              </h1>
+              {lead ? <p>{lead}</p> : null}
+            </div>
+
+            {body}
+
+            {showTabs ? (
+              <>
+                <div className="divider">or</div>
+                <SocialButtons providers={config?.providers} />
+                {inTrial ? null : <TrialBlock siteKey={siteKey} />}
+              </>
+            ) : null}
           </div>
-
-          {body}
-
-          {showTabs ? (
-            <>
-              <div className="divider">or</div>
-              <SocialButtons providers={config?.providers} />
-              {inTrial ? null : <TrialBlock siteKey={siteKey} />}
-            </>
-          ) : null}
         </div>
       </main>
       <CaseFile />
@@ -219,7 +265,10 @@ function SignIn({ view, siteKey, go }: { view: Extract<View, { name: "signin" }>
   async function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (!username.trim() || !password) return;
+    if (!username.trim() || !password) {
+      focusFirstInvalid(e.currentTarget as HTMLFormElement);
+      return;
+    }
     setBusy(true);
     setError(null);
     const { error: err } = await authClient.signIn.username({
@@ -300,7 +349,10 @@ function SignUp({ siteKey, go }: { siteKey: string | null; go: (v: View) => void
   async function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (errors.username || errors.email || errors.password) return;
+    if (errors.username || errors.email || errors.password) {
+      focusFirstInvalid(e.currentTarget as HTMLFormElement);
+      return;
+    }
     setBusy(true);
     setError(null);
     const username = form.username.trim();
@@ -394,7 +446,10 @@ function Verify({ view, siteKey, go }: { view: Extract<View, { name: "verify" }>
   async function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (errors.email || errors.otp) return;
+    if (errors.email || errors.otp) {
+      focusFirstInvalid(e.currentTarget as HTMLFormElement);
+      return;
+    }
     setBusy(true);
     setError(null);
     const { error: err } = await authClient.emailOtp.verifyEmail({ email: email.trim().toLowerCase(), otp: otp.trim() });
@@ -497,7 +552,10 @@ function ForgotUsername({ siteKey, go }: { siteKey: string | null; go: (v: View)
   async function submit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (emailError) return;
+    if (emailError) {
+      focusFirstInvalid(e.currentTarget as HTMLFormElement);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -587,8 +645,12 @@ function ForgotPassword({ siteKey, go }: { siteKey: string | null; go: (v: View)
     setTouched(true);
     setError(null);
 
+    const form = e.currentTarget as HTMLFormElement;
     if (step === "email") {
-      if (emailError) return;
+      if (emailError) {
+        focusFirstInvalid(form);
+        return;
+      }
       if (await sendCode()) {
         setTouched(false);
         setStep("code");
@@ -597,7 +659,10 @@ function ForgotPassword({ siteKey, go }: { siteKey: string | null; go: (v: View)
     }
 
     if (step === "code") {
-      if (otpError) return;
+      if (otpError) {
+        focusFirstInvalid(form);
+        return;
+      }
       setBusy(true);
       const { error: err } = await authClient.emailOtp.checkVerificationOtp({
         email: cleanEmail,
@@ -616,7 +681,10 @@ function ForgotPassword({ siteKey, go }: { siteKey: string | null; go: (v: View)
       return;
     }
 
-    if (pwError || confirmError) return;
+    if (pwError || confirmError) {
+      focusFirstInvalid(form);
+      return;
+    }
     setBusy(true);
     const { error: err } = await authClient.emailOtp.resetPassword({ email: cleanEmail, otp: otp.trim(), password });
     setBusy(false);
@@ -734,7 +802,8 @@ function SocialButtons({ providers }: { providers: PublicConfig["providers"] | u
     }
   }
 
-  const unavailable = "Not set up on this server yet";
+  // A disabled button can't be focused or hovered, so the reason is shown as text, not only in a title.
+  const missing = providers ? [!providers.google && "Google", !providers.github && "GitHub"].filter(Boolean) : [];
   return (
     <div className="form">
       {error ? <Notice tone="error">{error}</Notice> : null}
@@ -744,7 +813,6 @@ function SocialButtons({ providers }: { providers: PublicConfig["providers"] | u
           variant="secondary"
           loading={busy === "google"}
           disabled={!providers?.google || busy !== null}
-          title={providers && !providers.google ? unavailable : undefined}
           onClick={() => void start("google")}
         >
           {busy === "google" ? null : <GoogleLogo />}
@@ -755,13 +823,18 @@ function SocialButtons({ providers }: { providers: PublicConfig["providers"] | u
           variant="secondary"
           loading={busy === "github"}
           disabled={!providers?.github || busy !== null}
-          title={providers && !providers.github ? unavailable : undefined}
           onClick={() => void start("github")}
         >
           {busy === "github" ? null : <GitHubLogo />}
           Continue with GitHub
         </Button>
       </div>
+      {missing.length ? (
+        <p className="field-hint">
+          {missing.join(" and ")} sign-in {missing.length === 1 ? "isn't" : "aren't"} set up on this server yet. Use your
+          username and password instead.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -785,19 +858,19 @@ function TrialBlock({ siteKey }: { siteKey: string | null }) {
     navigate("/app", { replace: true });
   }
 
-  const plural = (n: number | null, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  // A guest session can look around onboard, but every product needs an account (the apps answer
+  // AUTH_ACCOUNT_REQUIRED), so the copy promises only that.
   return (
     <section className="trial" aria-labelledby="trial-title">
-      <h2 id="trial-title">Try it without an account</h2>
+      <h2 id="trial-title">Look around first</h2>
       <p>
-        Get {plural(trial.interview.limit, "interview", "interviews")},{" "}
-        {plural(trial.simulations.limit, "simulation", "simulations")} and{" "}
-        {plural(trial.reasoning.limit, "reasoning session", "reasoning sessions")}. No email needed.
+        See what each product does without an account. Starting an interview, a lab or a reasoning session needs a free
+        account, which you can create at any time. No email needed to look around.
       </p>
       {error ? <Notice tone="error">{error}</Notice> : null}
       {ts.element}
       <Button type="button" variant="signal" block loading={busy} disabled={!ts.ready} onClick={() => void start()}>
-        Start free trial
+        Continue as a guest
       </Button>
     </section>
   );

@@ -7,6 +7,7 @@
 // section can fail because a field is missing.
 
 import { repo } from '../repo.js';
+import { config } from '../config.js';
 import {
   LEVELS, SKILL_GROUPS, SKILLS, bandOf, skillLabel, SKILL_MIN_QUESTIONS, SKILL_MIN_SCENARIOS,
 } from '../levels.js';
@@ -257,7 +258,8 @@ export function buildFinalReport(user, now = Date.now()) {
     notes: {
       abandoned: 'Abandoned attempts score 0 under the simulation rules and are not counted in averages, skill scores or decision metrics.',
       internal: 'Internal badges show progress inside this simulation. They are not a certification or professional qualification.',
-      reset: 'Practice records reset daily at 00:00 UTC.',
+      // Only true when the daily wipe runs (it is off inside ThreatReady).
+      reset: config.dailyWipe ? 'Practice records reset daily at 00:00 UTC.' : null,
     },
   };
 }

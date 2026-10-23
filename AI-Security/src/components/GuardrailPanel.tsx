@@ -40,7 +40,7 @@ export function GuardrailPanel() {
               aria-expanded={isOpen}
             >
               <span>{cat.title}</span>
-              <span className="muted">{isOpen ? "▲" : "▼"}</span>
+              <span className="muted" aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
             </button>
             {isOpen && (
               <div style={{ padding: "0 18px 16px" }} className="stack">
@@ -78,6 +78,7 @@ function ControlRow({ layer, def, cfg }: { layer: Layer; def: ControlDef; cfg: G
               className="input"
               style={{ width: 120 }}
               type="number"
+              aria-label={def.label}
               value={cur === undefined ? "" : Number(cur)}
               placeholder={def.default !== undefined ? String(def.default) : ""}
               onChange={(e) => set(e.target.value === "" ? undefined : Number(e.target.value))}
@@ -88,6 +89,7 @@ function ControlRow({ layer, def, cfg }: { layer: Layer; def: ControlDef; cfg: G
               className="input"
               style={{ width: 200 }}
               placeholder="comma,separated"
+              aria-label={def.label}
               value={Array.isArray(cur) ? (cur as string[]).join(", ") : ""}
               onChange={(e) =>
                 set(

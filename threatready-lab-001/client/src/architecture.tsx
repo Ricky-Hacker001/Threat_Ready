@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { store } from './api';
-import { Badge, useLab } from './ui';
+import { Badge, tabKeys, useLab } from './ui';
 import { statusTone } from './pages';
 import { EXPLAIN } from './explain';
 
@@ -38,6 +38,7 @@ const NODES: Node[] = [
   { id: 'team', x: 660, y: 318, title: 'Security team', sub: 'SNS · ac-security-alerts', external: true,
     what: 'The people who receive alarms (through the SNS topic ac-security-alerts) and respond to incidents. In this lab, that is you.' },
 ];
+const ARCH_TABS = [['story', 'The story'], ['tasks', 'Your tasks'], ['system', 'How it works'], ['behind', 'Behind the scenes']] as const;
 const SVC_LABEL: Record<string, string> = { org: 'Governance', ec2: 'EC2', lambda: 'Lambda', iam: 'IAM', s3: 'S3', kms: 'KMS', secrets: 'Secrets Manager', cloudtrail: 'CloudTrail', cloudwatch: 'CloudWatch' };
 const N = Object.fromEntries(NODES.map(n => [n.id, n]));
 const TOUR = ['users', 'alb', 'app', 'assets', 'docs', 'kms', 'fn', 'secrets', 'pay', 'iam', 'org', 'trail', 'cw', 'team'];
@@ -70,11 +71,13 @@ const zoomView = (v: View, f: number, cx = v.x + v.w / 2, cy = v.y + v.h / 2): V
   const k = Math.max(FIT.w / 5, Math.min(FIT.w * 2, v.w * f)) / v.w;
   return { x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k, w: v.w * k, h: v.h * k };
 };
-// Keep the whole window inside the viewport so no control is ever out of reach.
+// The ThreatReady strip (lab-nav.js) publishes its height; the window never goes under it.
+const stripH = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tr-labnav-h')) || 0;
+// Keep the whole window inside the viewport (below the strip) so no control is ever out of reach.
 const clamp = (g: Geo): Geo => {
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const top = stripH() + 8, vw = window.innerWidth, vh = window.innerHeight - top + 8;
   const w = Math.max(Math.min(MIN_W, vw - 16), Math.min(g.w, vw - 16)), h = Math.max(Math.min(MIN_H, vh - 16), Math.min(g.h, vh - 16));
-  return { w, h, x: Math.max(8, Math.min(g.x, vw - w - 8)), y: Math.max(8, Math.min(g.y, vh - h - 8)) };
+  return { w, h, x: Math.max(8, Math.min(g.x, vw - w - 8)), y: Math.max(top, Math.min(g.y, window.innerHeight - h - 8)) };
 };
 const loadGeo = (): Geo | null => { try { const g = JSON.parse(store.get(GEO_KEY) || 'null'); return g && ['x', 'y', 'w', 'h'].every(k => typeof g[k] === 'number') ? clamp(g) : null; } catch { return null; } };
 
@@ -213,7 +216,7 @@ export function ArchitectureCorner() {
   const toggleMax = () => {
     if (!geo) return;
     if (maxFrom) { setGeo(maxFrom); setMaxFrom(null); return; }
-    setMaxFrom(geo); setGeo(clamp({ x: 8, y: 52, w: window.innerWidth - 16, h: window.innerHeight - 60 }));
+    setMaxFrom(geo); setGeo(clamp({ x: 8, y: stripH() + 52, w: window.innerWidth - 16, h: window.innerHeight - stripH() - 60 }));
   };
   // One pointer handler for moving ('move') and resizing from an edge or corner ('e', 's', 'w', 'se', 'sw').
   const startDrag = (mode: string) => (e: React.PointerEvent) => {
@@ -276,8 +279,8 @@ export function ArchitectureCorner() {
     <section className={`archwin ${moving ? 'moving' : ''}`} style={{ left: geo.x, top: geo.y, width: geo.w, height: geo.h }} aria-label="Lab guide" onKeyDown={e => e.key === 'Escape' && pick(null)}>
       <div className="archwin-h" onPointerDown={startDrag('move')} onDoubleClick={e => !(e.target as HTMLElement).closest('button') && toggleMax()} title="Drag to move · double-click to maximise">
         <span className="grip" aria-hidden>⠿</span><b>Lab guide</b>
-        <div className="archtabs" role="tablist">{([['story', 'The story'], ['tasks', 'Your tasks'], ['system', 'How it works'], ['behind', 'Behind the scenes']] as const).map(([id, l]) =>
-          <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>{l}</button>)}</div>
+        <div className="archtabs" role="tablist" aria-label="Lab guide sections">{ARCH_TABS.map(([id, l], i) =>
+          <button key={id} type="button" role="tab" id={`arch-tab-${id}`} aria-selected={tab === id} aria-controls="arch-panel" tabIndex={tab === id ? 0 : -1} className={tab === id ? 'on' : ''} onClick={() => setTab(id)} onKeyDown={e => tabKeys(e, ARCH_TABS.map(t => t[0]), i, id => setTab(id as typeof tab))}>{l}</button>)}</div>
         <span className="grow" />
         <button className="btn sm" onClick={toggleMax}>{maxFrom ? 'Restore' : 'Maximise'}</button>
         <button className="btn sm" onClick={resetPos} title="Put the window back in the corner">Reset</button>
@@ -291,7 +294,7 @@ export function ArchitectureCorner() {
           </div>
           <span className="archpanhint" aria-hidden>Drag to move · scroll to zoom</span>
           <svg ref={svgRef} className="archmap" viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`} preserveAspectRatio="xMidYMid meet" onPointerDown={startPan}
-            onClickCapture={e => { if (dragged.current) { e.stopPropagation(); e.preventDefault(); dragged.current = false; } }} role="img" aria-label="AeroCart architecture: customers to load balancer to app server, then to storage, order processing and monitoring" onClick={e => e.target === e.currentTarget && pick(null)}>
+            onClickCapture={e => { if (dragged.current) { e.stopPropagation(); e.preventDefault(); dragged.current = false; } }} role="group" aria-label="AeroCart architecture: customers to load balancer to app server, then to storage, order processing and monitoring. Each box is a button that explains that part." onClick={e => e.target === e.currentTarget && pick(null)}>
             <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#545b64" /></marker>
               <marker id="arr-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0972d3" /></marker>
               <marker id="arr-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d13212" /></marker>
@@ -311,28 +314,28 @@ export function ArchitectureCorner() {
               const m = mark(n); const w = n.w ?? W, h = n.h ?? H; const band = n.id === 'org';
               return <g key={n.id} className={`arch-node ${band ? 'band' : ''} ${n.external ? 'ext' : ''} ${tab === 'system' && sel === n.id ? 'sel' : ''} ${focus?.has(n.id) && tab !== 'system' ? 'focus' : ''} ${dim(n.id) ? 'dim' : ''}`}
                 onClick={() => { setTab('system'); setTour(false); setSel(sel === n.id && tab === 'system' ? null : n.id); }} onDoubleClick={() => n.svc && nav(n.svc)}
-                role="button" tabIndex={0} aria-label={`${n.title}: ${n.sub}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('system'); setTour(false); setSel(n.id); } }}>
+                role="button" tabIndex={0} aria-pressed={tab === 'system' && sel === n.id} aria-label={`${n.title}: ${n.sub}${m === 'ok' ? ' (finding fixed and verified)' : m === 'warn' ? ' (finding reported, not yet fixed)' : ''}`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('system'); setTour(false); setSel(n.id); } }}>
                 <rect x={n.x} y={n.y} width={w} height={h} rx={band ? 4 : 5} />
                 {band ? <text x={n.x + w / 2} y={n.y + 19} textAnchor="middle" className="t">Account guardrails (Governance) — rules that apply to everyone, even admins</text>
                   : <><text x={n.x + w / 2} y={n.y + 24} textAnchor="middle" className="t">{n.title}</text><text x={n.x + w / 2} y={n.y + 41} textAnchor="middle" className="s">{n.sub}</text></>}
                 {m && <><circle cx={n.x + w - 4} cy={n.y + 4} r="9" className={`arch-dot ${m}`} /><text x={n.x + w - 4} y={n.y + 8} textAnchor="middle" className="arch-dot-t">{m === 'ok' ? '✓' : '!'}</text></>}
               </g>;
             })}
-            {intruderSeen && <g className={`arch-node intruder ${contained ? 'out' : ''} ${dim('intruder') ? 'dim' : ''}`} onClick={() => setTab('story')}><title>The intruder: someone outside AeroCart using a stolen key</title>
+            {intruderSeen && <g className={`arch-node intruder ${contained ? 'out' : ''} ${dim('intruder') ? 'dim' : ''}`} onClick={() => setTab('story')} role="button" tabIndex={0} aria-label={`Intruder: ${contained ? 'locked out' : 'outside, using a stolen key'}. Opens the story.`} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setTab('story'); } }}><title>The intruder: someone outside AeroCart using a stolen key</title>
               <rect x="20" y="318" width={W} height={H} rx="5" /><text x={85} y={342} textAnchor="middle" className="t">Intruder</text><text x={85} y={359} textAnchor="middle" className="s">{contained ? 'locked out' : 'outside, stolen key'}</text></g>}
           </svg>
         </div>
         <div className="archsplit" onPointerDown={startSplit} onDoubleClick={() => setSplit(null)} role="separator" aria-orientation="horizontal" aria-label="Resize diagram" title="Drag to resize the diagram · double-click to reset" />
 
-        <div className="archpanel">
+        <div className="archpanel" role="tabpanel" id="arch-panel" aria-labelledby={`arch-tab-${tab}`}>
           {tab === 'story' && story && <>
             <div className="storyhead"><span className="archstep">Chapter {ch} of 8</span><b>{chMeta?.title}</b><span className="grow" />
-              {status.chapters.length > 1 && <span className="storynav"><button className="btn sm" disabled={ch <= 1} onClick={() => setChapter(ch - 1)}>‹</button><button className="btn sm" disabled={ch >= chNow} onClick={() => setChapter(ch + 1 >= chNow ? null : ch + 1)}>›</button></span>}</div>
+              {status.chapters.length > 1 && <span className="storynav"><button className="btn sm" disabled={ch <= 1} onClick={() => setChapter(ch - 1)} aria-label="Previous chapter" title="Previous chapter">‹</button><button className="btn sm" disabled={ch >= chNow} onClick={() => setChapter(ch + 1 >= chNow ? null : ch + 1)} aria-label="Next chapter" title="Next chapter">›</button></span>}</div>
             {ch < chNow && <p className="muted small">You are looking back at an earlier chapter. <a href="#" onClick={e => { e.preventDefault(); setChapter(null); }}>Back to now</a></p>}
             <div className="storybox what"><span className="storyk">What's going on</span>{story.what}</div>
             <div className="storybox why"><span className="storyk">Why you're doing this</span>{story.why}</div>
             {ch === chNow && status.intruder?.active && !contained && <div className="storybox clock"><span className="storyk">Happening in the background</span>
-              The lab clock moves forward each time you do something (it is not real time). Roughly every 30 simulated minutes the intruder tries their next move. The sooner you disable the stolen key, the less they can do.</div>}
+              The lab clock is not real time: it moves forward with every step you take, including opening a resource's details to inspect it. Roughly every 30 simulated minutes the intruder tries their next move. The sooner you disable the stolen key, the less they can do.</div>}
             {intruderSeen && moves.length > 0 && <div className="storybox"><span className="storyk">What the intruder did so far</span>
               <ul className="moves">{moves.map(m => <li key={m.id} className={m.outcome === 'success' ? 'bad' : 'good'}>{m.outcome === 'success' ? '✗' : '✓'} {INTRUDER[m.id].text[m.outcome]}</li>)}</ul></div>}
             <details className="loop"><summary>How every task works (4 moves)</summary>

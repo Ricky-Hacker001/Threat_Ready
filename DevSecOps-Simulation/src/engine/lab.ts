@@ -150,13 +150,19 @@ export function scanFresh(s: LabState, tool: ToolName): boolean {
   return s.scans[tool]?.rev === revOf(s);
 }
 
+/** Active time in the lab: wall-clock time since the start minus time away (tab hidden or lab closed). */
+export function activeMs(s: LabState, now = Date.now()): number {
+  const end = s.completedAt ?? (s.awayAt ?? now);
+  return Math.max(0, end - s.startedAt - (s.pausedMs ?? 0));
+}
+
 export function score(def: LabDef, s: LabState, mode: Mode): { score: number; max: number } {
   const req = def.objectives.filter((o) => !o.bonus);
   const done = req.filter((o) => s.achieved.includes(o.id)).length;
   const bonus = def.objectives.filter((o) => o.bonus && s.achieved.includes(o.id)).length;
   let pts = Math.round((done / Math.max(1, req.length)) * 100) + bonus * 10;
   if (mode === 'standard') pts -= s.hintsUsed.length * 5;
-  const mins = ((s.completedAt ?? Date.now()) - s.startedAt) / 60000;
+  const mins = activeMs(s) / 60000;
   if (mode === 'expert' && s.completedAt && mins <= def.minutes) pts += 20;
   return { score: Math.max(0, pts), max: 100 + def.objectives.filter((o) => o.bonus).length * 10 + (mode === 'expert' ? 20 : 0) };
 }

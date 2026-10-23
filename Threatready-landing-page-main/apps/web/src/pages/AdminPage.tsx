@@ -175,8 +175,11 @@ export function AdminPage() {
   const pages = list ? Math.max(1, Math.ceil(list.total / 25)) : 1;
   const unavailable = overview?.unavailable ?? [];
 
+  // A refetch (range, search, sort, page) keeps the current numbers on screen; say they are being replaced.
+  const updating = loading && (overview !== null || list !== null);
+
   return (
-    <div className="admin">
+    <div className="admin" aria-busy={loading || undefined}>
       <div className="admin-head">
         <div>
           <h1>Admin console</h1>
@@ -194,6 +197,13 @@ export function AdminPage() {
         </div>
       </div>
 
+      <p className="updating" role="status">
+        {updating ? (
+          <>
+            <span className="spinner spinner-sm" aria-hidden="true" /> Updating…
+          </>
+        ) : null}
+      </p>
       {error ? <Notice tone="error">{error}</Notice> : null}
       {unavailable.length ? (
         <Notice tone="info">

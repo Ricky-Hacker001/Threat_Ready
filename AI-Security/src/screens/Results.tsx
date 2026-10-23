@@ -1,6 +1,6 @@
 import React from "react";
 import { useApp } from "@/state/store";
-import { LevelTag } from "@/components/common";
+import { Crumbs, LevelTag } from "@/components/common";
 import { downloadReportPdf } from "@/util/pdf";
 import { getScenario } from "@/scenarios";
 import { PASS_MARK } from "@/engine/scoring";
@@ -38,25 +38,21 @@ export function Results() {
 
   return (
     <div className="stack">
-      <div className="crumbs">
-        <span style={{ cursor: "pointer" }} onClick={() => dispatch({ t: "mission" })}>
-          Mission Control
-        </span>
-        <span className="sep">/</span>
-        <span>Results</span>
-      </div>
+      <Crumbs onHome={() => dispatch({ t: "mission" })} trail={["Results"]} />
 
       <div className="card pad-lg">
         <div className="row between wrap">
           <div>
-            <div className="row">
+            <div className="row wrap">
               <h1 style={{ margin: 0 }}>
                 {scenario.taskTitle}: {scenario.title}
               </h1>
               <LevelTag level={scenario.level} />
             </div>
             <p className="muted" style={{ margin: "6px 0 0" }}>
-              {sc.passed ? "Passed" : "Not passed"} · pass mark {PASS_MARK}
+              {sc.passed ? "Passed" : "Not passed"}
+              {!r.retest.overall && <strong style={{ color: "var(--red)" }}> · Re-test failed</strong>} · pass mark{" "}
+              {PASS_MARK}
             </p>
           </div>
           <div style={{ textAlign: "right" }}>
@@ -70,9 +66,19 @@ export function Results() {
         <div className="bar mt">
           <span style={{ width: `${sc.total}%`, background: sc.passed ? "var(--green)" : "var(--amber)" }} />
         </div>
+
+        {!r.retest.overall && (
+          <div className="card mt" style={{ background: "var(--red-bg)", borderColor: "#51272b" }}>
+            <strong className="small">Re-test failed — recorded as not passed.</strong>{" "}
+            <span className="small">
+              {r.retest.failureReason ?? "Not every attack was contained with legitimate traffic still working."} Retake
+              the scenario to prove a working fix.
+            </span>
+          </div>
+        )}
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+      <div className="grid cols-2" style={{ gap: 16 }}>
         <div className="card">
           <h3>Score breakdown</h3>
           <table className="data">
@@ -144,7 +150,7 @@ export function Results() {
           Retake (re-randomised)
         </button>
         <button className="btn ghost" onClick={exportPdf}>
-          ⬇ Download PDF report
+          <span aria-hidden="true">⬇</span> Download PDF report
         </button>
       </div>
     </div>

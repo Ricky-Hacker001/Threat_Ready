@@ -83,13 +83,14 @@ export function Record() {
           <a className="tr-btn ghost" href={`#/${lastRoute()}`} data-guide="record-back"><ArrowLeft size={14} /> Back to lab</a>
         </span>} />
 
+        <main>
         <header className="tr-hero" style={{ marginBottom: 14 }}>
           <h1>Training record</h1>
           <p>{p.learner ? <b style={{ color: 'var(--tr-text)' }}>{p.learner}</b> : <span className="tr-empty">Learner name not set</span>} · {PRODUCT} · generated {fmtDate(Date.now())} · every check re-run against the current lab configuration</p>
           <p className={`tr-status ${complete ? 'pass' : 'prog'}`}>
             {complete ? `Track complete: ${verified} of ${TASKS.length} tasks verified` : `In progress: ${verified} of ${TASKS.length} tasks verified${stale.length ? ` · ${stale.length} need re-verify` : ''}`}
           </p>
-          <div className="tr-noprint" style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <div className="tr-noprint" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14 }}>
             <button className="tr-btn" onClick={() => window.print()}><Printer size={14} /> Print or save as PDF</button>
             <button className="tr-btn" data-guide="report-export" onClick={exportJson}><Download size={14} /> Download my record (JSON)</button>
           </div>
@@ -109,7 +110,7 @@ export function Record() {
 
         <section className="tr-section">
           <h2>Results by level</h2>
-          <div className="tr-card" style={{ padding: 0 }}>
+          <div className="tr-card" style={{ padding: 0, overflowX: 'auto' }}>
             <table className="tr-table">
               <thead><tr><th>Level</th><th>Result</th><th>Verified</th><th>Failed attempts</th><th>Badge</th></tr></thead>
               <tbody>
@@ -191,6 +192,7 @@ export function Record() {
           <div>Generated from a browser simulation. All traffic, hosts and attacks were simulated; ThreatWall is a fictional appliance used for training.</div>
           <div>This is an internal training record, not a certification.</div>
         </div>
+        </main>
         <BrandFooter closing />
       </div>
     </div>

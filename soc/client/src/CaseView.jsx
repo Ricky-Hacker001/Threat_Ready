@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api.js';
+import { api, apiUrl } from './api.js';
 import { LiveFeed, SearchPanel, AlertPanel, EvidencePanel, HistoryPanel } from './components/Panels.jsx';
 import ToolsPanel from './components/ToolsPanel.jsx';
 import Workflow from './components/Workflow.jsx';
@@ -8,6 +8,18 @@ import { Severity, duration, ErrorNote } from './components/bits.jsx';
 import { bridge } from './tour/bridge.js';
 
 const MAX_LIVE = 300;
+// Failed connection attempts in a row before the stream is reported as stopped.
+const MAX_STREAM_RETRIES = 3;
+const NARROW_KEY = 'soc-sim-narrow-notice';
+const STREAM_SAY = {
+  reconnecting: 'Live log stream interrupted. Reconnecting.',
+  restored: 'Live log stream reconnected.',
+  ended: 'Live log stream ended with the ticket.',
+};
+
+function narrowDismissed() {
+  try { return window.localStorage.getItem(NARROW_KEY) === 'dismissed'; } catch { return false; }
+}
 const TIER_NAME = { L1: 'Tier 1', L2: 'Tier 2', L3: 'Tier 3' };
 
 function StageRail({ cs, review, setReview }) {
@@ -58,7 +70,12 @@ export default function CaseView({ id, goHome, go }) {
   const [live, setLive] = useState([]);
   const [paused, setPausedState] = useState(false);
   const [held, setHeld] = useState(0);
-  const [connected, setConnected] = useState(false);
+  // connecting | live | reconnecting | failed | ended
+  const [stream, setStream] = useState('connecting');
+  const [streamNonce, setStreamNonce] = useState(0);
+  const [streamSay, setStreamSay] = useState('');
+  const lastSeq = useRef(null);
+  const [narrowNote, setNarrowNote] = useState(() => !narrowDismissed());
   const [search, setSearch] = useState({ q: '', source: '', nonce: 0 });
   const [prefill, setPrefill] = useState(null);
   const [review, setReview] = useState(null);
@@ -79,7 +96,8 @@ export default function CaseView({ id, goHome, go }) {
       buffer.current.push(...fresh);
       setHeld(buffer.current.length);
     } else {
-      setLive((prev) => [...fresh.sort((a, b) => b.ts - a.ts), ...prev].slice(0, MAX_LIVE));
+      // Merge by time: lines recovered after a reconnect are older than the newest ones shown.
+      setLive((prev) => [...fresh, ...prev].sort((a, b) => b.ts - a.ts).slice(0, MAX_LIVE));
     }
   }, []);
 
@@ -99,16 +117,63 @@ export default function CaseView({ id, goHome, go }) {
     seen.current = new Set();
     api.getCase(id).then((c) => { if (!dead) { setCs(c); if (c.status === 'closed' && c.report) setTab('report'); } }).catch((e) => { if (!dead) setLoadErr(e); });
     api.logs(id, { limit: 120 }).then((r) => { if (!dead) push(r.events); }).catch(() => {});
-    const es = new EventSource(`/api/cases/${id}/stream`);
-    es.addEventListener('hello', () => setConnected(true));
-    es.addEventListener('logs', (m) => push(JSON.parse(m.data)));
-    es.addEventListener('case', () => refresh());
-    es.addEventListener('closed', () => es.close());
-    es.onerror = () => setConnected(false);
-    es.onopen = () => setConnected(true);
     const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => { dead = true; es.close(); clearInterval(t); };
-  }, [id, push, refresh]);
+    return () => { dead = true; clearInterval(t); };
+  }, [id, push]);
+
+  // Live stream. Each "logs" message carries its last sequence number as the SSE id:
+  // the browser's own reconnect resumes from it (Last-Event-ID), and a manual
+  // "Reload stream" reopens with ?after=<seq>, so no lines go missing.
+  useEffect(() => {
+    let dead = false;
+    let failures = 0;
+    let troubled = false;
+    const after = lastSeq.current != null ? `?after=${lastSeq.current}` : '';
+    const es = new EventSource(apiUrl(`/api/cases/${id}/stream${after}`));
+    es.addEventListener('hello', () => {
+      failures = 0;
+      setStream('live');
+      if (troubled) { troubled = false; setStreamSay(STREAM_SAY.restored); }
+    });
+    es.addEventListener('logs', (m) => {
+      if (m.lastEventId) lastSeq.current = Number(m.lastEventId);
+      push(JSON.parse(m.data));
+    });
+    es.addEventListener('case', () => refresh());
+    es.addEventListener('closed', () => { es.close(); setStream('ended'); setStreamSay(STREAM_SAY.ended); });
+    es.onerror = () => {
+      if (dead) return;
+      failures += 1;
+      troubled = true;
+      // CLOSED: the server refused the stream (e.g. 401/404); otherwise the browser is retrying.
+      if (es.readyState === EventSource.CLOSED || failures >= MAX_STREAM_RETRIES) {
+        es.close();
+        setStream('failed');
+        setStreamSay('');
+      } else {
+        setStream('reconnecting');
+        setStreamSay(STREAM_SAY.reconnecting);
+      }
+    };
+    return () => { dead = true; es.close(); };
+  }, [id, push, refresh, streamNonce]);
+
+  const reloadStream = () => {
+    setStream('connecting');
+    setStreamNonce((n) => n + 1);
+    // Also refresh the newest lines in case the resume point is no longer held by the server.
+    api.logs(id, { limit: 120 }).then((r) => push(r.events)).catch(() => {});
+  };
+  const dismissNarrow = () => {
+    setNarrowNote(false);
+    try { window.localStorage.setItem(NARROW_KEY, 'dismissed'); } catch { /* storage unavailable */ }
+  };
+  const jump = (elId) => {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    el.scrollIntoView({ block: 'start' });
+    el.focus({ preventScroll: true });
+  };
 
   // Active time: report every 30 seconds whether the console is visible.
   const beating = !!cs?.attemptId && cs?.status !== 'closed';
@@ -189,9 +254,9 @@ export default function CaseView({ id, goHome, go }) {
   }), [pinned, cs?.status, cs?.readOnly, id]);
 
   if (loadErr) {
-    return <div className="page"><ErrorNote error={loadErr} /><p><button type="button" className="btn" onClick={goHome}>Back to SOC home</button></p></div>;
+    return <main className="page"><ErrorNote error={loadErr} /><p><button type="button" className="btn" onClick={goHome}>Back to SOC home</button></p></main>;
   }
-  if (!cs) return <div className="page"><p className="muted">Loading case…</p></div>;
+  if (!cs) return <main className="page"><p className="muted" role="status">Loading case…</p></main>;
 
   const closed = cs.status === 'closed';
   const tabs = [
@@ -200,6 +265,16 @@ export default function CaseView({ id, goHome, go }) {
     ...(closed ? [['report', 'After-action review']] : []),
   ];
   const elapsed = cs.alert ? Math.round(((cs.closedAt || now) - cs.alert.firedAt) / 1000) : null;
+  // Tabs follow the ARIA tabs pattern: one tab stop, arrow keys move between tabs.
+  const onTabKey = (e) => {
+    const keys = tabs.map(([k]) => k);
+    const i = keys.indexOf(tab);
+    const n = { ArrowRight: (i + 1) % keys.length, ArrowLeft: (i - 1 + keys.length) % keys.length, Home: 0, End: keys.length - 1 }[e.key];
+    if (n === undefined) return;
+    e.preventDefault();
+    setTab(keys[n]);
+    document.getElementById(`soc-tab-${keys[n]}`)?.focus();
+  };
 
   return (
     <div className="case">
@@ -232,18 +307,39 @@ export default function CaseView({ id, goHome, go }) {
         </div>
       )}
       {err && <div className="flash flash-bad"><ErrorNote error={err} onDismiss={() => setErr(null)} /></div>}
-      <div className="split">
-        <main className="main" data-tour="main">
-          <div className="tabs" role="tablist" data-tour="tabs">
-            {tabs.map(([k, l]) => <button type="button" role="tab" key={k} data-tour={`tab-${k}`} aria-selected={tab === k} className={`tab${tab === k ? ' is-on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
+      {stream === 'failed' && !closed && (
+        <div className="flash flash-bad">
+          <div className="note note-bad" role="alert">
+            <span><strong>The live log stream stopped.</strong> New lines are not arriving. Everything that happened is still in Log search.</span>
+            <button type="button" className="btn btn-sm" onClick={reloadStream}>Reload stream</button>
           </div>
-          {tab === 'feed' && <LiveFeed live={live} paused={paused} setPaused={setPaused} held={held} ctx={ctx} sources={cs.sources} connected={connected} closed={closed} />}
+        </div>
+      )}
+      <p className="sr" role="status">{streamSay}</p>
+      {narrowNote && (
+        <div className="narrow-notice" role="note">
+          <span>Best on a larger screen. This console has a log table, several tabs and a workflow panel side by side; on a small screen use the jump links below.</span>
+          <button type="button" className="link" onClick={dismissNarrow}>Dismiss</button>
+        </div>
+      )}
+      <nav className="jump" aria-label="Jump to">
+        <button type="button" className="btn btn-sm" onClick={() => jump('soc-workflow')}>Workflow</button>
+        <button type="button" className="btn btn-sm" onClick={() => jump('soc-main')}>Logs and tools</button>
+      </nav>
+      <div className="split">
+        <main className="main" id="soc-main" tabIndex={-1} aria-label="Logs and tools" data-tour="main">
+          <div className="tabs" role="tablist" data-tour="tabs">
+            {tabs.map(([k, l]) => <button type="button" role="tab" key={k} id={`soc-tab-${k}`} aria-controls="soc-tabpanel" data-tour={`tab-${k}`} aria-selected={tab === k} tabIndex={tab === k ? 0 : -1} onKeyDown={onTabKey} className={`tab${tab === k ? ' is-on' : ''}`} onClick={() => setTab(k)}>{l}</button>)}
+          </div>
+          <div className="tabpanel" role="tabpanel" id="soc-tabpanel" aria-labelledby={`soc-tab-${tab}`}>
+          {tab === 'feed' && <LiveFeed live={live} paused={paused} setPaused={setPaused} held={held} ctx={ctx} sources={cs.sources} stream={stream} closed={closed} />}
           <div hidden={tab !== 'search'} className="tab-keep"><SearchPanel caseId={id} search={search} setSearch={setSearch} ctx={ctx} sources={cs.sources} /></div>
           {tab === 'alert' && <AlertPanel cs={cs} ctx={ctx} />}
           <div hidden={tab !== 'tools'} className="tab-keep"><ToolsPanel cs={cs} ctx={ctx} prefill={prefill} onCase={setCs} /></div>
           {tab === 'evidence' && <EvidencePanel cs={cs} ctx={ctx} act={act} />}
           {tab === 'history' && <HistoryPanel cs={cs} act={act} />}
           {tab === 'report' && closed && <ReportPanel cs={cs} go={go} />}
+          </div>
         </main>
         <Workflow cs={cs} onCase={(c) => { if (cs.status === 'monitoring' && c.status === 'open') { setTab('alert'); setFlash(null); } setCs(c); if (c.status === 'closed') setTab('report'); }} review={review} setReview={setReview} ctx={ctx} />
       </div>

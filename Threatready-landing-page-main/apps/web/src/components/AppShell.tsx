@@ -68,7 +68,7 @@ export function AppShell() {
     if (me.user.isTrial) {
       const title = appTitleFor(config.apps, pendingNext()!);
       clearNext();
-      setFlash(`${title} needs a ThreatReady account. Create one to continue; your trial stays here.`);
+      setFlash(`${title} needs a ThreatReady account. Create a free one to continue.`);
       return;
     }
     const { url, bounced } = takeNext(config.appOrigins);
@@ -92,7 +92,7 @@ export function AppShell() {
   if (me?.user.isTrial) {
     who = (
       <>
-        <span className="pill hide-narrow">Free trial</span>
+        <span className="pill hide-narrow">Guest</span>
         <Link className="btn btn-primary hide-narrow" to="/?mode=signup">
           Create account
         </Link>
@@ -133,7 +133,7 @@ export function AppShell() {
           {who}
           {me && !me.user.isTrial ? null : (
             <Button type="button" variant="quiet" loading={signingOut} onClick={() => void signOut()}>
-              {me?.user.isTrial ? "Leave trial" : "Sign out"}
+              {me?.user.isTrial ? "Leave guest session" : "Sign out"}
             </Button>
           )}
         </div>

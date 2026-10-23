@@ -8,7 +8,7 @@ interface Entry { id: string; title: string; subtitle: string; track: TrackKey; 
 
 /** The four tracks, in catalog order. `slug` is the URL: /labs/tracks/<slug>. */
 export const TRACKS: { key: TrackKey; slug: string; title: string; blurb: string; icon: string }[] = [
-  { key: 'cloud', slug: 'cloud-security', title: 'Cloud Security', blurb: 'Secure cloud accounts and the pipelines that deploy to them: incident response in AWS and DevSecOps.', icon: 'M7 18a5 5 0 01-.6-9.96A6 6 0 0118 9a4.5 4.5 0 01-.5 9z' },
+  { key: 'cloud', slug: 'cloud-security', title: 'Cloud Security', blurb: 'Secure cloud accounts and the pipelines that deploy to them: an AWS incident-response lab and a DevSecOps pipeline lab.', icon: 'M7 18a5 5 0 01-.6-9.96A6 6 0 0118 9a4.5 4.5 0 01-.5 9z' },
   { key: 'blue', slug: 'blue-team', title: 'Blue Team', blurb: 'Detect, triage and respond: monitor a SOC queue, investigate alerts and close incidents with evidence.', icon: 'M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z' },
   { key: 'red', slug: 'red-team', title: 'Red Team', blurb: 'Think like an attacker: test applications and infrastructure, then write up what you found.', icon: 'M12 21a9 9 0 110-18 9 9 0 010 18zM12 16a4 4 0 110-8 4 4 0 010 8zM12 12h.01' },
   { key: 'network', slug: 'network-security', title: 'Network Security', blurb: 'Build and defend networks: firewall administration, segmentation, VPNs and traffic analysis.', icon: 'M5 4h4v4H5zM15 4h4v4h-4zM10 16h4v4h-4zM7 8v3h10V8M12 11v5' },
@@ -53,7 +53,7 @@ function LabCard({ l, open }: { l: Entry; open: (id: string) => void }) {
 const Strip = () => <div className="tr-strip"><div className="tr-wrap"><b>Simulation environment.</b> Every lab runs on simulated systems. Nothing touches a real account or network.</div></div>;
 const Status = ({ err, labs, load }: { err: string; labs: Entry[] | null; load: () => void }) => <>
   {err && <div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div>}
-  {!labs && !err && <div className="tr-note"><span className="tr-spinner" aria-hidden="true" />Loading labs…</div>}
+  {!labs && !err && <div className="tr-note" role="status"><span className="tr-spinner" aria-hidden="true" />Loading labs…</div>}
 </>;
 
 /** /labs/: the four tracks, each with its labs and this learner's progress. */
@@ -74,10 +74,11 @@ export function Catalog({ user, go, open }: { user: any; go: (to: string) => voi
     </div></section>
     <div className="tr-wrap tr-section">
       <Status err={err} labs={labs} load={load} />
-      {labs && labs.some(l => l.home) && <><h2 className="tr-section-title">Labs</h2><ul className="tr-grid">{labs.filter(l => l.home).map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
+      {labs && labs.some(l => l.home) && <><h2 className="tr-section-title">Featured labs</h2><ul className="tr-grid">{labs.filter(l => l.home).map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
       {labs && <><h2 className="tr-section-title">Choose a track</h2><ul className="tr-grid lab-tracks">
         {TRACKS.map((t) => {
-          const mine = labs.filter(l => l.track === t.key && !l.home); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
+          // Labs shown in the "Featured labs" section belong to a track too and are listed there as well.
+          const mine = labs.filter(l => l.track === t.key); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
           const href = `${BASE}tracks/${t.slug}`;
           return <li key={t.key} className="tr-card lab-track">
             <div className="tr-card-top"><span className="lab-track-icon"><TrackIcon d={t.icon} /></span>{n ? <span className="tr-tag tr-tag-live">{n} live</span> : <span className="tr-tag tr-tag-soon">Coming soon</span>}</div>
@@ -92,11 +93,28 @@ export function Catalog({ user, go, open }: { user: any; go: (to: string) => voi
   </Shell>;
 }
 
+/** An address under /labs/ that matches nothing (an old bookmark, a mistyped track): say so, with the way back. */
+export function NotFoundPage({ user, go, what }: { user: any; go: (to: string) => void; what: 'track' | 'page' }) {
+  useEffect(() => { document.title = 'Not found · Lab Simulations · ThreatReady'; return () => { document.title = 'Lab Simulations · ThreatReady'; }; }, []);
+  return <Shell current="labs" user={user}>
+    <section className="tr-page-head"><div className="tr-wrap tr-page-head-in"><div>
+      <nav className="lab-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>All tracks</a><span aria-hidden="true">/</span><span aria-current="page">Not found</span></nav>
+      <span className="tr-eyebrow"><span className="tr-dot tr-dot-labs" aria-hidden="true" style={{ marginRight: 8 }} />Lab Simulations</span>
+      <h1 className="tr-h1">{what === 'track' ? 'That track does not exist' : 'That page does not exist'}</h1>
+      <p className="tr-lead">The link may be out of date or mistyped. The tracks are Cloud Security, Blue Team, Red Team and Network Security.</p>
+    </div></div></section>
+    <div className="tr-wrap tr-section"><div className="lab-notfound">
+      <a className="tr-btn tr-btn-primary" href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>See all tracks and labs</a>
+      {TRACKS.map(t => <a key={t.key} className="tr-btn tr-btn-secondary" href={`${BASE}tracks/${t.slug}`} onClick={(e) => { e.preventDefault(); go(`${BASE}tracks/${t.slug}`); }}>{t.title}</a>)}
+    </div></div>
+  </Shell>;
+}
+
 /** /labs/tracks/<slug>: every lab in one track. */
 export function TrackPage({ user, slug, go, open }: { user: any; slug: string; go: (to: string) => void; open: (id: string) => void }) {
   const { labs, err, load } = useLabs();
   const t = trackBySlug(slug)!;
-  const mine = labs?.filter(l => l.track === t.key && !l.home) ?? [];
+  const mine = labs?.filter(l => l.track === t.key) ?? [];
   const live = mine.filter(l => l.available); const soon = mine.filter(l => !l.available);
   useEffect(() => { document.title = `${t.title} · Lab Simulations · ThreatReady`; return () => { document.title = 'Lab Simulations · ThreatReady'; }; }, [t.title]);
   return <Shell current="labs" user={user}>
@@ -104,7 +122,7 @@ export function TrackPage({ user, slug, go, open }: { user: any; slug: string; g
     <section className="tr-page-head"><div className="tr-wrap tr-page-head-in">
       <div>
         <nav className="lab-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>All tracks</a><span aria-hidden="true">/</span><span aria-current="page">{t.title}</span></nav>
-        <span className="tr-eyebrow"><span className="lab-track-icon lab-track-icon-sm"><TrackIcon d={t.icon} /></span>{t.title}</span>
+        <span className="tr-eyebrow"><span className="tr-dot tr-dot-labs" aria-hidden="true" style={{ marginRight: 8 }} />Lab Simulations<span aria-hidden="true" className="lab-eyebrow-sep">/</span><span className="lab-track-icon lab-track-icon-sm"><TrackIcon d={t.icon} /></span>{t.title}</span>
         <h1 className="tr-h1">{t.title} labs</h1>
         <p className="tr-lead">{t.blurb}</p>
       </div>

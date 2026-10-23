@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { clock, ErrorNote } from './bits.jsx';
 
@@ -13,6 +13,11 @@ export default function ResponsePanel({ cs, onCase }) {
   const [err, setErr] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [finishing, setFinishing] = useState(false);
+  // Confirmation prompts take focus so they are not missed by keyboard and screen-reader users.
+  const confirmRef = useRef(null);
+  const finishRef = useRef(null);
+  useEffect(() => { if (confirm) confirmRef.current?.focus(); }, [confirm]);
+  useEffect(() => { if (finishing) finishRef.current?.focus(); }, [finishing]);
   const def = r.catalog.find((a) => a.type === type);
 
   const exec = async (confirmed) => {
@@ -82,14 +87,14 @@ export default function ResponsePanel({ cs, onCase }) {
           ))}
         </select>
         <p className="fld-help">{def.desc}</p>
-        <label className="fld-label">Target</label>
+        <span className="fld-label" aria-hidden="true">Target</span>
         {targetInput}
         <label className="fld-label" htmlFor="act-comment">Justification <span className="muted">(optional, recorded in the case file)</span></label>
         <input id="act-comment" className="input" value={comment} onChange={(e) => setComment(e.target.value)} />
         <ErrorNote error={err} onDismiss={() => setErr(null)} />
         {confirm ? (
-          <div className="note note-warn" role="alertdialog" aria-label="Confirm action">
-            <p>{confirm}</p>
+          <div className="note note-warn" role="alertdialog" aria-label="Confirm action" aria-describedby="act-confirm-text" tabIndex={-1} ref={confirmRef}>
+            <p id="act-confirm-text">{confirm}</p>
             <div className="stage-actions">
               <button type="button" className="btn btn-danger" onClick={() => exec(true)} disabled={busy}>{busy ? 'Executing…' : `Confirm: ${def.label.toLowerCase()} ${target}`}</button>
               <button type="button" className="link" onClick={() => setConfirm(null)}>Cancel</button>
@@ -133,9 +138,9 @@ export default function ResponsePanel({ cs, onCase }) {
         {!finishing ? (
           <button type="button" className="btn" onClick={() => setFinishing(true)}>Declare response complete</button>
         ) : (
-          <span className="confirm">
+          <span className="confirm" role="group" aria-label="Confirm response complete">
             Response actions lock after this and the ticket moves to closure.
-            <button type="button" className="btn btn-primary btn-sm" onClick={finish} disabled={busy}>{busy ? 'Submitting…' : 'Confirm, response is complete'}</button>
+            <button type="button" className="btn btn-primary btn-sm" ref={finishRef} onClick={finish} disabled={busy}>{busy ? 'Submitting…' : 'Confirm, response is complete'}</button>
             <button type="button" className="link" onClick={() => setFinishing(false)}>Keep responding</button>
           </span>
         )}

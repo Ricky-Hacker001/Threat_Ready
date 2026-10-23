@@ -130,9 +130,29 @@ describe('voice interview', () => {
   it('lets the candidate choose their accent for recognition', async () => {
     renderRoom(session(true));
     await waitFor(() => expect(FakeRecognition.last?.started).toBe(true));
-    await userEvent.click(screen.getByRole('button', { name: /Voice settings/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Answer options/ }));
     await userEvent.selectOptions(screen.getByLabelText('Your accent'), 'en-IN');
     await waitFor(() => expect(FakeRecognition.last?.lang).toBe('en-IN'));
+  });
+
+  it('keeps auto-submit off until the candidate opts in, with a pause they choose', async () => {
+    renderRoom(session(true));
+    await waitFor(() => expect(FakeRecognition.last?.started).toBe(true));
+    await userEvent.click(screen.getByRole('button', { name: /Answer options/ }));
+    const auto = screen.getByRole('checkbox', { name: /Submit my answer automatically/ });
+    expect(auto).not.toBeChecked();
+    await userEvent.click(auto);
+    await userEvent.selectOptions(screen.getByLabelText('After a pause of'), '20');
+    expect(JSON.parse(localStorage.getItem('tr:voice:autosubmit')!)).toEqual({ on: true, silenceSec: 20 });
+  });
+
+  it('explains a missing microphone and switches to typing', async () => {
+    renderRoom(session(true));
+    await waitFor(() => expect(FakeRecognition.last?.started).toBe(true));
+    act(() => FakeRecognition.last!.onerror?.({ error: 'audio-capture' }));
+    expect(screen.queryByText('Voice interview')).not.toBeInTheDocument();
+    expect(screen.getByText('Typing mode')).toBeInTheDocument();
+    expect(screen.getByLabelText('Your answer')).toBeEnabled();
   });
 
   it('falls back to typing when voice is not supported by the browser', () => {

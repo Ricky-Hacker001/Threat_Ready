@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import {
   BookOpen, Check, CheckCircle2, ChevronDown, ChevronRight, CircleDot, Eye, FlaskConical, Lightbulb, List, Lock,
   PanelRightClose, PanelRightOpen, Play, RotateCcw, TriangleAlert, XCircle, Award, Home, NotebookText,
@@ -12,6 +12,8 @@ import { blankProgress } from '../tasks/runtime';
 import type { TaskProgress } from '../state/types';
 import { BadgeShield, BADGE_DISCLAIMER } from '../brand/Brand';
 import { levelSummary } from '../brand/progress';
+
+const MODES = ['guided', 'practice'] as const;
 
 const STATUS_LABEL: Record<string, string> = {
   locked: 'Locked', available: 'Available', 'in-progress': 'In progress', completed: 'Completed', stale: 'Re-verify',
@@ -70,6 +72,16 @@ export function TaskPanel() {
     addAudit([{ category: 'Lab', action: `Lab scenario started: ${task.id}`, detail: task.scenario.label }]);
   };
 
+  // Radio group keyboard pattern: one tab stop; arrow keys move to and select the other mode.
+  const onModeKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = MODES[(MODES.indexOf(p.mode) + delta + MODES.length) % MODES.length];
+    setProgress((x) => ({ ...x, mode: next }));
+    e.currentTarget.querySelector<HTMLButtonElement>(`[data-mode="${next}"]`)?.focus();
+  };
+
   const step = cur.task?.id === task.id ? cur.step : null;
   const hint = step && cur.ctx && step.hint ? safe(() => step.hint!(cur.ctx!)) : null;
   const lastFail = tp.failures.length ? tp.failures[tp.failures.length - 1] : null;
@@ -94,9 +106,9 @@ export function TaskPanel() {
       </div>
 
       <div className="tw-panel-modes">
-        <div className="tw-seg" role="radiogroup" aria-label="Learning mode">
-          {(['guided', 'practice'] as const).map((m) => (
-            <button key={m} role="radio" aria-checked={p.mode === m} className={p.mode === m ? 'on' : ''} onClick={() => setProgress((x) => ({ ...x, mode: m }))}>
+        <div className="tw-seg" role="radiogroup" aria-label="Learning mode" onKeyDown={onModeKey}>
+          {MODES.map((m) => (
+            <button key={m} role="radio" aria-checked={p.mode === m} tabIndex={p.mode === m ? 0 : -1} data-mode={m} className={p.mode === m ? 'on' : ''} onClick={() => setProgress((x) => ({ ...x, mode: m }))}>
               {m === 'guided' ? 'Guided' : 'Practice'}
             </button>
           ))}

@@ -45,7 +45,9 @@ export function GuideOverlay() {
   const pad = 4;
   const below = box.top < 120;
   const tipTop = below ? box.top + box.height + pad + 10 : box.top - pad - 10;
-  const tipLeft = Math.max(8, Math.min(window.innerWidth - 300, box.left));
+  // Keep the tip on screen on phones too (its max width is min(290px, 100vw - 16px)).
+  const tipW = Math.min(300, window.innerWidth - 16);
+  const tipLeft = Math.max(8, Math.min(window.innerWidth - tipW - 8, box.left));
   return (
     <div className="tw-guide" aria-hidden="true">
       <div key={u.flash} className="tw-guide-ring" style={{ top: box.top - pad, left: box.left - pad, width: box.width + pad * 2, height: box.height + pad * 2 }} />
