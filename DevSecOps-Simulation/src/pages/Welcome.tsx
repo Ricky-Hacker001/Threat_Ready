@@ -25,24 +25,24 @@ deployment "aeroshop-api" successfully rolled out
 export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgress: boolean }) {
   return (
     <div className="page">
-      <nav className="topnav">
+      <header className="topnav">
         <Brand onClick={() => go('/')} />
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="navacts">
           {hasProgress && (
             <button className="btn ghost" onClick={() => go('/labs')}>
               My labs
             </button>
           )}
           <button className="btn primary" onClick={() => go('/start')}>
-            Let&apos;s get started →
+            Let&apos;s get started <span aria-hidden="true">→</span>
           </button>
         </div>
-      </nav>
+      </header>
 
-      <div className="wrap">
+      <main className="wrap">
         <section className="hero">
           <div>
-            <span className="chip green">Hands-on · no theory quizzes · runs in your browser</span>
+            <span className="chip green wrap">Hands-on · no theory quizzes · runs in your browser</span>
             <h1>
               Welcome to the <span>ThreatReady DevSecOps Lab</span>
             </h1>
@@ -53,7 +53,7 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
             </p>
             <div className="ctas">
               <button className="btn primary" onClick={() => go('/start')}>
-                Let&apos;s get started →
+                Let&apos;s get started <span aria-hidden="true">→</span>
               </button>
               {hasProgress && (
                 <button className="btn" onClick={() => go('/labs')}>
@@ -62,7 +62,7 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
               )}
             </div>
           </div>
-          <div className="termcard">
+          <div className="termcard" role="img" aria-label="Example terminal session: a push fails the Semgrep gate, the query is parameterised, and the next push passes build, security and deploy.">
             <div className="bar">
               <i />
               <i />
@@ -80,7 +80,9 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
           <div className="grid4">
             {STEPS.map((s) => (
               <div className="card" key={s.title}>
-                <div className="icon">{s.icon}</div>
+                <div className="icon" aria-hidden="true">
+                  {s.icon}
+                </div>
                 <h3>{s.title}</h3>
                 <p>{s.text}</p>
               </div>
@@ -100,7 +102,8 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
                 <p style={{ marginTop: 8 }}>
                   {LABS.filter((x) => x.level === l.level).map((x) => (
                     <span key={x.id} style={{ display: 'block', color: '#cbd5e1' }}>
-                      • {x.title}
+                      <span aria-hidden="true">• </span>
+                      {x.title}
                     </span>
                   ))}
                 </p>
@@ -139,8 +142,8 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
             ))}
           </div>
         </section>
-      </div>
-      <div className="footer">All companies, people, credentials and data in this lab are fictional training material. Progress is stored only in this browser.</div>
+      </main>
+      <footer className="footer">All companies, people, credentials and data in this lab are fictional training material. Progress is stored only in this browser.</footer>
     </div>
   );
 }

@@ -1,5 +1,5 @@
 /* Central application state: attempt state machine + progress + navigation. */
-import React, { createContext, useContext, useMemo, useReducer, useRef } from "react";
+import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from "react";
 import type {
   GuardrailConfig,
   Level,
@@ -27,6 +27,8 @@ import {
   emptyProgress,
   loadProgress,
   saveProgress,
+  loadSession,
+  saveSession,
   recordResult,
   resetProgress as resetProgressStore,
   scenarioId as sid,
@@ -36,6 +38,7 @@ import {
 } from "@/engine/progress";
 import { getScenario } from "@/scenarios";
 import { BRAND } from "@/brand/brand";
+import { hashOf, isWorkspaceTab, parseHash, type Route, type WorkspaceTab } from "./routes";
 
 export type ViewKind =
   | "entry"
@@ -68,6 +71,8 @@ export interface Toast {
   id: number;
   kind: "green" | "red" | "info" | "amber";
   text: string;
+  /** Decorative glyph shown before the text (hidden from screen readers). */
+  icon?: string;
 }
 
 export interface FinalResult {
@@ -88,6 +93,15 @@ export interface AppState {
   attempt: ActiveAttempt | null;
   result: FinalResult | null;
   toasts: Toast[];
+  /** The workspace tab (part of the route, so reload and Back return to it). */
+  tab: WorkspaceTab;
+  /** "Exit to Mission Control" was asked for mid-attempt and awaits confirmation. */
+  confirmExit: boolean;
+}
+
+/** An attempt that has been started and not yet finished (and so is worth resuming). */
+export function attemptInProgress(at: ActiveAttempt | null): at is ActiveAttempt {
+  return !!at && !at.state.completed && at.state.phase !== "briefing";
 }
 
 type Action =
@@ -95,10 +109,16 @@ type Action =
   | { t: "resetProgress" }
   | { t: "setUnlockMode"; mode: UnlockMode }
   | { t: "mission" }
+  | { t: "requestExit" }
+  | { t: "cancelExit" }
   | { t: "gotoEntry" }
   | { t: "gotoBadges" }
   | { t: "gotoLearning" }
-  | { t: "openScenario"; scenarioId: string }
+  | { t: "route"; route: Route | null }
+  /** Resumes the attempt in progress on this scenario, if any; `fresh` always starts a new one. */
+  | { t: "openScenario"; scenarioId: string; fresh?: boolean }
+  | { t: "discardAttempt" }
+  | { t: "setTab"; tab: WorkspaceTab }
   | { t: "startScenario" }
   | { t: "setRole"; role: Role }
   | { t: "chat"; prompt: string; attack?: string }
@@ -111,7 +131,7 @@ type Action =
   | { t: "runRetest" }
   | { t: "setReportInput"; key: string; value: string }
   | { t: "setFrameworkPick"; kind: "owasp" | "atlas" | "iso"; values: string[] }
-  | { t: "setPhase"; phase: AttemptState["phase"] }
+  | { t: "setPhase"; phase: AttemptState["phase"]; tab?: WorkspaceTab }
   | { t: "finalise" }
   | { t: "retake" }
   | { t: "toast"; kind: Toast["kind"]; text: string }
@@ -156,10 +176,31 @@ function reducer(state: AppState, a: Action): AppState {
       return { ...state, progress: p };
     }
     case "mission":
-      return { ...state, view: "mission" };
+      return { ...state, view: "mission", confirmExit: false };
+    case "requestExit":
+      // Leaving keeps the attempt (it can be resumed), but ask first so it isn't left by accident.
+      return attemptInProgress(state.attempt) && (state.view === "briefing" || state.view === "workspace")
+        ? { ...state, confirmExit: true }
+        : { ...state, view: "mission" };
+    case "cancelExit":
+      return { ...state, confirmExit: false };
+    case "route":
+      return applyRoute(state, a.route);
+    case "discardAttempt":
+      return { ...state, attempt: null };
+    case "setTab":
+      return { ...state, tab: a.tab };
     case "openScenario": {
       const scenario = getScenario(a.scenarioId);
       if (!scenario) return state;
+      const cur = state.attempt;
+      if (!a.fresh && cur && cur.scenario.id === a.scenarioId && !cur.state.completed) {
+        return {
+          ...state,
+          activeScenarioId: a.scenarioId,
+          view: cur.state.phase === "briefing" ? "briefing" : "workspace",
+        };
+      }
       const prevNo = state.progress?.results[a.scenarioId]?.attempts ?? 0;
       const attemptNo = prevNo + 1;
       const { state: attemptState, customers } = createAttempt(scenario, attemptNo);
@@ -173,14 +214,18 @@ function reducer(state: AppState, a: Action): AppState {
         lastRetest: null,
         attemptNo,
       };
-      return { ...state, attempt, activeScenarioId: a.scenarioId, result: null, view: "briefing" };
+      return { ...state, attempt, activeScenarioId: a.scenarioId, result: null, view: "briefing", tab: "target" };
     }
     case "startScenario": {
       if (!state.attempt) return state;
+      // Back to the briefing of an attempt already under way: carry on where it was.
+      if (state.attempt.state.phase !== "briefing") return { ...state, view: "workspace" };
       return withPhase(state, "recon");
     }
-    case "setPhase":
-      return withPhase(state, a.phase);
+    case "setPhase": {
+      const s2 = withPhase(state, a.phase);
+      return a.tab ? { ...s2, tab: a.tab } : s2;
+    }
     case "setRole": {
       if (!state.attempt) return state;
       return patchAttempt(state, (at) => ({ state: { ...at.state, role: a.role } }));
@@ -232,7 +277,7 @@ function reducer(state: AppState, a: Action): AppState {
       return handleFinalise(state);
     case "retake": {
       if (!state.activeScenarioId) return state;
-      return reducer(state, { t: "openScenario", scenarioId: state.activeScenarioId });
+      return reducer(state, { t: "openScenario", scenarioId: state.activeScenarioId, fresh: true });
     }
     case "toast":
       return { ...state, toasts: pushToast(state, a.kind, a.text) };
@@ -241,6 +286,41 @@ function reducer(state: AppState, a: Action): AppState {
     default:
       return state;
   }
+}
+
+/** The view for a route (from the URL on load, or Back/Forward), falling back to Mission Control. */
+function applyRoute(state: AppState, r: Route | null): AppState {
+  const s = { ...state, confirmExit: false };
+  if (!s.progress) return { ...s, view: "entry" };
+  if (!r) return { ...s, view: "mission" };
+  switch (r.view) {
+    case "entry":
+    case "mission":
+    case "badges":
+    case "learning":
+      return { ...s, view: r.view };
+    case "briefing":
+    case "workspace": {
+      const at = s.attempt;
+      // Only the attempt in progress can be returned to; a finished one is not reopened for edits.
+      if (!at || at.scenario.id !== r.scenarioId || at.state.completed) return { ...s, view: "mission" };
+      if (r.view !== "workspace" || at.state.phase === "briefing") return { ...s, view: "briefing", activeScenarioId: at.scenario.id };
+      return { ...s, view: "workspace", tab: r.tab, activeScenarioId: at.scenario.id };
+    }
+    case "results":
+      return s.result && s.result.scenarioId === r.scenarioId ? { ...s, view: "results" } : { ...s, view: "mission" };
+  }
+}
+
+/** The route the current state shows. */
+export function routeOf(state: AppState): Route {
+  const id = state.attempt?.scenario.id;
+  if ((state.view === "briefing" || state.view === "workspace") && id) {
+    return state.view === "briefing" ? { view: "briefing", scenarioId: id } : { view: "workspace", scenarioId: id, tab: state.tab };
+  }
+  if (state.view === "results" && state.result) return { view: "results", scenarioId: state.result.scenarioId };
+  if (state.view === "entry" || state.view === "badges" || state.view === "learning") return { view: state.view };
+  return { view: "mission" };
 }
 
 function withPhase(state: AppState, phase: AttemptState["phase"]): AppState {
@@ -402,7 +482,7 @@ function handleFinalise(state: AppState): AppState {
   let toasts = pushToast(s2, score.passed ? "green" : "amber", `Scenario scored ${score.total}/100.`);
   for (const id of newBadges) {
     const def = BADGE_CATALOG.find((b) => b.id === id);
-    toasts = [...toasts, { id: toastId++, kind: "green" as const, text: `🏅 Badge unlocked — ${def?.title ?? id}!` }].slice(-5);
+    toasts = [...toasts, { id: toastId++, kind: "green" as const, icon: "🏅", text: `Badge unlocked — ${def?.title ?? id}!` }].slice(-5);
   }
   return { ...s2, toasts };
 }
@@ -416,7 +496,56 @@ const initial: AppState = {
   attempt: null,
   result: null,
   toasts: [],
+  tab: "target",
+  confirmExit: false,
 };
+
+/* ------------------------------ persistence ------------------------------- */
+
+/** What survives a reload (per account, beside progress). The scenario itself is looked up by id. */
+interface SavedSession {
+  v: 1;
+  attempt: (Omit<ActiveAttempt, "scenario"> & { scenarioId: string }) | null;
+  result: FinalResult | null;
+  activeScenarioId: string | null;
+  tab: WorkspaceTab;
+}
+
+function toSaved(state: AppState): SavedSession {
+  const at = state.attempt;
+  let attempt: SavedSession["attempt"] = null;
+  if (at) {
+    const { scenario, ...rest } = at;
+    attempt = { ...rest, scenarioId: scenario.id };
+  }
+  return { v: 1, attempt, result: state.result, activeScenarioId: state.activeScenarioId, tab: state.tab };
+}
+
+function restoreSession(): Pick<AppState, "attempt" | "result" | "activeScenarioId" | "tab"> | null {
+  const saved = loadSession<SavedSession>(browserStorage());
+  if (!saved || saved.v !== 1) return null;
+  let attempt: ActiveAttempt | null = null;
+  if (saved.attempt?.state && Array.isArray(saved.attempt.state.logs)) {
+    const { scenarioId, ...rest } = saved.attempt;
+    const scenario = getScenario(scenarioId);
+    if (scenario) attempt = { ...rest, scenario };
+  }
+  const result = saved.result && getScenario(saved.result.scenarioId) ? saved.result : null;
+  return {
+    attempt,
+    result,
+    activeScenarioId: typeof saved.activeScenarioId === "string" ? saved.activeScenarioId : null,
+    tab: isWorkspaceTab(saved.tab) ? saved.tab : "target",
+  };
+}
+
+function initState(s: AppState): AppState {
+  const existing = loadProgress(browserStorage());
+  if (!existing) return s;
+  const restored = { ...s, progress: existing, ...(restoreSession() ?? {}) };
+  // Reload lands on the view in the URL (the attempt in progress, its tab, the results…).
+  return applyRoute(restored, parseHash(window.location.hash));
+}
 
 interface Ctx {
   state: AppState;
@@ -427,14 +556,102 @@ interface Ctx {
 const AppCtx = createContext<Ctx | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initial, (s): AppState => {
-    const store = browserStorage();
-    const existing = loadProgress(store);
-    return existing ? { ...s, progress: existing, view: "mission" } : s;
-  });
+  const [state, dispatch] = useReducer(reducer, initial, initState);
   const sinkRef = useRef(adminSink);
+  usePersistSession(state);
+  useHashRoute(state, dispatch);
   const value = useMemo(() => ({ state, dispatch, adminSink: sinkRef.current }), [state]);
   return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>;
+}
+
+/**
+ * Keeps the attempt in progress (evidence, guardrails, chat, re-tests…) in storage so a reload
+ * resumes it. Writes are debounced (an attempt carries ~200 KB of logs) and flushed when the page
+ * is hidden or unloaded.
+ */
+function usePersistSession(state: AppState) {
+  const latest = useRef(state);
+  const dirty = useRef(false);
+  latest.current = state;
+
+  useEffect(() => {
+    const flush = () => {
+      if (!dirty.current || !latest.current.progress) return;
+      dirty.current = false;
+      saveSession(browserStorage(), toSaved(latest.current));
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onHide);
+      flush();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!state.progress) return;
+    dirty.current = true;
+    const timer = window.setTimeout(() => {
+      dirty.current = false;
+      saveSession(browserStorage(), toSaved(latest.current));
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [state.progress, state.attempt, state.result, state.activeScenarioId, state.tab]);
+}
+
+/**
+ * Mirrors the view in the URL hash (push for a new screen, replace for a tab switch or a redirect)
+ * and follows Back/Forward, so browser history moves between the lab's screens.
+ */
+function useHashRoute(state: AppState, dispatch: React.Dispatch<Action>) {
+  const prev = useRef<Route | null>(null);
+  /** The hash already handled, so popstate + hashchange for one navigation act once. */
+  const handled = useRef<string | null>(null);
+  /** The current entry came from the URL (load, Back/Forward): correct it in place, don't push. */
+  const fromUrl = useRef(true);
+
+  useEffect(() => {
+    const onNav = () => {
+      const h = window.location.hash;
+      if (h === handled.current) return;
+      handled.current = h;
+      fromUrl.current = true;
+      dispatch({ t: "route", route: parseHash(h) });
+    };
+    window.addEventListener("popstate", onNav);
+    window.addEventListener("hashchange", onNav);
+    return () => {
+      window.removeEventListener("popstate", onNav);
+      window.removeEventListener("hashchange", onNav);
+    };
+  }, [dispatch]);
+
+  useEffect(() => {
+    const route = routeOf(state);
+    const want = hashOf(route);
+    const before = prev.current;
+    prev.current = route;
+    if (window.location.hash !== want) {
+      const sameScreen =
+        !!before &&
+        before.view === route.view &&
+        ("scenarioId" in before ? before.scenarioId : "") === ("scenarioId" in route ? route.scenarioId : "");
+      const replace =
+        fromUrl.current ||
+        sameScreen || // a workspace tab switch
+        before?.view === "entry" || // entering the lab; Back shouldn't return to the name screen
+        (before?.view === "workspace" && route.view === "results"); // a finished attempt isn't re-entered
+      const url = window.location.pathname + window.location.search + want;
+      if (replace) window.history.replaceState(window.history.state, "", url);
+      else window.history.pushState(null, "", url);
+    }
+    handled.current = want;
+    fromUrl.current = false;
+  });
 }
 
 export function useApp(): Ctx {

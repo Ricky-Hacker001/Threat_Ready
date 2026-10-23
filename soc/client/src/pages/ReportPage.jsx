@@ -2,7 +2,7 @@
 // from the user's own records; available to every user whatever the results.
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, apiUrl } from '../api.js';
 import { ErrorNote, stamp, duration } from '../components/bits.jsx';
 import { Shield } from '../components/Badge.jsx';
 import { Brand, Footer } from '../Console.jsx';
@@ -16,15 +16,15 @@ export default function ReportPage({ go }) {
   useEffect(() => { api.report().then(setR).catch(setErr); }, []);
 
   const download = () => {
-    window.location.href = '/api/me/export';
+    window.location.href = apiUrl('/api/me/export');
   };
 
-  if (err) return <div className="page"><ErrorNote error={err} /><p><button type="button" className="btn" onClick={() => go('#/')}>Back to SOC home</button></p></div>;
-  if (!r) return <div className="page"><p className="muted">Building your report…</p></div>;
+  if (err) return <main className="page"><ErrorNote error={err} /><p><button type="button" className="btn" onClick={() => go('#/')}>Back to SOC home</button></p></main>;
+  if (!r) return <main className="page"><p className="muted" role="status">Building your report…</p></main>;
   const s = r.summary;
 
   return (
-    <div className="page final-report">
+    <main className="page final-report">
       <div className="no-print report-actions">
         <button type="button" className="link" onClick={() => go('#/')}>SOC home</button>
         <span className="grow" />
@@ -199,10 +199,10 @@ export default function ReportPage({ go }) {
       <section className="fr-notes">
         <p className="muted small">{r.notes.abandoned}</p>
         <p className="muted small">{r.notes.internal}</p>
-        <p className="muted small">{r.notes.reset}</p>
+        {r.notes.reset && <p className="muted small">{r.notes.reset}</p>}
       </section>
       <p className="no-print"><button type="button" className="btn" onClick={() => go('#/')}>Back to SOC home</button></p>
       <Footer />
-    </div>
+    </main>
   );
 }

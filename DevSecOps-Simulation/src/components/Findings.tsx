@@ -27,8 +27,16 @@ export function Findings({ s, onJump }: { s: LabState; onJump: (file: string, li
               <b>{TOOL_LABEL[r.tool as ToolName]}</b>
               <span className="chip">{r.target}</span>
               <span className="chip">{new Date(r.at).toLocaleTimeString()}</span>
-              {r.rev === rev ? <span className="fresh">● current code</span> : <span className="stale">● stale — code changed since this scan, re-run to verify</span>}
-              <span style={{ marginLeft: 'auto', color: r.findings.length ? 'var(--high)' : 'var(--ok)', fontSize: 12.5 }}>{r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : 'clean ✓'}</span>
+              {r.rev === rev ? (
+                <span className="fresh">
+                  <span aria-hidden="true">● </span>current code
+                </span>
+              ) : (
+                <span className="stale">
+                  <span aria-hidden="true">● </span>stale — code changed since this scan, re-run to verify
+                </span>
+              )}
+              <span style={{ marginLeft: 'auto', color: r.findings.length ? 'var(--high)' : 'var(--ok)', fontSize: 12.5 }}>{r.findings.length ? `${r.findings.length} finding${r.findings.length > 1 ? 's' : ''}` : 'clean'}</span>
             </div>
             {[...r.findings]
               .sort((a, b) => ORDER.indexOf(a.severity) - ORDER.indexOf(b.severity))
@@ -44,13 +52,19 @@ export function Findings({ s, onJump }: { s: LabState; onJump: (file: string, li
                     </div>
                     <div className="ttl">{f.title}</div>
                     {f.detail && <div className="rule" style={{ marginTop: 2 }}>{f.detail}</div>}
-                    {f.remediation && <div className="rem">↳ {f.remediation}</div>}
+                    {f.remediation && (
+                      <div className="rem">
+                        <span aria-hidden="true">↳ </span>
+                        <span className="sr">Fix: </span>
+                        {f.remediation}
+                      </div>
+                    )}
                   </div>
                   <div>
                     {f.file && f.line && s.files[f.file] !== undefined ? (
-                      <span className="loc" onClick={() => onJump(f.file!, f.line!)}>
+                      <button type="button" className="loc" title={`Open ${f.file} at line ${f.line}`} onClick={() => onJump(f.file!, f.line!)}>
                         {f.file}:{f.line}
-                      </span>
+                      </button>
                     ) : (
                       <span className="rule">{f.url ?? f.file ?? ''}</span>
                     )}

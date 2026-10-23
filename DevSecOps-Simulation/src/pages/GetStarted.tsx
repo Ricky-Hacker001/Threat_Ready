@@ -31,32 +31,48 @@ export function GetStarted({ progress, update, go }: { progress: Progress; updat
   const [mode, setMode] = useState<Mode>(progress.mode ?? 'guided');
   return (
     <div className="page">
-      <nav className="topnav">
+      <header className="topnav">
         <Brand onClick={() => go('/')} />
         <button className="btn ghost" onClick={() => go('/')}>
-          ← Back
+          <span aria-hidden="true">←</span> Back
         </button>
-      </nav>
-      <div className="wrap section">
-        <span className="chip">Step 1 of 1</span>
-        <h2 style={{ marginTop: 12 }}>How do you want to work?</h2>
+      </header>
+      <main className="wrap section">
+        <span className="chip">Before you start</span>
+        <h1 className="pagetitle">How do you want to work?</h1>
         <p className="sub">
           You are joining AeroShop&apos;s platform team. Every lab gives you a repository, a terminal, a CI pipeline and a staging cluster. Choose the level of support
-          that fits you — you can change it later from the lab dashboard.
+          that fits you — you can change it later from the lab dashboard (a lab you have already started keeps its mode).
         </p>
-        <div className="modes">
-          {MODES.map((m) => (
-            <button key={m.id} className={`mode ${mode === m.id ? 'on' : ''}`} onClick={() => setMode(m.id)}>
-              <span className={`chip ${m.chip}`}>{m.label}</span>
-              <h3>{m.label} mode</h3>
-              <div className="who">{m.who}</div>
-              <ul>
-                {m.points.map((p) => (
-                  <li key={p}>{p}</li>
-                ))}
-              </ul>
-            </button>
-          ))}
+        <div className="modes" role="group" aria-label="Support level">
+          {MODES.map((m) => {
+            const on = mode === m.id;
+            return (
+              // The whole card is clickable for mouse users; the button inside is the keyboard and screen-reader control.
+              <div key={m.id} className={`mode ${on ? 'on' : ''}`} onClick={() => setMode(m.id)}>
+                <span className={`chip ${m.chip}`}>{m.label}</span>
+                <h2 id={`mode-${m.id}`}>{m.label} mode</h2>
+                <div className="who">{m.who}</div>
+                <ul id={`mode-${m.id}-points`}>
+                  {m.points.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className={`btn sm ${on ? 'primary' : ''}`}
+                  aria-pressed={on}
+                  aria-describedby={`mode-${m.id}-points`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMode(m.id);
+                  }}
+                >
+                  {on ? <><span aria-hidden="true">✓ </span>Selected: {m.label}</> : `Choose ${m.label}`}
+                </button>
+              </div>
+            );
+          })}
         </div>
         <div style={{ marginTop: 28, display: 'flex', gap: 12 }}>
           <button
@@ -66,10 +82,10 @@ export function GetStarted({ progress, update, go }: { progress: Progress; updat
               go('/labs');
             }}
           >
-            Continue to my labs →
+            Continue to my labs <span aria-hidden="true">→</span>
           </button>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

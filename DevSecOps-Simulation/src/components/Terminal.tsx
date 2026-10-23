@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useId, useImperativeHandle, useRef, useState } from 'react';
 import { Ansi } from './Ansi';
 import { COMMANDS } from '../engine/shell';
 
@@ -15,6 +15,17 @@ interface Props {
 }
 
 const PROMPT = 'devsecops@aeroshop:~/aeroshop-api$';
+const stripAnsi = (t: string) => t.replace(/\x1b\[[0-9;]*m/g, '');
+
+/** What screen readers hear after a command: its own output only (not the whole buffer), capped. */
+function announce(cmd: string, out: string[], code: number): string {
+  const text = out
+    .map(stripAnsi)
+    .filter((l) => l.trim())
+    .join('\n');
+  const capped = text.length > 600 ? `${text.slice(0, 600)}… (output continues in the terminal)` : text;
+  return `${cmd}: ${capped || 'no output'}${code ? ` (exit ${code})` : ''}`;
+}
 
 export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ execute, files, initial }, ref) {
   const [lines, setLines] = useState<string[]>(initial);
@@ -23,6 +34,10 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
   const [hi, setHi] = useState(-1);
   const box = useRef<HTMLDivElement>(null);
   const inp = useRef<HTMLInputElement>(null);
+  const escaped = useRef(false);
+  const [leaving, setLeaving] = useState(false);
+  const [live, setLive] = useState('');
+  const hintId = useId();
 
   const run = async (cmd: string) => {
     const c = cmd.trim();
@@ -36,9 +51,11 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
     const r = await execute(c);
     if (r.out.includes('\x1bc')) {
       setLines([]);
+      setLive('Terminal cleared');
       return;
     }
     setLines((l) => [...l, echo, ...r.out, ...(r.code ? [`\x1b[90m[exit ${r.code}]\x1b[0m`] : [])].slice(-2000));
+    setLive(announce(c, r.out, r.code));
   };
 
   useImperativeHandle(ref, () => ({
@@ -79,15 +96,38 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
         </div>
       ))}
       <div className="inrow">
-        <span className="prompt">{PROMPT}</span>
+        <span className="prompt" aria-hidden="true">
+          {PROMPT}
+        </span>
         <input
           ref={inp}
           value={input}
           spellCheck={false}
           autoComplete="off"
-          aria-label="Terminal input"
+          aria-label="Terminal command"
+          aria-describedby={hintId}
           onChange={(e) => setInput(e.target.value)}
+          onBlur={() => {
+            escaped.current = false;
+            setLeaving(false);
+          }}
           onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              escaped.current = true;
+              setLeaving(true);
+              return;
+            }
+            if (e.key === 'Tab') {
+              // Tab completes; Shift+Tab, a modifier key, or Esc then Tab moves focus out (no keyboard trap).
+              if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || escaped.current) return;
+              e.preventDefault();
+              complete();
+              return;
+            }
+            if (e.key !== 'Shift') {
+              escaped.current = false;
+              setLeaving(false);
+            }
             if (e.key === 'Enter') {
               void run(input);
               setInput('');
@@ -108,15 +148,18 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
                 setHi(-1);
                 setInput('');
               }
-            } else if (e.key === 'Tab') {
-              e.preventDefault();
-              complete();
             } else if (e.key === 'l' && e.ctrlKey) {
               e.preventDefault();
               setLines([]);
             }
           }}
         />
+      </div>
+      <div className="termhint" id={hintId}>
+        {leaving ? 'Tab now leaves the terminal' : 'Tab completes · ↑/↓ history · Esc then Tab leaves the terminal'}
+      </div>
+      <div className="sr" role="status" aria-live="polite">
+        {live}
       </div>
     </div>
   );

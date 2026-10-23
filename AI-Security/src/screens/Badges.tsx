@@ -1,6 +1,7 @@
 import React from "react";
 import { useApp } from "@/state/store";
 import { badgeShowcase } from "@/engine/progress";
+import { Crumbs } from "@/components/common";
 
 export function Badges() {
   const { state, dispatch } = useApp();
@@ -12,13 +13,7 @@ export function Badges() {
 
   return (
     <div className="stack">
-      <div className="crumbs">
-        <span style={{ cursor: "pointer" }} onClick={() => dispatch({ t: "mission" })}>
-          Mission Control
-        </span>
-        <span className="sep">/</span>
-        <span style={{ color: "var(--text-0)" }}>Badges</span>
-      </div>
+      <Crumbs onHome={() => dispatch({ t: "mission" })} trail={["Badges"]} />
 
       <div className="row between wrap">
         <div>
@@ -63,7 +58,8 @@ function BadgeCard({
       className="card"
       style={{
         textAlign: "center",
-        opacity: earned ? 1 : 0.9,
+        // No dimming for locked cards (it took the muted text under 4.5:1); the greyed icon and the
+        // progress bar show the locked state.
         borderColor: earned ? "var(--green)" : "var(--border)",
         background: earned ? "var(--green-bg)" : "var(--bg-1)",
       }}

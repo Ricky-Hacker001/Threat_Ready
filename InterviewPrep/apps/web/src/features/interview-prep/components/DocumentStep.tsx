@@ -1,8 +1,8 @@
 import type { DocumentKind, DocumentView, UploadContentType } from '@threatready/contracts';
-import { AlertTriangle, Check, CloudUpload, FileText, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, CloudUpload, FileText, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { api, ApiError, uploadToStorage } from '../../../lib/api';
-import { ErrorAlert, useToast } from '../../../ui/components';
+import { Busy, ErrorAlert, useToast } from '../../../ui/components';
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const TYPES: Record<string, UploadContentType> = {
@@ -43,7 +43,7 @@ function ExtractionChecklist() {
     <ul className="checklist" aria-live="polite">
       {EXTRACT_STEPS.map((s, n) => (
         <li key={s} className={n < i ? 'done' : n === i ? 'active' : ''}>
-          <span className="ck">{n < i ? <Check className="icon sm" aria-hidden /> : n === i ? <span className="spinner" style={{ width: 12, height: 12 }} /> : null}</span>
+          <span className="ck">{n < i ? <Check className="icon sm" aria-hidden /> : n === i ? <span className="spinner" aria-hidden style={{ width: 12, height: 12 }} /> : null}</span>
           {s}
         </li>
       ))}
@@ -145,7 +145,11 @@ export function DocumentStep({
           tabIndex={0}
           aria-label={`Upload your ${label}: drag a PDF or DOCX here or press Enter to choose a file`}
           onClick={() => input.current?.click()}
-          onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && input.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            e.preventDefault(); // Space would otherwise also scroll the page
+            input.current?.click();
+          }}
           onDragOver={(e) => {
             e.preventDefault();
             setOver(true);
@@ -167,7 +171,7 @@ export function DocumentStep({
         </div>
       )}
 
-      {localError && <p className="error-text" role="alert">{localError}</p>}
+      {localError && <p className="error-text" role="alert"><AlertCircle className="icon sm" aria-hidden /> {localError}</p>}
       {error != null && <ErrorAlert error={error} title="Upload failed" />}
       {failed && document && (
         <div className="alert warn" role="alert">
@@ -241,7 +245,7 @@ export function DocumentStep({
               </label>
               <div className="row">
                 <button className="btn primary sm" type="button" onClick={() => void saveEdit()} disabled={saving || draft.trim().length < 50}>
-                  {saving ? <span className="spinner" /> : 'Save corrections'}
+                  {saving ? <Busy label="Saving…" /> : 'Save corrections'}
                 </button>
                 <button className="btn ghost sm" type="button" onClick={() => setEditing(false)}>Cancel</button>
               </div>
@@ -287,7 +291,7 @@ export function PasteJd({ onCreated }: { onCreated: (doc: DocumentView) => void 
             }
           }}
         >
-          {busy ? <span className="spinner" /> : 'Use this job description'}
+          {busy ? <Busy label="Saving…" /> : 'Use this job description'}
         </button>
       </div>
       {error != null && <ErrorAlert error={error} />}

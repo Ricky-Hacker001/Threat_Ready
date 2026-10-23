@@ -63,6 +63,9 @@ for p in PAGES:
     for gid in ("f-resources", "f-company", "f-legal"):
         g = re.search(r'aria-labelledby="%s">(.*?)</nav>' % gid, f, re.S)
         for a in re.findall(r"<a [^>]*>", g.group(1) if g else ""):
+            if 'href="contact.html"' in a:  # part of this site: same tab
+                if 'target="_blank"' in a: fail.append(f"{p.name}: footer Contact opens a new tab")
+                continue
             if 'target="_blank"' not in a or 'rel="noopener noreferrer"' not in a:
                 fail.append(f"{p.name}: footer {gid} link not new-tab: {a}")
     soc = re.search(r'<div class="social">(.*?)</div>', f, re.S)
@@ -70,12 +73,17 @@ for p in PAGES:
         if 'target="_blank"' not in a: fail.append(f"{p.name}: social link not new-tab")
     if 'data-theme-toggle' not in s: fail.append(f"{p.name}: header theme toggle missing")
 
-# Every external http(s) link (not threatready.io) opens in a new tab with noopener noreferrer
+# Sign-in and sign-up live on onboard.threatready.io; the site has no /app (the old links looped through 404.html)
+for p in PAGES:
+    if "threatready.io/app" in re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S):
+        fail.append(f"{p.name}: links to threatready.io/app (use https://onboard.threatready.io/)")
+
+# Every external http(s) link (not threatready.io or one of its apps) opens in a new tab with noopener noreferrer
 for p in PAGES:
     s = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)
     for a in re.findall(r'<a\b[^>]*href="https?://[^"]+"[^>]*>', s):
         href = re.search(r'href="([^"]+)"', a).group(1)
-        if re.match(r"https?://(www\.)?threatready\.io(/|$)", href): continue
+        if re.match(r"https?://([a-z0-9-]+\.)?threatready\.io(/|$)", href): continue
         if 'target="_blank"' not in a or "noopener" not in a or "noreferrer" not in a:
             fail.append(f"{p.name}: external link not new-tab: {href}")
 

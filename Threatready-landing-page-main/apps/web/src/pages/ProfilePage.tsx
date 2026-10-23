@@ -27,6 +27,7 @@ export function ProfilePage() {
   const { data: session } = useSession();
   const [methods, setMethods] = useState<string[] | null>(null);
   const [methodsError, setMethodsError] = useState(false);
+  const [methodsAttempt, setMethodsAttempt] = useState(0);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [overviewError, setOverviewError] = useState(false);
 
@@ -42,6 +43,7 @@ export function ProfilePage() {
   useEffect(() => {
     if (me.user.isTrial) return;
     let cancelled = false;
+    setMethodsError(false);
     authClient.listAccounts().then(({ data, error }) => {
       if (cancelled) return;
       if (error || !data) setMethodsError(true);
@@ -50,7 +52,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [me.user.isTrial]);
+  }, [me.user.isTrial, methodsAttempt]);
 
   const back = (
     <Link className="btn btn-quiet" to="/app">
@@ -67,7 +69,7 @@ export function ProfilePage() {
         {back}
         <div className="module-head">
           <h1>Profile</h1>
-          <p>You're on a free trial, so there's no profile yet. Create an account to keep your progress.</p>
+          <p>You're browsing as a guest, so there's no profile yet. Create a free account to start practising and keep your progress.</p>
         </div>
         <div>
           <Link className="btn btn-primary" to="/?mode=signup">
@@ -111,7 +113,12 @@ export function ProfilePage() {
           ) : null}
         </div>
         {overviewError ? (
-          <Notice tone="error">Couldn't load your overview. Refresh to try again.</Notice>
+          <Notice tone="error">
+            Couldn't load your progress just now. Your progress is safe; it's saved in each app.{" "}
+            <button type="button" className="link-btn" onClick={loadOverview}>
+              Try again
+            </button>
+          </Notice>
         ) : overview ? (
           <>
             <AppCards apps={overview.apps} onRetry={loadOverview} />
@@ -172,7 +179,12 @@ export function ProfilePage() {
           Sign-in methods
         </h2>
         {methodsError ? (
-          <Notice tone="error">Couldn't load your sign-in methods. Refresh to try again.</Notice>
+          <Notice tone="error">
+            Couldn't load your sign-in methods.{" "}
+            <button type="button" className="link-btn" onClick={() => setMethodsAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </Notice>
         ) : methods === null ? (
           <p className="quota" role="status">
             Loading…

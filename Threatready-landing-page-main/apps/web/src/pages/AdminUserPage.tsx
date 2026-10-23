@@ -19,15 +19,22 @@ export function AdminUserPage() {
   const [data, setData] = useState<AdminUserDetail | null>(null);
   const [reload, setReload] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setError(null);
+    setLoading(true);
     api.admin.user(id, { from: range.from, to: range.to }).then(
-      (d) => !cancelled && setData(d),
+      (d) => {
+        if (cancelled) return;
+        setData(d);
+        setLoading(false);
+      },
       (err) => {
         if (cancelled) return;
-        setError(err instanceof ApiError && err.status === 404 ? "No such user." : "Couldn't load this user. Refresh to try again.");
+        setLoading(false);
+        setError(err instanceof ApiError && err.status === 404 ? "No such user." : "Couldn't load this user. Try again in a moment.");
       },
     );
     return () => {
@@ -45,11 +52,17 @@ export function AdminUserPage() {
     </Link>
   );
 
-  if (error) {
+  // No data yet: the error is the page. With data on screen (a range change failed), keep it and say so above.
+  if (error && !data) {
     return (
       <div className="admin">
         {back}
-        <Notice tone="error">{error}</Notice>
+        <Notice tone="error">
+          {error}{" "}
+          <button type="button" className="link-btn" onClick={() => setReload((n) => n + 1)}>
+            Try again
+          </button>
+        </Notice>
       </div>
     );
   }
@@ -66,8 +79,23 @@ export function AdminUserPage() {
 
   const u = data.user;
   return (
-    <div className="admin">
+    <div className="admin" aria-busy={loading || undefined}>
       {back}
+      <p className="updating" role="status">
+        {loading ? (
+          <>
+            <span className="spinner spinner-sm" aria-hidden="true" /> Updating…
+          </>
+        ) : null}
+      </p>
+      {error ? (
+        <Notice tone="error">
+          {error}{" "}
+          <button type="button" className="link-btn" onClick={() => setReload((n) => n + 1)}>
+            Try again
+          </button>
+        </Notice>
+      ) : null}
       <div className="admin-head">
         <section className="profile-card" aria-labelledby="admin-user-name">
           <Avatar user={{ name: u.name, email: u.email, username: u.username }} size={64} />
@@ -356,7 +384,9 @@ function RoleCard({ user, onChanged }: { user: AdminUserDetail["user"]; onChange
                 ? "They will immediately see every user\'s data and AI cost. Type their email to confirm."
                 : "They will be signed out everywhere and lose the admin console at once. Type their email to confirm."}
             </p>
-            <Field label="Confirm email" type="email" autoComplete="off" placeholder={user.email ?? ""} value={confirm} onChange={(e) => setConfirm(e.currentTarget.value)} error={error} />
+            {/* Server refusals (last admin, unverified, …) concern the whole change, not the typed email. */}
+            {error ? <Notice tone="error">{error}</Notice> : null}
+            <Field label="Confirm email" type="email" autoComplete="off" spellCheck={false} value={confirm} onChange={(e) => setConfirm(e.currentTarget.value)} />
             <div className="admin-role-actions">
               <Button type="submit" variant={promote ? "primary" : "signal"} loading={busy} disabled={!confirm || confirm.trim().toLowerCase() !== (user.email ?? "").toLowerCase()}>{title}</Button>
               <Button type="button" variant="quiet" onClick={() => { setOpen(false); setConfirm(""); setError(null); }} disabled={busy}>Cancel</Button>

@@ -43,7 +43,7 @@ export function ExpertReport() {
 
       <div className="card">
         <h3>1. Attack-path reconstruction</h3>
-        <p className="small muted">Click the architecture nodes in the order the attack traversed them.</p>
+        <p className="small muted">Select the architecture nodes in the order the attack traversed them.</p>
         <ArchitectureMap mode="path-build" path={at.state.reconstructedPath} onPathToggle={togglePath} />
         <button className="btn sm ghost mt" onClick={() => dispatch({ t: "setReconPath", path: [] })}>
           Clear path
@@ -78,41 +78,45 @@ export function ExpertReport() {
         <h3>3. Evidence-linked timeline</h3>
         {marked.length === 0 && <p className="muted small">No evidence marked. Go back to the logs and mark the key events.</p>}
         {marked.length > 0 && (
-          <table className="data">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Type</th>
-                <th>Session</th>
-                <th>Note</th>
-              </tr>
-            </thead>
-            <tbody>
-              {marked.map((e) => (
-                <tr key={e.id}>
-                  <td className="mono">{new Date(e.ts).toISOString().slice(11, 19)}</td>
-                  <td>{e.type}</td>
-                  <td className="mono small">{e.sessionId}</td>
-                  <td>
-                    <input
-                      className="input"
-                      placeholder="your interpretation…"
-                      value={at.state.reportInputs[`note_${e.id}`] ?? ""}
-                      onChange={(ev) => dispatch({ t: "setReportInput", key: `note_${e.id}`, value: ev.target.value })}
-                    />
-                  </td>
+          <div className="scroll">
+            <table className="data" style={{ minWidth: 480 }}>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Type</th>
+                  <th>Session</th>
+                  <th>Note</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {marked.map((e) => (
+                  <tr key={e.id}>
+                    <td className="mono">{new Date(e.ts).toISOString().slice(11, 19)}</td>
+                    <td>{e.type}</td>
+                    <td className="mono small">{e.sessionId}</td>
+                    <td>
+                      <input
+                        className="input"
+                        placeholder="your interpretation…"
+                        aria-label={`Note for the ${e.type} event at ${new Date(e.ts).toISOString().slice(11, 19)}`}
+                        value={at.state.reportInputs[`note_${e.id}`] ?? ""}
+                        onChange={(ev) => dispatch({ t: "setReportInput", key: `note_${e.id}`, value: ev.target.value })}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       <div className="card stack">
         <h3>4. Narrative</h3>
         {REPORT_FIELDS.map((f) => (
-          <Field key={f.key} label={f.label} hint={f.hint}>
+          <Field key={f.key} label={f.label} hint={f.hint} htmlFor={`report-${f.key}`}>
             <textarea
+              id={`report-${f.key}`}
               className="input"
               rows={2}
               value={at.state.reportInputs[f.key] ?? ""}

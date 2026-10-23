@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-pLwWvcjLaaqgbRUxCC7XN9givw+p6XobD6zlNB+9q08='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()">
-<script>try{if(localStorage.getItem('tr-theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
+<script>try{var m=document.cookie.match(/(?:^|;\s*)tr-theme=(light|dark)/),t=m?m[1]:localStorage.getItem('tr-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
 <title>Contact · ThreatReady</title>
 <meta name="description" content="Contact ThreatReady (Aerovant Technologies) for pilots, support, score disputes, privacy requests and security reports.">
 <link rel="canonical" href="https://threatready.io/contact.html">
@@ -39,7 +39,7 @@
           <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-product">Product <svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg></button>
           <ul class="menu" id="menu-product">
             <li><a href="attack-reasoning-lab.html"><span class="dot dot-lab"></span><span><span class="mi-t">Attack Reasoning Lab</span><span class="mi-d">Reason through a live attack chain</span></span></a></li>
-            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Role-based daily work · in development</span></span></a></li>
+            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Hands-on labs for the daily work of a role</span></span></a></li>
             <li><a href="interviewprep.html"><span class="dot dot-int"></span><span><span class="mi-t">InterviewPrep</span><span class="mi-d">An interview built from a real job description</span></span></a></li>
           </ul>
         </li>
@@ -64,30 +64,30 @@
         <svg class="icon i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         <svg class="icon i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a class="nav-link nav-signin" href="https://threatready.io/app/">Sign in</a>
-      <a class="btn btn-primary btn-sm" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
+      <a class="nav-link nav-signin" href="https://onboard.threatready.io/">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="https://onboard.threatready.io/?mode=signup">Start free</a>
       <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Open menu">
         <svg class="icon i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         <svg class="icon i-close" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
   </div>
-  <div class="drawer" id="drawer">
-    <h3>Product</h3>
-    <ul>
+  <nav class="drawer" id="drawer" aria-label="Menu">
+    <p class="drawer-h" id="drawer-product">Product</p>
+    <ul aria-labelledby="drawer-product">
       <li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li>
-      <li><a href="lab-simulations.html">Lab Simulations <span class="tag tag-soon" style="margin-left:8px">In development</span></a></li>
+      <li><a href="lab-simulations.html">Lab Simulations</a></li>
       <li><a href="interviewprep.html">InterviewPrep</a></li>
     </ul>
-    <h3>Company</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-company">Company</p>
+    <ul aria-labelledby="drawer-company">
       <li><a href="pilot.html">For Teams</a></li>
       <li><a href="transparent-scoring.html">Scoring</a></li>
       <li><a href="pricing.html">Pricing</a></li>
       <li><a href="contact.html">Contact</a></li>
     </ul>
-    <h3>Resources</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-resources">Resources</p>
+    <ul aria-labelledby="drawer-resources">
       <li><a href="resources.html">All resources</a></li>
       <li><a href="sample-report.html">Sample report</a></li>
       <li><a href="rubric.html">Scoring rubric</a></li>
@@ -95,10 +95,10 @@
       <li><a href="security.html">Security</a></li>
     </ul>
     <div class="drawer-cta">
-      <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
-      <a class="btn btn-secondary" href="https://threatready.io/app/">Sign in</a>
+      <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a>
+      <a class="btn btn-secondary" href="https://onboard.threatready.io/">Sign in</a>
     </div>
-  </div>
+  </nav>
 </header>
 <!-- /@nav -->
 
@@ -149,7 +149,7 @@
       </div>
       <nav aria-labelledby="f-product"><h2 id="f-product">Product</h2><ul><li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li><li><a href="lab-simulations.html">Lab Simulations</a></li><li><a href="interviewprep.html">InterviewPrep</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="pilot.html">For teams</a></li></ul></nav>
       <nav aria-labelledby="f-resources"><h2 id="f-resources">Resources</h2><ul><li><a href="resources.html" target="_blank" rel="noopener noreferrer">All resources<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="sample-report.html" target="_blank" rel="noopener noreferrer">Sample report<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="rubric.html" target="_blank" rel="noopener noreferrer">Scoring rubric<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="transparent-scoring.html" target="_blank" rel="noopener noreferrer">How scoring works<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="how-it-works.html" target="_blank" rel="noopener noreferrer">How it works<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
-      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html" target="_blank" rel="noopener noreferrer">Contact<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html">Contact</a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
       <nav aria-labelledby="f-legal"><h2 id="f-legal">Legal</h2><ul><li><a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="terms.html" target="_blank" rel="noopener noreferrer">Terms of service<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="dpa.html" target="_blank" rel="noopener noreferrer">Data processing agreement<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="security.html" target="_blank" rel="noopener noreferrer">Security<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
     </div>
     <div class="footer-bottom">

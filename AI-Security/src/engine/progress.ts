@@ -37,7 +37,19 @@ export const memoryStorage = (): StorageAdapter => {
   };
 };
 
+/** One memory store per page, so progress still lasts the session when localStorage can't be used. */
+let memoryFallback: StorageAdapter | null = null;
+/**
+ * Inside ThreatReady with no confirmed user: keep everything in memory for this tab only, so nothing
+ * is read from or written to a key another learner on this browser could share.
+ */
+let sessionOnly = false;
+export function setSessionOnlyStorage(): void {
+  sessionOnly = true;
+}
+
 export const browserStorage = (): StorageAdapter => {
+  if (sessionOnly) return (memoryFallback ??= memoryStorage());
   try {
     const t = "__tp_test__";
     window.localStorage.setItem(t, "1");
@@ -48,7 +60,7 @@ export const browserStorage = (): StorageAdapter => {
       remove: (k) => window.localStorage.removeItem(k),
     };
   } catch {
-    return memoryStorage();
+    return (memoryFallback ??= memoryStorage());
   }
 };
 
@@ -59,6 +71,28 @@ export function setProgressNamespace(ns: string): void {
   namespace = ns;
 }
 const key = () => (namespace ? `${KEY}:${namespace}` : KEY);
+
+/** The attempt in progress (and the last result), kept next to progress under the same namespace. */
+const SESSION_KEY = "aeropay-lab:session:v1";
+const sessionKey = () => (namespace ? `${SESSION_KEY}:${namespace}` : SESSION_KEY);
+
+export function loadSession<T>(store: StorageAdapter): T | null {
+  const raw = store.get(sessionKey());
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export function saveSession(store: StorageAdapter, session: unknown): void {
+  try {
+    store.set(sessionKey(), JSON.stringify(session));
+  } catch {
+    // Storage full or blocked: the attempt then just won't survive a reload.
+  }
+}
 
 export function emptyProgress(learnerName: string): ProgressState {
   return {
@@ -86,6 +120,7 @@ export function saveProgress(store: StorageAdapter, p: ProgressState): void {
 
 export function resetProgress(store: StorageAdapter): void {
   store.remove(key());
+  store.remove(sessionKey());
 }
 
 export function scenarioId(taskId: number, level: Level): string {

@@ -35,7 +35,7 @@ export default function DemoSummary({ id, goHome, goIntro, goDemo, goNormal }) {
 
   if (err && !sum) {
     return (
-      <div className="page demo-page">
+      <main className="page demo-page">
         <section className="demo-card" role="alert">
           <h1>{err.status === 404 ? 'This demo session is no longer available' : 'The summary could not be loaded'}</h1>
           <p className="lead">{err.status === 404 ? 'Demo sessions are kept for a day, and are removed when you restart.' : 'The server did not answer. Try again in a moment.'}</p>
@@ -44,14 +44,14 @@ export default function DemoSummary({ id, goHome, goIntro, goDemo, goNormal }) {
             <button type="button" className="btn" onClick={goHome}>Return home</button>
           </div>
         </section>
-      </div>
+      </main>
     );
   }
-  if (!sum) return <div className="page"><p className="muted">Building your learning summary…</p></div>;
+  if (!sum) return <main className="page"><p className="muted" role="status">Building your learning summary…</p></main>;
 
   const c = sum.checks;
   return (
-    <div className="page demo-page">
+    <main className="page demo-page">
       <header className="home-head">
         <div>
           <p className="meta">Step 16 of 16, {sum.ticket}, analyst {sum.analyst}</p>
@@ -144,6 +144,6 @@ export default function DemoSummary({ id, goHome, goIntro, goDemo, goNormal }) {
           {' '}Lookups: {sum.evidence.tools.length ? sum.evidence.tools.map((t) => `${t.label} (${t.runs})`).join(', ') : 'none'}.
         </p>
       </section>
-    </div>
+    </main>
   );
 }

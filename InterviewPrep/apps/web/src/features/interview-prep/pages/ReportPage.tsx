@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { InterviewReport, QuestionReview, SkillOutcome } from '@threatready/contracts';
 import {
   AlertTriangle,
@@ -21,11 +21,14 @@ import {
   TrendingUp,
   XCircle,
 } from 'lucide-react';
-import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useState, type KeyboardEvent } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { api, ApiError } from '../../../lib/api';
-import { scoreTone, titleCase } from '../../../lib/format';
-import { CardSkeleton, ErrorAlert, Meter, RadarChart, ScoreRing, useToast } from '../../../ui/components';
+import { titleCase } from '../../../lib/format';
+import { Busy, CardSkeleton, ErrorAlert, Meter, RadarChart, ScorePill, ScoreRing, usePageTitle, useToast } from '../../../ui/components';
+
+/** The PDF is rendered by a worker after the report; poll for it this many times (5 s apart). */
+const PDF_POLLS = 24;
 
 export default function ReportPage() {
   const { id = '' } = useParams();
@@ -34,24 +37,50 @@ export default function ReportPage() {
     queryFn: () => api.report(id),
     retry: (n, e) => e instanceof ApiError && e.code === 'REPORT_NOT_READY' && n < 20,
     retryDelay: 3000,
+    // Keep checking until the PDF is ready, so the download button appears without a reload.
+    refetchInterval: (query) => (query.state.data && !query.state.data.pdf.available && query.state.dataUpdateCount < PDF_POLLS ? 5000 : false),
   });
+  usePageTitle(q.data ? `Report: ${q.data.roleTitle}` : 'Report');
+  const polls = useQueryClient().getQueryState(['report', id])?.dataUpdateCount ?? 0;
 
-  if (q.isPending) return <div className="page"><CardSkeleton lines={8} /></div>;
-  if (q.error) return <div className="page"><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
-  return <Report r={q.data} />;
+  if (q.isPending) return <div className="page"><h1 className="sr-only">Loading your report</h1><CardSkeleton lines={8} /></div>;
+  if (q.error) return <div className="page"><h1 className="h-sm" style={{ marginBottom: 16 }}>Your report could not be loaded</h1><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
+  return <Report r={q.data} pdfPending={!q.data.pdf.available && polls < PDF_POLLS} />;
 }
 
 type Tab = 'overview' | 'questions' | 'plan' | 'method';
+const TABS: Tab[] = ['overview', 'questions', 'plan', 'method'];
 
 function verdict(score: number) {
   if (score >= 80) return { label: 'Strong performance', tone: 'ok' };
   if (score >= 65) return { label: 'Solid, with clear areas to sharpen', tone: 'ok' };
   if (score >= 50) return { label: 'Developing', tone: 'warn' };
-  return { label: 'Needs more practice', tone: 'accent' };
+  return { label: 'Needs more practice', tone: 'bad' };
 }
 
-function Report({ r }: { r: InterviewReport }) {
-  const [tab, setTab] = useState<Tab>('overview');
+function Report({ r, pdfPending }: { r: InterviewReport; pdfPending: boolean }) {
+  // The open section is in the URL (?tab=plan), so reload, Back and shared links keep it.
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = TABS.includes(params.get('tab') as Tab) ? (params.get('tab') as Tab) : 'overview';
+  const setTab = (t: Tab) =>
+    setParams(
+      (p) => {
+        const q = new URLSearchParams(p);
+        if (t === 'overview') q.delete('tab');
+        else q.set('tab', t);
+        return q;
+      },
+      { replace: true },
+    );
+  // Tabs pattern: arrow keys, Home and End move between tabs and open them.
+  const onTabKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const i = TABS.indexOf(tab);
+    const next = e.key === 'ArrowRight' ? (i + 1) % TABS.length : e.key === 'ArrowLeft' ? (i - 1 + TABS.length) % TABS.length : e.key === 'Home' ? 0 : e.key === 'End' ? TABS.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    setTab(TABS[next]!);
+    document.getElementById(`report-tab-${TABS[next]}`)?.focus();
+  };
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<unknown>(null);
   const toast = useToast();
@@ -100,11 +129,18 @@ function Report({ r }: { r: InterviewReport }) {
           </div>
         </div>
         <div className="row">
-          {r.pdf.available && (
+          {r.pdf.available ? (
             <button className="btn" type="button" onClick={() => void downloadPdf()} disabled={pdfBusy}>
-              {pdfBusy ? <span className="spinner" /> : <><Download className="icon sm" aria-hidden /> Download PDF</>}
+              {pdfBusy ? <Busy label="Preparing download…" /> : <><Download className="icon sm" aria-hidden /> Download PDF</>}
             </button>
+          ) : pdfPending ? (
+            <button className="btn" type="button" disabled aria-describedby="pdf-note">
+              <Busy label="Preparing PDF…" />
+            </button>
+          ) : (
+            <span id="pdf-note" className="hint">The PDF isn’t ready yet. Reload this page later to download it.</span>
           )}
+          {pdfPending && <span id="pdf-note" className="sr-only">The PDF is still being generated. The download button appears here when it is ready.</span>}
           <Link className="btn primary" to="/interview-prep/new"><Repeat className="icon sm" aria-hidden /> Practise again</Link>
         </div>
       </div>
@@ -113,7 +149,7 @@ function Report({ r }: { r: InterviewReport }) {
       <section className="report-hero card fade-in" aria-label="Overall performance">
         <div className="score-block">
           <ScoreRing score={r.overall.score} size={168} />
-          <span className={`badge ${v.tone}`}>{v.label}</span>
+          <span className={`badge ${v.tone}`}>{v.tone === 'bad' && <CircleAlert className="icon sm" aria-hidden />}{v.label}</span>
         </div>
         <div className="stack" style={{ minWidth: 0 }}>
           <h2>Overall performance</h2>
@@ -140,13 +176,23 @@ function Report({ r }: { r: InterviewReport }) {
 
       <div className="tabs" role="tablist" aria-label="Report sections" style={{ marginTop: 26 }}>
         {tabs.map((t) => (
-          <button key={t.id} type="button" role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
+          <button
+            key={t.id}
+            id={`report-tab-${t.id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            aria-controls="report-panel"
+            tabIndex={tab === t.id ? 0 : -1}
+            onKeyDown={onTabKey}
+            onClick={() => setTab(t.id)}
+          >
             <t.icon className="icon sm" aria-hidden /> {t.label} {t.count != null && <span className="count">{t.count}</span>}
           </button>
         ))}
       </div>
 
-      <div key={tab} className="fade-in">
+      <div key={tab} id="report-panel" className="fade-in" role="tabpanel" aria-labelledby={`report-tab-${tab}`} tabIndex={0}>
         {tab === 'overview' && <Overview r={r} />}
         {tab === 'questions' && (
           <div className="stack">
@@ -273,7 +319,7 @@ function QuestionCard({ q, defaultOpen }: { q: QuestionReview; defaultOpen?: boo
   return (
     <section className={`card q-card ${open ? 'open' : ''}`}>
       <button type="button" className="q-head" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)}>
-        <span className={`score-pill ${scoreTone(q.score)}`}>{q.score ?? '—'}</span>
+        <ScorePill score={q.score} />
         <span className="stack" style={{ gap: 3, flex: 1, minWidth: 0, textAlign: 'left' }}>
           <span className="muted" style={{ fontSize: 12.5 }}>{q.kind === 'follow_up' ? 'Follow-up' : `Question ${q.questionNumber}`} · {q.topic}</span>
           <span style={{ fontWeight: 550 }}>{q.question}</span>
@@ -299,7 +345,7 @@ function QuestionCard({ q, defaultOpen }: { q: QuestionReview; defaultOpen?: boo
             <div className="stack" style={{ fontSize: 14 }}>
               {q.correctConcepts.length > 0 && <List icon={CheckCircle2} color="var(--ok-text)" title="Correct concepts" items={q.correctConcepts} />}
               {q.missingConcepts.length > 0 && <List icon={CircleAlert} color="var(--warn-text)" title="Missing details" items={q.missingConcepts} />}
-              {q.inaccuracies.length > 0 && <List icon={XCircle} color="var(--accent-strong)" title="Technical inaccuracies" items={q.inaccuracies} />}
+              {q.inaccuracies.length > 0 && <List icon={XCircle} color="var(--bad-text)" title="Technical inaccuracies" items={q.inaccuracies} />}
               {q.improvements.length > 0 && <List icon={TrendingUp} color="var(--info-text)" title="How to improve" items={q.improvements} />}
             </div>
           </div>

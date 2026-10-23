@@ -38,6 +38,13 @@
 
   --r-control: var(--r1);
   --r-surface: var(--r2);
+
+  /* Form control edges: at least 3:1 against --bg, --surface and --raised (WCAG 1.4.11).
+     --border-strong is too faint for that (1.7:1 dark, 1.4:1 light). Same values as threatready.io. */
+  --field-border: #6b7590;
+}
+html[data-theme="light"] .trp {
+  --field-border: #7c8599;
 }
 
 *,
@@ -74,8 +81,9 @@ input {
   color: inherit;
 }
 
+/* Link text uses --accent-text: --accent (#6D5DFC) is 3.9:1 on dark surfaces, below 4.5:1. */
 a {
-  color: var(--action);
+  color: var(--accent-text);
   text-underline-offset: 3px;
 }
 
@@ -100,7 +108,9 @@ a {
   position: absolute;
   left: 16px;
   top: -48px;
-  z-index: 10;
+  z-index: 100; /* above the sticky header (z-index 50) */
+  color: var(--accent-text);
+  font-weight: 600;
   background: var(--panel);
   padding: 8px 12px;
   border-radius: var(--r-control);
@@ -136,7 +146,7 @@ a {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 46px;
+  min-height: 42px; /* the platform button height (.tr-btn) */
   padding: 0 18px;
   border-radius: var(--r-control);
   border: 1px solid transparent;
@@ -211,15 +221,16 @@ a {
   background: none;
   border: 0;
   padding: 2px 0;
-  color: var(--action);
+  color: var(--accent-text);
   font-weight: 500;
   cursor: pointer;
+  /* Always underlined: inside a sentence, colour alone doesn't mark it as a link (WCAG 1.4.1). */
   text-decoration: underline;
-  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
 .link-btn:hover {
-  text-decoration-color: currentColor;
+  text-decoration-thickness: 2px;
 }
 .link-btn:disabled {
   color: var(--ink-3);
@@ -250,7 +261,7 @@ a {
   min-height: 46px;
   padding: 10px 12px;
   border-radius: var(--r-control);
-  border: 1px solid var(--rule-strong);
+  border: 1px solid var(--field-border);
   background: var(--panel);
 }
 .input:hover {
@@ -440,6 +451,25 @@ a {
 
 .turnstile:empty {
   display: none;
+}
+.turnstile-wrap {
+  display: grid;
+  gap: 8px;
+}
+.turnstile-wrap .field-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner-sm {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+}
+/* Tab panel (sign in / create account): keeps the form column's rhythm. */
+.auth-panel {
+  display: grid;
+  gap: 24px;
 }
 
 /* The case file: one piece of real evidence, annotated. */
@@ -681,7 +711,7 @@ a {
   gap: 12px;
   flex: 1;
 }
-.feature-body h2 {
+.feature-body h3 {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1373,15 +1403,23 @@ a {
   margin: 0;
 }
 
+/* Scrolls sideways on phones (no overflow:hidden here: that clipped "12 months" out of reach). */
 .seg {
   display: inline-flex;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scrollbar-width: none;
   border: 1px solid var(--rule);
   border-radius: var(--r-control);
   background: var(--panel);
-  overflow: hidden;
+}
+.seg::-webkit-scrollbar {
+  display: none;
+}
+.seg button:focus-visible {
+  outline-offset: -3px; /* inside the scroller, so it isn't clipped */
 }
 .seg button {
   flex: none;
@@ -1688,3 +1726,21 @@ select.input {
 .admin-role-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .admin-role-confirm { margin-top: 12px; max-width: 460px; }
 .admin-role-confirm .field { margin-top: 10px; }
+
+/* Admin: "Updating…" while a range, search or page change refetches. Takes no room when empty
+   (it stays in the accessibility tree so the change is announced). */
+.updating {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+.updating:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}

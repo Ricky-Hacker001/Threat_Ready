@@ -75,7 +75,7 @@ export function DetectionBuilder() {
 
         <div className="stack">
           <div className="row wrap" style={{ gap: 10 }}>
-            <input className="input" style={{ maxWidth: 240 }} placeholder="Rule name" value={name} onChange={(e) => setName(e.target.value)} />
+            <input className="input" style={{ maxWidth: 240 }} placeholder="Rule name" aria-label="Rule name" value={name} onChange={(e) => setName(e.target.value)} />
             <label className="row small">
               <span className="muted">Log source</span>
               <select className="select" style={{ width: "auto" }} value={source} onChange={(e) => setSource(e.target.value as never)}>
@@ -98,6 +98,7 @@ export function DetectionBuilder() {
               <select
                 className="select"
                 style={{ width: "auto" }}
+                aria-label={`Condition ${i + 1} field`}
                 value={c.field}
                 onChange={(e) => setConds(upd(conds, i, { field: e.target.value }))}
               >
@@ -108,6 +109,7 @@ export function DetectionBuilder() {
               <select
                 className="select"
                 style={{ width: "auto" }}
+                aria-label={`Condition ${i + 1} operator`}
                 value={c.op}
                 onChange={(e) => setConds(upd(conds, i, { op: e.target.value as RuleOp }))}
               >
@@ -119,12 +121,18 @@ export function DetectionBuilder() {
                 <input
                   className="input"
                   style={{ width: 140 }}
+                  aria-label={`Condition ${i + 1} value`}
                   value={String(c.value ?? "")}
                   onChange={(e) => setConds(upd(conds, i, { value: e.target.value }))}
                 />
               )}
-              <button className="btn sm ghost" onClick={() => setConds(conds.filter((_, j) => j !== i))} disabled={conds.length === 1}>
-                ✕
+              <button
+                className="btn sm ghost"
+                aria-label={`Remove condition ${i + 1}`}
+                onClick={() => setConds(conds.filter((_, j) => j !== i))}
+                disabled={conds.length === 1}
+              >
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
           ))}

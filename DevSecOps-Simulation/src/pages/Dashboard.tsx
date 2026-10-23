@@ -11,26 +11,40 @@ export function isUnlocked(id: string, progress: Progress): boolean {
   return idx <= 0 || !!progress.results[LABS[idx - 1].id];
 }
 
+/** A lab started in Expert mode (which unlocks everything) stays open after a later switch to another mode. */
+export function canOpen(id: string, progress: Progress): boolean {
+  return isUnlocked(id, progress) || loadLabState(id)?.mode === 'expert';
+}
+
 export function Dashboard({ progress, update, go }: { progress: Progress; update: (fn: (p: Progress) => Progress) => void; go: (r: string) => void }) {
   const done = LABS.filter((l) => progress.results[l.id]).length;
   const points = Object.values(progress.results).reduce((n, r) => n + r.score, 0);
   const nextLab = LABS.find((l) => !progress.results[l.id] && isUnlocked(l.id, progress));
+  const inProgress = LABS.some((l) => !progress.results[l.id] && loadLabState(l.id));
   return (
     <div className="page">
-      <nav className="topnav">
+      <header className="topnav">
         <Brand onClick={() => go('/')} />
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <span style={{ color: 'var(--muted)', fontSize: 13 }}>Mode</span>
-          <div className="segmented">
+        <div className="navacts">
+          <span id="mode-label" style={{ color: 'var(--muted)', fontSize: 13 }}>
+            Mode
+          </span>
+          <div className="segmented" role="group" aria-labelledby="mode-label" aria-describedby={inProgress ? 'mode-note' : undefined}>
             {(['guided', 'standard', 'expert'] as Mode[]).map((m) => (
-              <button key={m} className={progress.mode === m ? 'on' : ''} onClick={() => update((p) => ({ ...p, mode: m }))}>
+              <button key={m} className={progress.mode === m ? 'on' : ''} aria-pressed={progress.mode === m} onClick={() => update((p) => ({ ...p, mode: m }))}>
                 {MODE_LABEL[m]}
               </button>
             ))}
           </div>
         </div>
-      </nav>
-      <div className="wrap">
+      </header>
+      <main className="wrap">
+        {inProgress && (
+          <p id="mode-note" className="modenote">
+            A mode change applies to labs you start or reset next. Labs already in progress keep the mode they were started in, so hints and scoring stay
+            consistent.
+          </p>
+        )}
         <div className="dashhead">
           <div>
             <h1>My DevSecOps labs</h1>
@@ -49,7 +63,7 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
             </div>
             {nextLab && (
               <button className="btn primary" onClick={() => go(`/lab/${nextLab.id}`)}>
-                {loadLabState(nextLab.id) ? 'Continue' : 'Start'}: {nextLab.title} →
+                {loadLabState(nextLab.id) ? 'Continue' : 'Start'}: {nextLab.title} <span aria-hidden="true">→</span>
               </button>
             )}
           </div>
@@ -65,7 +79,7 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
             </h2>
             <div className="labs">
               {LABS.filter((l) => l.level === lv.level).map((l) => {
-                const unlocked = isUnlocked(l.id, progress);
+                const unlocked = canOpen(l.id, progress);
                 const result = progress.results[l.id];
                 const saved = loadLabState(l.id);
                 const req = l.objectives.filter((o) => !o.bonus);
@@ -74,9 +88,17 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
                   <div className={`card labcard ${unlocked ? '' : 'locked'}`} key={l.id}>
                     <div className="row">
                       <span className="chip blue">{l.track}</span>
-                      {result ? <span className="chip green">✔ {result.score} pts</span> : saved ? <span className="chip amber">In progress</span> : <span className="chip">~{l.minutes} min</span>}
+                      {result ? (
+                        <span className="chip green">
+                          <span aria-hidden="true">✔</span> Completed · {result.score} pts
+                        </span>
+                      ) : saved ? (
+                        <span className="chip amber">In progress{saved.mode ? ` · ${MODE_LABEL[saved.mode]}` : ''}</span>
+                      ) : (
+                        <span className="chip">~{l.minutes} min</span>
+                      )}
                     </div>
-                    <h3>{l.title}</h3>
+                    <h3 id={`lab-${l.id}`}>{l.title}</h3>
                     <p>{l.summary}</p>
                     <div className="meta">
                       {l.tools.slice(0, 5).map((t) => (
@@ -94,8 +116,18 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
                       <span style={{ color: 'var(--muted)', fontSize: 12.5 }}>
                         {req.length} objectives{l.objectives.some((o) => o.bonus) ? ' + bonus' : ''}
                       </span>
-                      <button className={`btn sm ${unlocked && !result ? 'primary' : ''}`} disabled={!unlocked} onClick={() => go(`/lab/${l.id}`)}>
-                        {!unlocked ? '🔒 Complete previous lab' : result ? 'Review' : saved ? 'Resume' : 'Start lab'}
+                      <button className={`btn sm ${unlocked && !result ? 'primary' : ''}`} disabled={!unlocked} aria-describedby={`lab-${l.id}`} onClick={() => go(`/lab/${l.id}`)}>
+                        {!unlocked ? (
+                          <>
+                            <span aria-hidden="true">🔒 </span>Locked: complete the previous lab
+                          </>
+                        ) : result ? (
+                          'Review'
+                        ) : saved ? (
+                          'Resume'
+                        ) : (
+                          'Start lab'
+                        )}
                       </button>
                     </div>
                   </div>
@@ -117,7 +149,7 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
             Reset all progress
           </button>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

@@ -25,26 +25,36 @@ interface Props {
   onRun: (cmd: string) => void;
   onPaste: (cmd: string) => void;
   onHint: (key: string) => void;
+  /** The dashboard mode, when it differs from the mode this attempt was started in. */
+  dashboardMode?: Mode | null;
 }
 
-export function TaskPanel({ def, s, mode, onRun, onPaste, onHint }: Props) {
+const MODE_NAME: Record<Mode, string> = { guided: 'Guided', standard: 'Standard', expert: 'Expert' };
+
+export function TaskPanel({ def, s, mode, onRun, onPaste, onHint, dashboardMode }: Props) {
   const nextId = def.objectives.find((o) => !o.bonus && !s.achieved.includes(o.id))?.id;
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   const req = def.objectives.filter((o) => !o.bonus);
   const done = req.filter((o) => s.achieved.includes(o.id)).length;
 
   return (
-    <aside className="task">
+    <aside className="task" aria-label="Lab briefing and objectives">
+      {dashboardMode && dashboardMode !== mode && !s.completedAt && (
+        <div className="block modenote" role="note">
+          This attempt runs in <b>{MODE_NAME[mode]}</b> mode, the mode it was started in, so hints and scoring stay the same. To use <b>{MODE_NAME[dashboardMode]}</b> mode,
+          reset the lab (↺ Reset) — that starts a fresh attempt.
+        </div>
+      )}
       <div className="block">
-        <h4>{mode === 'expert' ? 'Ticket' : 'Mission briefing'}</h4>
+        <h2 className="blockh">{mode === 'expert' ? 'Ticket' : 'Mission briefing'}</h2>
         {mode !== 'expert' && <p>{def.story}</p>}
         <div className="ticket">{def.ticket}</div>
       </div>
 
       <div className="block">
-        <h4>
+        <h2 className="blockh">
           {mode === 'expert' ? 'Acceptance criteria' : 'Objectives'} · {done}/{req.length}
-        </h4>
+        </h2>
         <div className="progressbar" style={{ marginBottom: 12 }}>
           <i style={{ width: `${(done / req.length) * 100}%` }} />
         </div>
@@ -56,12 +66,27 @@ export function TaskPanel({ def, s, mode, onRun, onPaste, onHint }: Props) {
           const canExpand = mode !== 'expert';
           return (
             <div key={o.id} className={`obj ${isDone ? 'done' : ''} ${isNext ? 'next' : ''}`}>
-              <div className="head" onClick={() => canExpand && setOpenIds((x) => ({ ...x, [o.id]: !open }))}>
-                <span className="tick">{isDone ? '✓' : ''}</span>
-                <span className="t">
-                  {o.title} {o.bonus && <span className="chip amber" style={{ marginLeft: 4 }}>bonus</span>}
-                </span>
-              </div>
+              {canExpand ? (
+                <button type="button" className="head" aria-expanded={!!open} onClick={() => setOpenIds((x) => ({ ...x, [o.id]: !open }))}>
+                  <span className="tick" aria-hidden="true">
+                    {isDone ? '✓' : ''}
+                  </span>
+                  <span className="t">
+                    <span className="sr">{isDone ? 'Done: ' : isNext ? 'Next: ' : 'To do: '}</span>
+                    {o.title} {o.bonus && <span className="chip amber" style={{ marginLeft: 4 }}>bonus</span>}
+                  </span>
+                </button>
+              ) : (
+                <div className="head">
+                  <span className="tick" aria-hidden="true">
+                    {isDone ? '✓' : ''}
+                  </span>
+                  <span className="t">
+                    <span className="sr">{isDone ? 'Done: ' : 'To do: '}</span>
+                    {o.title} {o.bonus && <span className="chip amber" style={{ marginLeft: 4 }}>bonus</span>}
+                  </span>
+                </div>
+              )}
               {canExpand && open && (
                 <div className="body">
                   {mode === 'guided' && (
@@ -76,13 +101,15 @@ export function TaskPanel({ def, s, mode, onRun, onPaste, onHint }: Props) {
                         Paste
                       </button>
                       <button className="btn sm primary" onClick={() => onRun(o.command!)}>
-                        Run ▸
+                        Run <span aria-hidden="true">▸</span>
                       </button>
                     </div>
                   )}
                   {shownHints.map((h, i) => (
                     <div className="hint" key={i}>
-                      💡 <Rich text={h} />
+                      <span aria-hidden="true">💡 </span>
+                      <span className="sr">Hint: </span>
+                      <Rich text={h} />
                     </div>
                   ))}
                   {shownHints.length < o.hints.length && !isDone && (
@@ -100,7 +127,7 @@ export function TaskPanel({ def, s, mode, onRun, onPaste, onHint }: Props) {
 
       {mode !== 'expert' && (
         <div className="block">
-          <h4>Key concepts</h4>
+          <h2 className="blockh">Key concepts</h2>
           {def.concepts.map((c) => (
             <div className="concept" key={c.term}>
               <b>{c.term}</b>
@@ -111,7 +138,7 @@ export function TaskPanel({ def, s, mode, onRun, onPaste, onHint }: Props) {
       )}
 
       <div className="block">
-        <h4>Tools in this lab</h4>
+        <h2 className="blockh">Tools in this lab</h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {def.tools.map((t) => (
             <span className="chip" key={t} style={{ fontFamily: 'var(--mono)', fontSize: 11.5 }}>

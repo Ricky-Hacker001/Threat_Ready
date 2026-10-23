@@ -7,6 +7,7 @@ import { LAB } from '../state/baseline';
 import { lastRoute } from '../brand/progress';
 import { COMPANY, PRODUCT, TAGLINE } from '../brand/Brand';
 import { NotebookDiagram } from './Diagram';
+import { inPlatform } from '../platform';
 import { LESSONS, LEVEL_INTRO, NOTEBOOK_PDF } from './lessons';
 
 const anchor = (id: string) => `nb-${id.replace('.', '-')}`;
@@ -128,17 +129,18 @@ export function Notebook({ focus }: { focus?: string }) {
 
   return (
     <div className="nb-page">
-      <div className="nb-toolbar tr-noprint">
-        <img src={`${import.meta.env.BASE_URL}brand/aerovant-logo-light.svg`} alt="" aria-hidden="true" />
-        <span className="div" aria-hidden="true" />
-        <span className="word">ThreatReady · Learning notebook</span>
+      <header className="nb-toolbar tr-noprint">
+        {/* Inside ThreatReady the platform strip above already carries the mark. */}
+        {inPlatform ? null : <><img src={`${import.meta.env.BASE_URL}brand/aerovant-logo-light.svg`} alt="" aria-hidden="true" /><span className="div" aria-hidden="true" /></>}
+        <span className="word">{inPlatform ? 'Learning notebook' : 'ThreatReady · Learning notebook'}</span>
         <span className="sp" />
         <a className="tr-btn ghost" href="#/start"><HomeIcon size={14} /> Home</a>
         <a className="tr-btn ghost" href={`#/${lastRoute()}`}><ArrowLeft size={14} /> Back to lab</a>
         <button className="tr-btn ghost" onClick={() => window.print()}><Printer size={14} /> Print</button>
         <a className="tr-btn primary" href={NOTEBOOK_PDF} download data-guide="notebook-pdf"><FileDown size={14} /> Download PDF</a>
-      </div>
+      </header>
 
+      <main>
       <article className="nb-paper">
         <header className="nb-cover">
           <img src={`${import.meta.env.BASE_URL}brand/aerovant-logo-light.svg`} alt="Aerovant Technologies" className="nb-cover-logo" />
@@ -222,22 +224,22 @@ export function Notebook({ focus }: { focus?: string }) {
 
         <section className="nb-chapter" id="nb-basics">
           <h2>Networking essentials</h2>
-          <h4>Addresses and subnets</h4>
+          <h3 className="nb-sub">Addresses and subnets</h3>
           <p>An IPv4 address is four numbers from 0 to 255. The subnet mask (or its short form, the CIDR prefix such as <code>/24</code>) says how many leading bits are the network part. Two devices in the same subnet talk directly; anything else goes through a router, here the firewall.</p>
           <table className="nb-table">
             <thead><tr><th>Prefix</th><th>Mask</th><th>Addresses</th><th>Used in this lab for</th></tr></thead>
             <tbody>{ESSENTIAL_SUBNETS.map((r) => <tr key={r[0]}><th><code>{r[0]}</code></th><td><code>{r[1]}</code></td><td>{r[2]}</td><td>{r[3]}</td></tr>)}</tbody>
           </table>
-          <h4>Private, public and documentation addresses</h4>
+          <h3 className="nb-sub">Private, public and documentation addresses</h3>
           <p>Private ranges (<code>10.0.0.0/8</code>, <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>) are used inside organisations and never routed on the internet, which is why NAT exists. Public addresses are unique worldwide. Documentation ranges are reserved for examples like this lab and never belong to a real network.</p>
-          <h4>Ports and services</h4>
+          <h3 className="nb-sub">Ports and services</h3>
           <table className="nb-table">
             <thead><tr><th>Service</th><th>Port</th><th>What it is</th></tr></thead>
             <tbody>{PORTS.map((r) => <tr key={r[0]}><th>{r[0]}</th><td><code>{r[1]}</code></td><td>{r[2]}</td></tr>)}</tbody>
           </table>
-          <h4>Zones and trust</h4>
+          <h3 className="nb-sub">Zones and trust</h3>
           <p>A zone groups interfaces with the same level of trust. Typical zones are LAN (trusted, your staff), WAN (untrusted, the internet), DMZ (servers others can reach) and special zones for VPN users. Rules are written between zones, so a new port added to an existing zone immediately follows that zone’s rules.</p>
-          <h4>Stateful inspection</h4>
+          <h3 className="nb-sub">Stateful inspection</h3>
           <p>The firewall remembers every connection it allowed. Replies to an allowed connection are let back in automatically; you write rules for who may <i>start</i> a connection, not for the replies.</p>
         </section>
 
@@ -265,6 +267,7 @@ export function Notebook({ focus }: { focus?: string }) {
           <div className="nb-end-copy">© {new Date().getFullYear()} {COMPANY} · ThreatReady</div>
         </footer>
       </article>
+      </main>
     </div>
   );
 }

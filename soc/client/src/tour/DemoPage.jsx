@@ -19,7 +19,7 @@ export const newNonce = () => `${Date.now().toString(36)}-${Math.random().toStri
 function Gone({ error, goHome, goIntro }) {
   const expired = error.status === 404;
   return (
-    <div className="page demo-page">
+    <main className="page demo-page">
       <section className="demo-card" role="alert">
         <h1>{expired ? 'This demo session is no longer available' : 'The demo could not be loaded'}</h1>
         <p className="lead">{expired
@@ -31,7 +31,7 @@ function Gone({ error, goHome, goIntro }) {
           <button type="button" className="btn" onClick={goHome}>Return home</button>
         </div>
       </section>
-    </div>
+    </main>
   );
 }
 
@@ -184,7 +184,7 @@ export default function DemoPage({ id, startAt, goHome, goIntro, goSummary, goDe
   };
 
   if (fatal) return <Gone error={fatal} goHome={goHome} goIntro={goIntro} />;
-  if (!state) return <div className="page"><p className="muted">Loading the guided demo…</p></div>;
+  if (!state) return <main className="page"><p className="muted" role="status">Loading the guided demo…</p></main>;
 
   const frontier = progress.frontier ? steps.findIndex((b) => b.id === progress.frontier) : steps.length - 1;
   const stepList = state.steps.map((s) => {

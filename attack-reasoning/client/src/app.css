@@ -1,5 +1,12 @@
 /* Attack Reasoning page parts. Everything else comes from platform.css (threatready.io's design). */
+/* platform.css is written for border-box sizing, as in every other app (without it, width: 100% plus padding
+   pushes the account menu's items and the header container past their edges). */
+*, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; }
+/* Diagram and status colours, from the platform tokens so both themes keep text at 4.5:1 and lines at 3:1.
+   Teal and orange have no platform token; their light values are darkened for contrast on white. */
+.trp { --ar-teal: #4fb3a9; --ar-teal-soft: rgba(79, 179, 169, 0.16); --ar-orange: #e0893a; --ar-orange-soft: rgba(224, 137, 58, 0.16); }
+html[data-theme="light"] .trp { --ar-teal: #17766d; --ar-teal-soft: rgba(23, 118, 109, 0.1); --ar-orange: #a14f0c; --ar-orange-soft: rgba(161, 79, 12, 0.1); }
 .tr-shell { min-height: 100vh; display: flex; flex-direction: column; }
 .tr-shell > main { flex: 1; }
 .ar-filters { flex-wrap: wrap; margin-bottom: 12px; }
@@ -51,7 +58,7 @@ body { margin: 0; }
 .ar-option:hover { border-color: var(--border-strong); }
 .ar-option.is-selected { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
 .ar-option input { margin-top: 5px; accent-color: var(--accent); }
-.ar-option-id { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--surface-2, var(--surface)); border: 1px solid var(--border); font: 600 13px/1 var(--mono, ui-monospace); color: var(--text); flex: none; }
+.ar-option-id { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; background: var(--bg); border: 1px solid var(--border); font: 600 13px/1 var(--mono, ui-monospace); color: var(--text); flex: none; }
 .ar-just { display: grid; gap: 6px; }
 .ar-just textarea { width: 100%; box-sizing: border-box; padding: 12px; border: 1px solid var(--border); border-radius: var(--r1); background: var(--surface); color: var(--text); font: 15px/1.55 var(--font); resize: vertical; min-height: 180px; }
 .ar-just textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -72,11 +79,11 @@ body { margin: 0; }
 .ar-evidence li > span { display: grid; gap: 2px; }
 .ar-ev-point { font-weight: 600; color: var(--text); font-size: 14px; }
 .ar-ev-status { font: 600 11px/1 var(--font); text-transform: uppercase; letter-spacing: .06em; padding: 4px 6px; border-radius: 999px; text-align: center; }
-.is-met .ar-ev-status { background: rgba(60,180,120,.18); color: #3cb478; }
-.is-partial .ar-ev-status { background: rgba(197,162,78,.2); color: #c5a24e; }
-.is-missed .ar-ev-status { background: rgba(239,90,111,.16); color: #ef5a6f; }
+.is-met .ar-ev-status { background: var(--ok-soft); color: var(--ok); }
+.is-partial .ar-ev-status { background: var(--warn-soft); color: var(--warn); }
+.is-missed .ar-ev-status { background: var(--bad-soft); color: var(--bad); }
 .ar-evidence q { color: var(--text-3); font-style: italic; }
-.ar-good { color: #3cb478; margin-top: 14px; } .ar-bad { color: #ef5a6f; margin-top: 14px; }
+.ar-good { color: var(--ok); margin-top: 14px; } .ar-bad { color: var(--bad); margin-top: 14px; }
 .ar-alts { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
 .ar-alts li { display: grid; grid-template-columns: auto 1fr; gap: 10px; }
 .ar-alts li > span { display: grid; gap: 2px; }
@@ -100,44 +107,71 @@ body { margin: 0; }
 .ar-flow .react-flow__edgelabel-renderer { z-index: 3; }
 .ar-flow .react-flow__attribution { background: transparent; color: var(--text-3); }
 .ar-boundary { width: 100%; height: 100%; border: 1.5px dashed var(--border-strong); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, transparent); }
-.ar-boundary-internet { border-color: #ef5a6f; } .ar-boundary-identity, .ar-boundary-account { border-color: #c5a24e; } .ar-boundary-data { border-color: #4fb3a9; } .ar-boundary-cicd, .ar-boundary-management, .ar-boundary-cluster { border-color: #8a7bff; } .ar-boundary-corporate, .ar-boundary-tenant { border-color: #7b8aa6; } .ar-boundary-ot { border-color: #e0893a; } .ar-boundary-vendor { border-color: #c5a24e; }
+.ar-boundary-internet { border-color: var(--bad); } .ar-boundary-identity, .ar-boundary-account { border-color: var(--warn); } .ar-boundary-data { border-color: var(--ar-teal); } .ar-boundary-cicd, .ar-boundary-management, .ar-boundary-cluster { border-color: var(--accent); } .ar-boundary-corporate, .ar-boundary-tenant { border-color: var(--text-3); } .ar-boundary-ot { border-color: var(--ar-orange); } .ar-boundary-vendor { border-color: var(--warn); }
 .ar-boundary-label { position: absolute; top: 8px; left: 12px; font: 600 11px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
 .ar-node { display: grid; grid-template-columns: 40px 1fr; gap: 8px; align-items: center; width: 196px; min-height: 44px; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--bg, var(--surface)); color: var(--text); font-family: var(--font); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
-.ar-node.is-compromised { border-color: #ef5a6f; box-shadow: 0 0 0 2px rgba(239,90,111,.22); }
+.ar-node.is-compromised { border-color: var(--bad); box-shadow: 0 0 0 2px var(--bad-soft); }
 .ar-node.is-entry { border-style: double; border-width: 3px; }
 .ar-node.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ar-node-glyph { display: grid; place-items: center; height: 34px; border-radius: 8px; background: var(--accent-soft); color: var(--accent-text); font: 700 11px/1 var(--mono, ui-monospace); letter-spacing: .04em; }
-.ar-node-attacker .ar-node-glyph { background: rgba(239,90,111,.18); color: #ef5a6f; }
-.ar-node-database .ar-node-glyph, .ar-node-storage .ar-node-glyph { background: rgba(79,179,169,.18); color: #4fb3a9; }
-.ar-node-identity .ar-node-glyph, .ar-node-secret .ar-node-glyph { background: rgba(197,162,78,.2); color: #c5a24e; }
-.ar-node-model .ar-node-glyph, .ar-node-siem .ar-node-glyph { background: rgba(138,123,255,.18); color: #8a7bff; }
-.ar-node-device .ar-node-glyph { background: rgba(224,137,58,.18); color: #e0893a; }
+.ar-node-attacker .ar-node-glyph { background: var(--bad-soft); color: var(--bad); }
+.ar-node-database .ar-node-glyph, .ar-node-storage .ar-node-glyph { background: var(--ar-teal-soft); color: var(--ar-teal); }
+.ar-node-identity .ar-node-glyph, .ar-node-secret .ar-node-glyph { background: var(--warn-soft); color: var(--warn); }
+.ar-node-model .ar-node-glyph, .ar-node-siem .ar-node-glyph { background: var(--accent-soft); color: var(--accent-text); }
+.ar-node-device .ar-node-glyph { background: var(--ar-orange-soft); color: var(--ar-orange); }
 .ar-node-body { display: grid; gap: 3px; min-width: 0; }
 .ar-node-label { font-size: 12.5px; font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
 .ar-node-meta { display: flex; flex-wrap: wrap; gap: 3px; }
 .ar-flag { font: 600 9.5px/1 var(--font); padding: 3px 5px; border-radius: 999px; letter-spacing: .04em; text-transform: uppercase; font-style: normal; }
-.ar-flag-entry { background: rgba(197,162,78,.22); color: #c5a24e; } .ar-flag-bad { background: rgba(239,90,111,.18); color: #ef5a6f; } .ar-flag-ctl { background: var(--surface-2, var(--surface)); border: 1px solid var(--border); color: var(--text-3); text-transform: none; }
+.ar-flag-entry { background: var(--warn-soft); color: var(--warn); } .ar-flag-bad { background: var(--bad-soft); color: var(--bad); } .ar-flag-ctl { background: var(--surface); border: 1px solid var(--border); color: var(--text-2); text-transform: none; }
 .ar-handle { opacity: 0; width: 6px; height: 6px; }
 .ar-legend { display: grid; gap: 5px; font-size: 12px; color: var(--text-2); padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r1); }
 .ar-legend span { display: flex; align-items: center; gap: 8px; }
-.ar-leg { display: inline-block; width: 22px; height: 0; border-top: 2px solid #7b8aa6; }
-.ar-leg-attack { border-color: #ef5a6f; border-top-width: 3px; } .ar-leg-auth { border-color: #4fb3a9; border-top-style: dashed; } .ar-leg-control { border-color: #c5a24e; border-top-style: dotted; }
-.ar-detail { padding: 12px; border: 1px solid var(--border); border-radius: var(--r1); background: var(--surface); display: grid; gap: 6px; font-size: 14px; color: var(--text-2); }
-.ar-detail strong { color: var(--text); }
-.ar-detail p { margin: 0; }
+.ar-leg { display: inline-block; width: 22px; height: 0; border-top: 2px solid var(--text-3); }
+.ar-leg-attack { border-color: var(--bad); border-top-width: 3px; } .ar-leg-auth { border-color: var(--ar-teal); border-top-style: dashed; } .ar-leg-control { border-color: var(--warn); border-top-style: dotted; }
+/* The diagram's detail box (it was .ar-detail, the class the scenario page uses for its two-column grid). */
+.ar-diagram-detail { padding: 12px; border: 1px solid var(--border); border-radius: var(--r1); background: var(--surface); display: grid; gap: 6px; font-size: 14px; color: var(--text-2); min-width: 0; }
+.ar-diagram-detail strong { color: var(--text); }
+.ar-diagram-detail p { margin: 0; }
+/* The same diagram as text: every component and flow, for screen readers, keyboard users and small screens. */
+.ar-diagram-text { font-size: 14px; color: var(--text-2); }
+.ar-diagram-text summary { cursor: pointer; font-weight: 600; color: var(--accent-text); }
+.ar-diagram-text h3 { margin: 12px 0 6px; font-size: 13px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); }
+.ar-diagram-text ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .ar-path { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 /* Difficulty selector and next-question hint */
-.ar-levels { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r1); overflow: hidden; }
+.ar-levels { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--r1); overflow: hidden; }
 .ar-level { padding: 8px 14px; background: transparent; border: 0; border-right: 1px solid var(--border); color: var(--text-2); font: 500 14px/1 var(--font); cursor: pointer; }
 .ar-level:last-child { border-right: 0; }
 .ar-level:hover { color: var(--text); background: var(--surface); }
 .ar-level.is-selected { background: var(--accent-soft); color: var(--accent-text); }
+.ar-level:focus-visible { outline-offset: -3px; }
+/* Narrow phones: the three levels fit one row (about 270 px) instead of clipping "Advanced". */
+@media (max-width: 400px) { .ar-level { padding: 8px 10px; } }
 .ar-next-hint { align-self: center; }
 /* Routed edge labels (placed at dagre's reserved label positions) */
-.ar-edge-label { position: absolute; pointer-events: none; padding: 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font: 500 11px/1.2 var(--font); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
-.ar-edge-label.is-attack { color: #ef5a6f; border-color: rgba(239,90,111,.45); font-weight: 600; }
-.ar-edge-label-auth { color: #4fb3a9; } .ar-edge-label-control { color: #c5a24e; }
+/* A truncated label shows in full on hover (title) and in the diagram's text list below the canvas. */
+.ar-edge-label { position: absolute; pointer-events: all; cursor: default; padding: 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--border); color: var(--text-2); font: 500 11px/1.2 var(--font); white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.ar-edge-label.is-attack { color: var(--bad); border-color: var(--bad); font-weight: 600; }
+.ar-edge-label-auth { color: var(--ar-teal); } .ar-edge-label-control { color: var(--warn); }
 /* End assessment */
 .ar-end { margin-left: auto; }
 .ar-actions .ar-end { margin-left: 0; }
 @media (max-width: 640px) { .ar-end { margin-left: 0; } }
+/* Wide screens: the diagram and the question side by side, so the learner can read one while answering the other.
+   The diagram column sticks under the header; it scrolls inside itself if it is taller than the screen. */
+.ar-work { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 1200px) {
+  .ar-work { grid-template-columns: minmax(0, 7fr) minmax(0, 6fr); }
+  .ar-work > .ar-work-diagram { position: sticky; top: calc(var(--nav-h) + 16px); max-height: calc(100vh - var(--nav-h) - 32px); overflow: auto; }
+  .ar-work .ar-diagram-side { grid-template-columns: minmax(0, 1fr); }
+}
+.ar-dim .tr-bar { margin-top: 2px; }
+.ar-flag-notes { margin: 8px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; line-height: 20px; color: var(--text-2); }
+.ar-flag-notes b { color: var(--text); font-weight: 600; }
+.ar-just-label { display: block; margin-bottom: 0; }
+.ar-load-more { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.ar-planned { margin-bottom: 4px; }
+.ar-chip-list { list-style: none; margin: 0; padding: 0; }
+.ar-note-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.tr-note-bad .ar-end { margin-left: 0; }

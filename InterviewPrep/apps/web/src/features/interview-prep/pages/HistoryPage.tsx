@@ -3,12 +3,13 @@ import { BrainCircuit, ChevronRight, Clock, FileText, History, Sparkles } from '
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../../lib/api';
-import { relativeTime, scoreTone, STATE_LABEL, titleCase } from '../../../lib/format';
-import { CardSkeleton, Empty, ErrorAlert } from '../../../ui/components';
+import { relativeTime, STATE_LABEL, titleCase } from '../../../lib/format';
+import { Busy, CardSkeleton, Empty, ErrorAlert, ScorePill, usePageTitle } from '../../../ui/components';
 
 type Filter = 'all' | 'reports' | 'open';
 
 export default function HistoryPage() {
+  usePageTitle('Interview history');
   const [filter, setFilter] = useState<Filter>('all');
   const q = useInfiniteQuery({
     queryKey: ['sessions'],
@@ -32,19 +33,29 @@ export default function HistoryPage() {
       </div>
       {q.error && <ErrorAlert error={q.error} onRetry={() => void q.refetch()} />}
 
-      <div className="segmented" role="tablist" aria-label="Filter" style={{ marginBottom: 16 }}>
+      <div className="segmented" role="group" aria-label="Show" style={{ marginBottom: 16 }}>
         {(['all', 'reports', 'open'] as Filter[]).map((f) => (
-          <button key={f} type="button" role="tab" aria-selected={filter === f} onClick={() => setFilter(f)}>
+          <button key={f} type="button" aria-pressed={filter === f} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : f === 'reports' ? 'Reports' : 'In progress'}
           </button>
         ))}
       </div>
+      {/* The list is filtered in the browser, so older sessions only count once they are loaded. */}
+      {filter !== 'all' && q.hasNextPage && (
+        <p className="hint" role="status" style={{ marginBottom: 12 }}>
+          Showing matches from your {all.length} most recent sessions. Load more to include older ones.
+        </p>
+      )}
 
       {q.isPending ? (
         <CardSkeleton lines={6} />
       ) : items.length === 0 ? (
-        <Empty icon={Sparkles} title={all.length === 0 ? 'No interviews yet' : 'Nothing here'} action={all.length === 0 ? <Link to="/interview-prep/new" className="btn primary">Start your first interview</Link> : undefined}>
-          {all.length === 0 ? 'Your sessions and reports will appear here.' : 'No sessions match this filter.'}
+        <Empty
+          icon={Sparkles}
+          title={all.length === 0 ? 'No interviews yet' : 'Nothing here'}
+          action={all.length === 0 ? <Link to="/interview-prep/new" className="btn primary">Start your first interview</Link> : q.hasNextPage ? <LoadMore q={q} /> : undefined}
+        >
+          {all.length === 0 ? 'Your sessions and reports will appear here.' : q.hasNextPage ? 'None of the sessions loaded so far match. Older sessions may.' : 'No sessions match this filter.'}
         </Empty>
       ) : (
         <div className="card">
@@ -68,19 +79,23 @@ export default function HistoryPage() {
                     </div>
                   </div>
                   <span className={`badge ${st.tone}`}>{st.label}</span>
-                  <span className={`score-pill ${scoreTone(s.overallScore)}`}>{s.overallScore ?? '—'}</span>
+                  <ScorePill score={s.overallScore} />
                   <ChevronRight className="icon sm chev" aria-hidden />
                 </Link>
               );
             })}
           </div>
-          {q.hasNextPage && (
-            <button className="btn ghost" style={{ marginTop: 12 }} type="button" onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage}>
-              {q.isFetchingNextPage ? <span className="spinner" /> : 'Load more'}
-            </button>
-          )}
+          {q.hasNextPage && <LoadMore q={q} />}
         </div>
       )}
     </div>
+  );
+}
+
+function LoadMore({ q }: { q: { fetchNextPage: () => unknown; isFetchingNextPage: boolean } }) {
+  return (
+    <button className="btn ghost" style={{ marginTop: 12 }} type="button" onClick={() => void q.fetchNextPage()} disabled={q.isFetchingNextPage}>
+      {q.isFetchingNextPage ? <Busy label="Loading…" /> : 'Load more'}
+    </button>
   );
 }

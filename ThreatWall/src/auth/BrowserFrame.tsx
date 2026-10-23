@@ -13,6 +13,7 @@ export function BrowserChrome({ children }: { children: ReactNode }) {
   useEffect(() => { setText(session.browserUrl); }, [session.browserUrl]);
   const u = parseUrl(session.browserUrl);
   const trusted = state.config.system.certificate !== 'Default self-signed certificate' && !!u && u.scheme === 'https';
+  const narrow = useNarrow();
 
   const go = (e?: FormEvent) => {
     e?.preventDefault();
@@ -32,13 +33,13 @@ export function BrowserChrome({ children }: { children: ReactNode }) {
       <form className="tw-urlbar" onSubmit={go} aria-label="Simulated browser address bar">
         <button type="button" className="tw-url-btn" title="Reload" aria-label="Reload" onClick={() => go()}><RotateCw size={14} /></button>
         <div className="url">
-          {u ? (trusted ? <Lock size={13} color="#188038" /> : <span className="insecure"><TriangleAlert size={13} /> Not secure</span>) : null}
+          {u ? (trusted ? <Lock size={13} color="#188038" aria-label="Secure connection" /> : <span className="insecure"><TriangleAlert size={13} aria-hidden="true" /> <span className="lbl">Not secure</span></span>) : null}
           <input
             data-guide="url"
             className="mono"
             value={text}
             spellCheck={false}
-            placeholder="Type a web address, e.g. https://192.168.168.168"
+            placeholder={narrow ? 'e.g. https://192.168.168.168' : 'Type a web address, e.g. https://192.168.168.168'}
             onChange={(e) => setText(e.target.value)}
             onFocus={(e) => e.target.select()}
             aria-label="Address"
@@ -49,6 +50,19 @@ export function BrowserChrome({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+/** True on phone-width screens, where the address bar has room only for a short placeholder (OVF-14). */
+function useNarrow(): boolean {
+  const q = '(max-width: 600px)';
+  const [narrow, setNarrow] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setNarrow(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return narrow;
 }
 
 /** Pre-login pages: adds the lab banner under the address bar. */

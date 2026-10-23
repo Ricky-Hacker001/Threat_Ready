@@ -2,7 +2,7 @@
 // React Flow (ADD L29). Dagre lays it out as a layered, left-to-right graph with trust boundaries as
 // clusters, so components never overlap; edges follow dagre's routed points and each label sits at
 // the position dagre reserved for it, so labels do not land on nodes or on each other.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import dagre from '@dagrejs/dagre';
 import { BaseEdge, Background, Controls, EdgeLabelRenderer, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useNodesInitialized, useReactFlow, type Edge, type EdgeProps, type EdgeTypes, type Node, type NodeProps, type NodeTypes } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -10,7 +10,8 @@ import type { DiagramData, DiagramEdge, DiagramNode } from './api';
 
 const NODE_W = 200;
 const GLYPH: Record<string, string> = { user: 'USR', client: 'CLI', external: 'EXT', web: 'WEB', api: 'API', service: 'SVC', identity: 'IDP', database: 'DB', queue: 'MQ', storage: 'OBJ', cloud: 'CLD', firewall: 'FW', gateway: 'GW', network: 'NET', control: 'CTL', attacker: 'ATK', secret: 'KEY', compute: 'CMP', endpoint: 'EP', container: 'POD', pipeline: 'CI', repository: 'GIT', model: 'LLM', device: 'DEV', email: 'MAIL', siem: 'SIEM', saas: 'SAAS' };
-const COLOUR: Record<DiagramEdge['kind'], string> = { attack: '#ef5a6f', data: '#7b8aa6', auth: '#4fb3a9', control: '#c5a24e' };
+// Platform tokens (app.css), so lines and arrowheads keep their contrast in the light theme too.
+const COLOUR: Record<DiagramEdge['kind'], string> = { attack: 'var(--bad)', data: 'var(--text-3)', auth: 'var(--ar-teal)', control: 'var(--warn)' };
 
 /** Estimated rendered height: a wrapped label and a row of flags make a node taller than the base. */
 const nodeHeight = (n: DiagramNode) => 46 + (n.label.length > 20 ? 16 : 0) + (n.label.length > 40 ? 16 : 0) + (n.entryPoint || n.compromised || n.controls.length ? 24 : 0) + (n.controls.length > 1 && (n.entryPoint || n.compromised) ? 20 : 0);
@@ -183,13 +184,14 @@ function RoutedEdge({ id, data, markerEnd, style, selected }: EdgeProps<Edge<Edg
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} className={`ar-edge ar-edge-${data.kind} ${selected ? 'is-selected' : ''}`} />
       {data.label && (
         <EdgeLabelRenderer>
-          <div className={`ar-edge-label ar-edge-label-${data.kind} ${attack ? 'is-attack' : ''}`} style={{ transform: `translate(-50%, -50%) translate(${data.labelX}px, ${data.labelY}px)` }}>{data.label}</div>
+          <div className={`ar-edge-label ar-edge-label-${data.kind} ${attack ? 'is-attack' : ''}`} title={data.label} style={{ transform: `translate(-50%, -50%) translate(${data.labelX}px, ${data.labelY}px)` }}>{data.label}</div>
         </EdgeLabelRenderer>
       )}
     </>
   );
 }
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const nodeTypes: NodeTypes = { component: ComponentNode, boundary: BoundaryNode };
 const edgeTypes: EdgeTypes = { routed: RoutedEdge };
 
@@ -287,9 +289,12 @@ export function ArchitectureDiagram({ diagram }: { diagram: DiagramData }) {
   const nodeLabel = (id: string) => diagram.nodes.find((n) => n.id === id)?.label ?? id;
   const path = diagram.attackPath.map((id) => diagram.edges.find((e) => e.id === id)).filter((e): e is DiagramEdge => Boolean(e));
   const diagramKey = useMemo(() => diagram.nodes.map((n) => n.id).join('|'), [diagram]);
+  const textId = useId();
+  const stepOf = new Map(diagram.attackPath.map((id, i) => [id, i + 1]));
   return (
     <div className="ar-diagram">
-      <div className="ar-flow" style={{ aspectRatio: `${ratio}`, minHeight: 340, maxHeight: 680 }} role="img" aria-label="Architecture diagram with the attack path">
+      {/* Not role="img": the canvas holds focusable components and zoom controls. Its full content is also listed as text below. */}
+      <div className="ar-flow" style={{ aspectRatio: `${ratio}`, minHeight: 340, maxHeight: 680 }} role="group" aria-label="Interactive architecture diagram with the attack path" aria-describedby={textId}>
         <ReactFlowProvider>
           <ReactFlow
             nodes={nodes}
@@ -298,7 +303,8 @@ export function ArchitectureDiagram({ diagram }: { diagram: DiagramData }) {
             edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.08 }}
-            minZoom={0.2}
+            // Low enough that a wide graph still fits a phone-width canvas; the text list below carries the details.
+            minZoom={0.1}
             maxZoom={1.8}
             nodesDraggable={false}
             nodesConnectable={false}
@@ -328,7 +334,7 @@ export function ArchitectureDiagram({ diagram }: { diagram: DiagramData }) {
           <span><b className="ar-flag ar-flag-bad">Compromised</b> under attacker control</span>
         </div>
         {selected ? (
-          <div className="ar-detail" aria-live="polite">
+          <div className="ar-diagram-detail" aria-live="polite">
             <span className="tr-eyebrow">{selected.type} · {boundaryOf(selected.boundary)}</span>
             <strong>{selected.label}</strong>
             {selected.detail && <p>{selected.detail}</p>}
@@ -336,19 +342,29 @@ export function ArchitectureDiagram({ diagram }: { diagram: DiagramData }) {
             {(selected.entryPoint || selected.compromised) && <p className="tr-small">{selected.entryPoint ? 'This is where the attacker got in. ' : ''}{selected.compromised ? 'The attacker controls this component.' : ''}</p>}
           </div>
         ) : edge ? (
-          <div className="ar-detail" aria-live="polite">
+          <div className="ar-diagram-detail" aria-live="polite">
             <span className="tr-eyebrow">{edge.kind} flow</span>
             <strong>{nodeLabel(edge.from)} → {nodeLabel(edge.to)}</strong>
             <p>{edge.label}</p>
           </div>
         ) : (
-          <div className="ar-detail">
+          <div className="ar-diagram-detail">
             <span className="tr-eyebrow">Attack path</span>
             <ol className="ar-path">{path.map((e, i) => <li key={e.id}><b>{i + 1}.</b> {nodeLabel(e.from)} → {nodeLabel(e.to)}: {e.label}</li>)}</ol>
-            <p className="tr-small tr-muted">Click a component or a flow for details. Use the controls to zoom, drag to pan.</p>
+            <p className="tr-small tr-muted">Click a component or a flow for details. Use the controls to zoom, drag to pan. Every component and flow is also listed under the diagram.</p>
           </div>
         )}
       </div>
+      <details className="ar-diagram-text" id={textId}>
+        <summary>Diagram as text: {diagram.nodes.length} components and {diagram.edges.length} flows</summary>
+        {diagram.boundaries.map((b) => {
+          const inside = diagram.nodes.filter((n) => n.boundary === b.id);
+          return inside.length ? <div key={b.id}><h3>{b.label}</h3><ul>{inside.map((n) => <li key={n.id}><b>{n.label}</b> ({n.type}){n.entryPoint ? ', attacker entry point' : ''}{n.compromised ? ', compromised' : ''}{n.controls.length ? `. Controls: ${n.controls.join(', ')}` : ''}{n.detail ? `. ${n.detail}` : ''}</li>)}</ul></div> : null;
+        })}
+        {diagram.nodes.some((n) => !diagram.boundaries.some((b) => b.id === n.boundary)) && <div><h3>Outside any boundary</h3><ul>{diagram.nodes.filter((n) => !diagram.boundaries.some((b) => b.id === n.boundary)).map((n) => <li key={n.id}><b>{n.label}</b> ({n.type}){n.entryPoint ? ', attacker entry point' : ''}{n.compromised ? ', compromised' : ''}</li>)}</ul></div>}
+        <h3>Flows</h3>
+        <ul>{diagram.edges.map((e) => <li key={e.id}>{stepOf.has(e.id) ? <b>Attack step {stepOf.get(e.id)}: </b> : <span>{e.kind === 'attack' ? 'Attack' : cap(e.kind)} flow: </span>}{nodeLabel(e.from)} → {nodeLabel(e.to)}, {e.label}</li>)}</ul>
+      </details>
     </div>
   );
 }

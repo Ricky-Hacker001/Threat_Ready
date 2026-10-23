@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import {
-  Bell, ChevronLeft, HelpCircle, LogOut, Menu, RotateCcw, Search, Settings, UserRound,
+  Bell, ChevronLeft, HelpCircle, LogOut, Menu, RotateCcw, Search, Settings, TriangleAlert, UserRound,
 } from 'lucide-react';
 import { VIEWS, firstRouteOf, routeFor, type Route } from './nav';
 import { useRoute } from './router';
@@ -10,7 +10,7 @@ import { Confirm, Dialog } from '../components/ui';
 import { PageFor } from '../pages/registry';
 import { Disconnected } from './Disconnected';
 import { ui } from '../state/ui';
-import { lastRouteKey } from '../brand/progress';
+import { rememberRoute } from '../brand/progress';
 
 export function AppShell({ lost }: { lost: string | null }) {
   const { config, session, state, patchSession, addAudit, resetLab, emit } = useStore();
@@ -19,12 +19,14 @@ export function AppShell({ lost }: { lost: string | null }) {
   const [sideCollapsed, setSideCollapsed] = useState(false);
   const [sideOpenMobile, setSideOpenMobile] = useState(false);
   const [menu, setMenu] = useState<null | 'user' | 'bell'>(null);
+  const userRef = useRef<HTMLButtonElement>(null);
+  const bellRef = useRef<HTMLButtonElement>(null);
   const [dialog, setDialog] = useState<null | 'search' | 'help' | 'reset'>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set([`${route.view.id}/${route.group.id}`]));
   // Tell the task engine where the learner is.
   useEffect(() => {
     ui.setRoute(path); emit('nav', { path });
-    try { localStorage.setItem(lastRouteKey(), path); } catch { /* storage unavailable */ }
+    rememberRoute(path);
   }, [path, emit]);
   const [seenAudit, setSeenAudit] = useState(state.audit[0]?.id ?? '');
 
@@ -34,20 +36,37 @@ export function AppShell({ lost }: { lost: string | null }) {
     document.title = `${route.item.label} · ThreatReady Firewall`;
   }, [route.view.id, route.group.id, route.item.label]);
 
-  // Admin idle timeout (task 0.7 sets it to 10 minutes).
+  // Admin idle timeout (task 0.7 sets it to 10 minutes). Any activity anywhere in the lab (appliance, task panel,
+  // Lab Tools: pointer, keyboard, wheel, scroll, focus) keeps the session open, and a warning appears a minute before
+  // the simulated appliance signs the administrator out.
+  const [idleLeft, setIdleLeft] = useState<number | null>(null);
   useEffect(() => {
     const limit = config.system.adminTimeoutMin * 60_000;
+    const warnAt = limit - Math.min(60_000, limit / 2);
     let last = Date.now();
-    const bump = () => { last = Date.now(); };
+    let warned = false;
+    const bump = () => {
+      last = Date.now();
+      if (warned) { warned = false; setIdleLeft(null); }
+    };
     const t = setInterval(() => {
-      if (Date.now() - last > limit) {
+      const idle = Date.now() - last;
+      if (idle > limit) {
+        warned = false;
+        setIdleLeft(null);
         addAudit([{ category: 'Session', action: 'Administrator logged out (idle timeout)', detail: `${config.system.adminTimeoutMin} minutes without activity` }]);
         patchSession({ loggedIn: false, user: null });
+      } else if (idle > warnAt) {
+        warned = true;
+        setIdleLeft(Math.ceil((limit - idle) / 1000));
       }
-    }, 15_000);
-    window.addEventListener('pointerdown', bump);
-    window.addEventListener('keydown', bump);
-    return () => { clearInterval(t); window.removeEventListener('pointerdown', bump); window.removeEventListener('keydown', bump); };
+    }, 1000);
+    const events = ['pointerdown', 'pointermove', 'keydown', 'wheel', 'scroll', 'focusin', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, bump, { capture: true, passive: true }));
+    return () => {
+      clearInterval(t);
+      events.forEach((e) => window.removeEventListener(e, bump, { capture: true }));
+    };
   }, [config.system.adminTimeoutMin, addAudit, patchSession]);
 
   const unread = state.audit.findIndex((a) => a.id === seenAudit);
@@ -88,17 +107,17 @@ export function AppShell({ lost }: { lost: string | null }) {
         </nav>
         <div className="tw-top-right">
           <button className="tw-iconbtn hide-sm" title="Device settings" aria-label="Device settings" onClick={() => go('device/settings/administration')}><Settings size={18} /></button>
-          <button className="tw-iconbtn" title="Notifications" aria-label={`Notifications, ${unreadCount} new`} onClick={() => { setMenu(menu === 'bell' ? null : 'bell'); setSeenAudit(state.audit[0]?.id ?? ''); }}>
+          <button ref={bellRef} className="tw-iconbtn" title="Notifications" aria-label={`Notifications, ${unreadCount} new`} aria-expanded={menu === 'bell'} aria-controls="tw-menu-bell" onClick={() => { setMenu(menu === 'bell' ? null : 'bell'); setSeenAudit(state.audit[0]?.id ?? ''); }}>
             <Bell size={18} />{unreadCount > 0 ? <span className="tw-badge">{unreadCount}</span> : null}
           </button>
           <button className="tw-iconbtn" title="Help for this page" aria-label="Help for this page" onClick={() => setDialog('help')}><HelpCircle size={18} /></button>
           <button className="tw-iconbtn" title="Search pages" aria-label="Search pages" onClick={() => setDialog('search')}><Search size={18} /></button>
-          <button className="tw-avatar" aria-label="Account menu" onClick={() => setMenu(menu === 'user' ? null : 'user')}>
+          <button ref={userRef} className="tw-avatar" aria-label="Account menu" aria-expanded={menu === 'user'} aria-controls="tw-menu-user" onClick={() => setMenu(menu === 'user' ? null : 'user')}>
             {(session.user ?? 'AD').slice(0, 2).toUpperCase()}
           </button>
         </div>
         {menu === 'user' && (
-          <MenuPopover onClose={() => setMenu(null)}>
+          <MenuPopover id="tw-menu-user" label="Account" trigger={userRef} onClose={() => setMenu(null)}>
             <div className="tw-menu-head"><b>{session.user}</b><div className="muted" style={{ fontSize: 12 }}>Full administrator · from {session.pc.ip}</div></div>
             <button onClick={() => { setMenu(null); go('device/settings/administration'); }}><UserRound size={15} /> Administration</button>
             <button onClick={() => { setMenu(null); setDialog('reset'); }}><RotateCcw size={15} /> Reset lab to factory defaults</button>
@@ -106,7 +125,7 @@ export function AppShell({ lost }: { lost: string | null }) {
           </MenuPopover>
         )}
         {menu === 'bell' && (
-          <MenuPopover onClose={() => setMenu(null)}>
+          <MenuPopover id="tw-menu-bell" label="Recent events" trigger={bellRef} onClose={() => setMenu(null)}>
             <div className="tw-menu-head"><b>Recent events</b></div>
             {state.audit.slice(0, 6).map((a) => (
               <button key={a.id} onClick={() => { setMenu(null); go('monitor/logs/auditing-logs'); }} style={{ display: 'block' }}>
@@ -167,6 +186,15 @@ export function AppShell({ lost }: { lost: string | null }) {
         {lost !== null ? <Disconnected detail={lost} /> : null}
       </main>
 
+      {idleLeft !== null && (
+        <div className="tw-idle">
+          <TriangleAlert size={16} aria-hidden="true" />
+          <p role="alert">No activity for a while: the appliance will sign you out soon (idle timeout {config.system.adminTimeoutMin} min, set on DEVICE › Administration).</p>
+          <span className="tw-idle-left" aria-hidden="true">{idleLeft} s</span>
+          <button className="tw-btn tw-btn-primary" onClick={() => setIdleLeft(null)}>Stay signed in</button>
+        </div>
+      )}
+
       {dialog === 'search' && <SearchDialog onClose={() => setDialog(null)} go={(p) => { setDialog(null); go(p); }} />}
       {dialog === 'help' && <HelpDialog route={route} onClose={() => setDialog(null)} />}
       {dialog === 'reset' && (
@@ -183,16 +211,25 @@ export function AppShell({ lost }: { lost: string | null }) {
   );
 }
 
-function MenuPopover({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+/**
+ * Disclosure popover (not an ARIA menu): a labelled group of ordinary buttons. Opening moves focus to the first
+ * button; Escape or clicking outside closes it and Escape returns focus to the button that opened it.
+ */
+function MenuPopover({ id, label, trigger, children, onClose }: {
+  id: string; label: string; trigger: RefObject<HTMLButtonElement | null>; children: ReactNode; onClose: () => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    setTimeout(() => window.addEventListener('mousedown', h), 0);
+    ref.current?.querySelector<HTMLElement>('button')?.focus();
+    const h = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node) && !trigger.current?.contains(e.target as Node)) onClose();
+    };
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); trigger.current?.focus(); } };
+    const timer = setTimeout(() => window.addEventListener('mousedown', h), 0);
     window.addEventListener('keydown', k);
-    return () => { window.removeEventListener('mousedown', h); window.removeEventListener('keydown', k); };
-  }, [onClose]);
-  return <div className="tw-menu" ref={ref} role="menu">{children}</div>;
+    return () => { clearTimeout(timer); window.removeEventListener('mousedown', h); window.removeEventListener('keydown', k); };
+  }, [onClose, trigger]);
+  return <div className="tw-menu" ref={ref} id={id} role="group" aria-label={label}>{children}</div>;
 }
 
 function SearchDialog({ onClose, go }: { onClose: () => void; go: (p: string) => void }) {

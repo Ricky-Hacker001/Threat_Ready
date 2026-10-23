@@ -5,6 +5,7 @@ import { ArchitectureMap } from "@/components/ArchitectureMap";
 import { NOTEBOOK_INTRO, FOUNDATIONS, GLOSSARY, NOTEBOOK_TASKS } from "@/data/notebook";
 import { TASK_META, getScenarioByTaskLevel } from "@/scenarios";
 import { downloadNotebookPdf } from "@/util/notebookPdf";
+import { Crumbs } from "@/components/common";
 import { nodeName } from "./Briefing";
 
 export function Learning() {
@@ -22,13 +23,7 @@ export function Learning() {
 
   return (
     <div className="stack">
-      <div className="crumbs">
-        <span style={{ cursor: "pointer" }} onClick={() => dispatch({ t: "mission" })}>
-          Mission Control
-        </span>
-        <span className="sep">/</span>
-        <span style={{ color: "var(--text-0)" }}>Learning Notebook</span>
-      </div>
+      <Crumbs onHome={() => dispatch({ t: "mission" })} trail={["Learning Notebook"]} />
 
       <div className="row between wrap">
         <div>
@@ -38,7 +33,7 @@ export function Learning() {
           </p>
         </div>
         <button className="btn primary" onClick={download} disabled={busy}>
-          {busy ? "Preparing…" : "⬇ Download PDF"}
+          {busy ? "Preparing…" : <><span aria-hidden="true">⬇</span> Download PDF</>}
         </button>
       </div>
 
@@ -137,7 +132,7 @@ export function Learning() {
                   </div>
                 </div>
               )}
-              <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="grid cols-2" style={{ gap: 12 }}>
                 <Block title="Why it matters">
                   {t.impact.map((p, i) => <p key={i} className="small">{p}</p>)}
                 </Block>
@@ -170,7 +165,7 @@ export function Learning() {
           Back to Mission Control
         </button>
         <button className="btn primary" onClick={download} disabled={busy}>
-          {busy ? "Preparing…" : "⬇ Download the full notebook (PDF)"}
+          {busy ? "Preparing…" : <><span aria-hidden="true">⬇</span> Download the full notebook (PDF)</>}
         </button>
       </div>
     </div>
@@ -180,7 +175,7 @@ export function Learning() {
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--accent)", marginBottom: 2 }}>{title}</div>
+      <div style={{ fontWeight: 600, fontSize: 13, color: "var(--accent-text)", marginBottom: 2 }}>{title}</div>
       {children}
     </div>
   );

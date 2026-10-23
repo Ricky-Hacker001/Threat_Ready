@@ -6,7 +6,15 @@ const STEP_MS = 420;
 
 function Status({ st }: { st: StepStatus | 'running' | 'invalid' }) {
   const ch = st === 'passed' ? '✓' : st === 'failed' || st === 'invalid' ? '✕' : st === 'warning' ? '!' : st === 'skipped' ? '–' : '';
-  return <span className={`st ${st}`}>{ch}</span>;
+  // The glyph and colour are visual; the status word is for screen readers.
+  return (
+    <>
+      <span className={`st ${st}`} aria-hidden="true">
+        {ch}
+      </span>
+      <span className="sr">{st}:</span>
+    </>
+  );
 }
 
 interface Props {
@@ -46,7 +54,11 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
       <div className="findings" style={{ color: 'var(--muted)' }}>
         No pipeline runs yet. {workflowPath ? (
           <>
-            Commit and <code>git push</code> to trigger <a href="#" onClick={(e) => (e.preventDefault(), onOpenWorkflow())}>{workflowPath}</a>.
+            Commit and <code>git push</code> to trigger{' '}
+            <button type="button" className="linkbtn" onClick={onOpenWorkflow}>
+              {workflowPath}
+            </button>
+            .
           </>
         ) : (
           <>This repository has no workflow yet — create <code>.github/workflows/ci.yml</code> to add CI.</>
@@ -74,9 +86,9 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
 
   return (
     <div className="pipe">
-      <div className="runs">
+      <div className="runs" role="group" aria-label="Pipeline runs">
         {[...runs].reverse().map((r) => (
-          <div key={r.id} className={`run ${r.id === run.id ? 'on' : ''}`} onClick={() => (setSel(r.id), setJob(null))}>
+          <button type="button" key={r.id} className={`run ${r.id === run.id ? 'on' : ''}`} aria-pressed={r.id === run.id} onClick={() => (setSel(r.id), setJob(null))}>
             <div className="l1">
               <Status st={animating?.id === r.id && revealed < flat.length ? 'running' : r.status} />
               <b>#{r.id}</b>
@@ -85,7 +97,7 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
             <div className="l2">
               {r.commit.slice(0, 7)} {r.message}
             </div>
-          </div>
+          </button>
         ))}
       </div>
       <div className="jobs">
@@ -106,15 +118,25 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
           <div className="errorbox">{run.error}</div>
         ) : (
           <>
-            <div className="jobgraph">
+            <div className="jobgraph" role="group" aria-label="Jobs">
               {run.jobs.map((j, i) => (
                 <span key={j.id} style={{ display: 'contents' }}>
-                  {i > 0 && <span className="arrow">→</span>}
-                  <span className={`jobnode ${curJob?.id === j.id ? 'on' : ''}`} onClick={() => setJob(j.id)} title={j.needs.length ? `needs: ${j.needs.join(', ')}` : 'no dependencies'}>
+                  {i > 0 && (
+                    <span className="arrow" aria-hidden="true">
+                      →
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className={`jobnode ${curJob?.id === j.id ? 'on' : ''}`}
+                    aria-pressed={curJob?.id === j.id}
+                    onClick={() => setJob(j.id)}
+                    title={j.needs.length ? `needs: ${j.needs.join(', ')}` : 'no dependencies'}
+                  >
                     <Status st={jobState(j)} />
                     {j.name}
                     {j.needs.length > 0 && <span style={{ color: 'var(--dim)', fontSize: 11 }}>needs {j.needs.join(', ')}</span>}
-                  </span>
+                  </button>
                 </span>
               ))}
             </div>
@@ -124,8 +146,10 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
               const isOpen = open[key] ?? false;
               return (
                 <div className="step" key={key}>
-                  <div
+                  <button
+                    type="button"
                     className="sh"
+                    aria-expanded={isOpen}
                     onClick={() => {
                       setOpen((o) => ({ ...o, [key]: !isOpen }));
                       if (!isOpen && st.status === 'failed' && shown !== 'running' && shown !== 'pending') onViewFailedLog();
@@ -134,7 +158,7 @@ export function PipelineView({ runs, animating, onViewFailedLog, workflowPath, o
                     <Status st={shown} />
                     <span>{st.name}</span>
                     <span className="ms">{shown === st.status && st.ms ? `${(st.ms / 1000).toFixed(1)}s` : ''}</span>
-                  </div>
+                  </button>
                   {isOpen && shown === st.status && st.log.length > 0 && (
                     <pre>
                       {st.log.map((l, k) => (

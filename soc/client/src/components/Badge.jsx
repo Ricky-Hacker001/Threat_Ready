@@ -30,11 +30,25 @@ export function Shield({ level, earned = true, size = 72, title }) {
 // Shown once when a submission earns a level badge.
 export function BadgeDialog({ badge, onClose, go }) {
   const ref = useRef(null);
+  // Modal focus: move in on open, keep Tab inside, close on Escape, give focus back on close.
   useEffect(() => {
+    const before = document.activeElement;
     ref.current?.focus();
-    const k = (e) => { if (e.key === 'Escape') onClose(); };
+    const k = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !ref.current) return;
+      const items = [...ref.current.querySelectorAll('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')];
+      if (!items.length) { e.preventDefault(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
+    return () => {
+      window.removeEventListener('keydown', k);
+      if (before && before.isConnected && typeof before.focus === 'function') before.focus();
+    };
   }, [onClose]);
   if (!badge) return null;
   const all = badge.allComplete;

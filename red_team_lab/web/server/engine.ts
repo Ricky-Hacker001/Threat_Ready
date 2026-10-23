@@ -276,7 +276,10 @@ function findingPublic(s: any, f: typeof FINDINGS[number]) {
   const status = fsr.verified ? 'Verified' : fsr.remediated ? 'Remediated — unverified' : fsr.reported ? 'Documented' : fsr.confirmed ? 'Confirmed' : 'Not found';
   const base: any = { id: f.id, title: f.title, status, confirmed: fsr.confirmed, reported: fsr.reported, remediated: fsr.remediated, verified: fsr.verified };
   if (fsr.confirmed) {
-    base.severity = f.severity; base.severityWhy = f.severityWhy; base.cwe = f.cwe; base.owasp = f.owasp;
+    // The reference severity is graded ("Severity accuracy"), so it is only sent once the learner
+    // has documented their own rating.
+    if (fsr.reported) { base.severity = f.severity; base.severityWhy = f.severityWhy; }
+    base.cwe = f.cwe; base.owasp = f.owasp;
     base.routes = f.routes; base.impact = f.impact; base.confirmedAt = fsr.confirmedAt;
     base.proof = fsr.proof ? { method: fsr.proof.method, path: fsr.proof.path, query: fsr.proof.query } : null;
     // remediation options WITHOUT the answer key:
@@ -406,8 +409,8 @@ export const webLab: LabEngine = {
         total: FINDINGS.length,
       },
       findings: FINDINGS.map(f => { const fsr = s.sim.findings[f.id]; return {
-        id: f.id, title: f.title, severity: fsr.reported ? fsr.reportedSeverity : (fsr.confirmed ? f.severity : '—'),
-        trueSeverity: fsr.confirmed ? f.severity : '—', cwe: f.cwe, owasp: f.owasp,
+        id: f.id, title: f.title, severity: fsr.reported ? fsr.reportedSeverity : (fsr.confirmed && s.sim.report ? f.severity : '—'),
+        trueSeverity: fsr.confirmed && (fsr.reported || s.sim.report) ? f.severity : '—', cwe: f.cwe, owasp: f.owasp,
         status: fsr.verified ? 'Verified fixed' : fsr.remediated ? 'Remediated (unverified)' : fsr.reported ? 'Documented' : fsr.confirmed ? 'Confirmed' : 'Not found',
         affected: fsr.affectedRoute || f.routes.join(', '),
         confirmed: fsr.confirmed, confirmedAt: fsr.confirmedAt || null,

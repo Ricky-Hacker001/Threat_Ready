@@ -6,7 +6,10 @@ import { clock, stamp, SourceTag, SOURCE_LABEL, Severity, Empty, ErrorNote } fro
 // ---------------------------------------------------------------------------
 // Live feed
 // ---------------------------------------------------------------------------
-export function LiveFeed({ live, paused, setPaused, held, ctx, sources, connected, closed }) {
+const STREAM_TEXT = { connecting: 'Connecting…', reconnecting: 'Reconnecting…', failed: 'Stream stopped', ended: 'Stream ended with the ticket' };
+
+export function LiveFeed({ live, paused, setPaused, held, ctx, sources, stream, closed }) {
+  const connected = stream === 'live';
   const [hidden, setHidden] = useState(() => new Set());
   const [text, setText] = useState('');
   const mounted = useRef(Date.now());
@@ -24,12 +27,12 @@ export function LiveFeed({ live, paused, setPaused, held, ctx, sources, connecte
       <div className="toolbar" data-tour="feed-toolbar">
         <span className={`live-dot${connected && !paused && !closed ? ' is-on' : ''}`} aria-hidden="true" />
         <span className="toolbar-status">
-          {closed ? 'Stream ended with the ticket' : !connected ? 'Reconnecting…' : paused ? `Paused, ${held} new line${held === 1 ? '' : 's'} waiting` : 'Streaming'}
+          {closed ? STREAM_TEXT.ended : !connected ? STREAM_TEXT[stream] || STREAM_TEXT.reconnecting : paused ? `Paused, ${held} new line${held === 1 ? '' : 's'} waiting` : 'Streaming'}
         </span>
         {!closed && (
           <button type="button" className="btn btn-sm" data-tour="feed-pause" onClick={() => setPaused(!paused)}>{paused ? 'Resume' : 'Pause'}</button>
         )}
-        <div className="chips">
+        <div className="chips" role="group" aria-label="Sources shown in the live feed">
           {sources.map((s) => (
             <button type="button" key={s} className={`chip${hidden.has(s) ? '' : ' chip-on'}`} aria-pressed={!hidden.has(s)} onClick={() => toggle(s)}>
               {SOURCE_LABEL[s] || s}
@@ -101,10 +104,10 @@ export function SearchPanel({ caseId, search, setSearch, ctx, sources }) {
         </div>
       )}
       <div className="toolbar toolbar-sub">
-        <div className="chips" data-tour="search-sources">
-          <button type="button" className={`chip${!search.source ? ' chip-on' : ''}`} onClick={() => setSearch({ ...search, source: '', nonce: search.nonce + 1 })}>All sources</button>
+        <div className="chips" role="group" aria-label="Log source" data-tour="search-sources">
+          <button type="button" className={`chip${!search.source ? ' chip-on' : ''}`} aria-pressed={!search.source} onClick={() => setSearch({ ...search, source: '', nonce: search.nonce + 1 })}>All sources</button>
           {sources.map((s) => (
-            <button type="button" key={s} className={`chip${search.source === s ? ' chip-on' : ''}`} onClick={() => setSearch({ ...search, source: search.source === s ? '' : s, nonce: search.nonce + 1 })}>
+            <button type="button" key={s} className={`chip${search.source === s ? ' chip-on' : ''}`} aria-pressed={search.source === s} onClick={() => setSearch({ ...search, source: search.source === s ? '' : s, nonce: search.nonce + 1 })}>
               {SOURCE_LABEL[s] || s}{res && !search.source && res.bySource[s] ? ` ${res.bySource[s]}` : ''}
             </button>
           ))}
@@ -115,7 +118,7 @@ export function SearchPanel({ caseId, search, setSearch, ctx, sources }) {
             <button type="button" className="link" onClick={() => setSearch({ ...search, from: undefined, to: undefined, nonce: search.nonce + 1 })}>Clear time range</button>
           </span>
         )}
-        <span className="count" data-tour="search-count">{busy ? 'Searching…' : res ? `${res.total.toLocaleString()} event${res.total === 1 ? '' : 's'}, newest first` : ''}</span>
+        <span className="count" role="status" data-tour="search-count">{busy ? 'Searching…' : res ? `${res.total.toLocaleString()} event${res.total === 1 ? '' : 's'}, newest first` : ''}</span>
       </div>
       <ErrorNote error={err} />
       <div className="scroll">
@@ -271,8 +274,8 @@ export function HistoryPanel({ cs, act }) {
   return (
     <div className="panel">
       <div className="toolbar" data-tour="history-filters">
-        <div className="chips">
-          {KINDS.map(([k, l]) => <button type="button" key={k} className={`chip${kind === k ? ' chip-on' : ''}`} onClick={() => setKind(k)}>{l}</button>)}
+        <div className="chips" role="group" aria-label="Show entries">
+          {KINDS.map(([k, l]) => <button type="button" key={k} className={`chip${kind === k ? ' chip-on' : ''}`} aria-pressed={kind === k} onClick={() => setKind(k)}>{l}</button>)}
         </div>
         <span className="count">{rows.length} of {cs.history.length} entries</span>
       </div>

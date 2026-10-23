@@ -19,9 +19,9 @@ One sign-in, separate apps. Each app keeps its own overview, management, reports
 
 All apps follow threatready.io's design (`Landing_Page-main/assets/css/site.css`): navy surfaces, the violet `#6D5DFC` accent, Inter and JetBrains Mono, the ThreatReady logo, and a product marker per app (InterviewPrep amber, Labs teal, Attack Reasoning violet).
 
-- `platform.css` is the shared shell: dark and light tokens, header with app switcher and theme toggle, footer, buttons, tags, cards. Identical copies live in onboard (`apps/web/src/styles/`), Labs (`client/src/`) and Attack Reasoning (`client/src/`); edit one, copy to the others.
+- `platform.css` is the shared shell: dark and light tokens, header with app switcher and theme toggle, footer, buttons, tags, cards. Identical copies live in onboard (`apps/web/src/styles/`), InterviewPrep (`apps/web/src/ui/`), Labs (`client/src/`), Attack Reasoning (`client/src/`) and the Red Team lab (`web/client/src/`); edit one, copy to the others.
 - `theme-init.js` applies the theme before first paint and stores it in a `tr-theme` cookie on `threatready.io`, so dark/light follows the user across every subdomain.
-- Onboard maps its own component tokens onto the platform tokens. InterviewPrep keeps its own sidebar layout with the brand palette and logo. The lab console deliberately keeps its AWS-console look; the Labs catalog uses the platform shell.
+- Onboard maps its own component tokens onto the platform tokens. InterviewPrep keeps its own sub-navigation layout with the brand palette and logo. The lab console deliberately keeps its AWS-console look; the Labs catalog uses the platform shell.
 
 ## How it fits together
 
@@ -86,3 +86,4 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 - Labs still store progress in a JSON file (`data/store.json`). Moving it to PostgreSQL is the next step for multi-instance deploys.
 - The ADD's staff TOTP requirement now applies to the admin console. Add the Better Auth 2FA plugin and require it for `admin:read`.
 - The Playwright browser test for Labs is updated but was not run here (no Chromium installed): `npx playwright install chromium && npm run build && npm run test:e2e`.
+- UI regression sweep (`e2e/ui-audit.mjs`, from the Oct 2026 UI/UX audit in `docs/`): every route at eight viewports, no sideways scrolling, lab consoles that fit under the lab strip, and axe-core WCAG 2.1 AA. `cd e2e && E2E_USER=… E2E_PASSWORD=… E2E_SITE=http://localhost:8090 npm run ui-audit`.

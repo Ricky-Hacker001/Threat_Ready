@@ -2,17 +2,33 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { AppProvider } from "@/state/store";
 import App from "@/App";
-import { setProgressNamespace } from "@/engine/progress";
-import { platformUser } from "@/platform";
+import { setProgressNamespace, setSessionOnlyStorage } from "@/engine/progress";
+import { inPlatform, platformUser } from "@/platform";
+import { BRAND } from "@/brand/brand";
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
 import "@/styles/theme.css";
 
+const root = createRoot(document.getElementById("root")!);
+
+// While ThreatReady confirms who is signed in (at most ~5 s), show that the lab is opening.
+if (inPlatform) {
+  root.render(
+    <div className="boot" role="status">
+      <img src={BRAND.logoWhite} alt="" width="26" height="25" />
+      <h1>{BRAND.productName}</h1>
+      <p className="muted">Opening your lab…</p>
+    </div>,
+  );
+}
+
 // Inside ThreatReady, progress is kept per signed-in account; the namespace must be known before
-// the store first reads it (standalone this resolves at once with no user).
+// the store first reads it (standalone this resolves at once with no user). If the account can't be
+// confirmed, progress is kept for this tab only — never under the shared key — and the lab says so.
 void platformUser().then((user) => {
   if (user) setProgressNamespace(user.id);
-  createRoot(document.getElementById("root")!).render(
+  else if (inPlatform) setSessionOnlyStorage();
+  root.render(
     <React.StrictMode>
       <AppProvider>
         <App />

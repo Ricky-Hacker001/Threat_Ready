@@ -4,6 +4,7 @@ import { Welcome } from './pages/Welcome';
 import { GetStarted } from './pages/GetStarted';
 import { Dashboard } from './pages/Dashboard';
 import { LabPage } from './pages/LabPage';
+import { Brand } from './components/Brand';
 import { labById } from './content/labs';
 
 function useHashRoute(): [string, (r: string) => void] {
@@ -36,7 +37,39 @@ export function App() {
   const m = /^\/lab\/([\w-]+)$/.exec(route);
   if (m) {
     const def = labById(m[1]);
-    if (def && progress.mode) return <LabPage key={def.id} def={def} mode={progress.mode} progress={progress} update={update} go={go} />;
+    if (!def) return <NotFound go={go} what={`There is no lab called “${m[1]}”.`} />;
+    if (progress.mode) return <LabPage key={def.id} def={def} mode={progress.mode} progress={progress} update={update} go={go} />;
+    return <Welcome go={go} hasProgress={false} />;
   }
+  if (route !== '/' && route !== '') return <NotFound go={go} what={`Nothing is published at “${route}”.`} />;
   return <Welcome go={go} hasProgress={!!progress.mode} />;
+}
+
+/** Unknown routes say so instead of silently showing the welcome page (UX-17). */
+function NotFound({ go, what }: { go: (r: string) => void; what: string }) {
+  useEffect(() => {
+    document.title = 'Page not found · ThreatReady | DevSecOps Lab';
+    return () => {
+      document.title = 'ThreatReady | DevSecOps Lab';
+    };
+  }, []);
+  return (
+    <div className="page">
+      <header className="topnav">
+        <Brand onClick={() => go('/')} />
+      </header>
+      <main className="wrap section">
+        <h1>Page not found</h1>
+        <p className="sub">{what} The link may be out of date.</p>
+        <div className="ctas">
+          <button className="btn primary" onClick={() => go('/labs')}>
+            Go to my labs
+          </button>
+          <button className="btn" onClick={() => go('/')}>
+            Welcome page
+          </button>
+        </div>
+      </main>
+    </div>
+  );
 }

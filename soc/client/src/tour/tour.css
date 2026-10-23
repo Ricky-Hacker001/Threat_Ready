@@ -1,16 +1,16 @@
 /* Guided tour, Newbie Demo Mode and the home-page entry points.
-   Additive: nothing here restyles the existing console. The tour uses one
-   colour of its own (--tour) so it can never be mistaken for a severity or
-   a verdict, and every state it shows also has a text label or a mark. */
+   Additive: nothing here restyles the existing console. The tour uses the
+   platform's light violet (--accent-text), never a severity or verdict colour,
+   and every state it shows also has a text label or a mark. */
 
 :root {
-  --tour: #ff5aa8;
-  --tour-ink: #2a0b1b;
-  --tour-wash: rgba(255, 90, 168, 0.12);
+  --tour: var(--accent-text, #a59bff);
+  --tour-ink: #0b1020;
+  --tour-wash: rgba(165, 155, 255, 0.12);
 }
 
 /* ---- Home entry points ---- */
-.learn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.learn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px; }
 .learn-card { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--tour); border-radius: 6px; padding: 18px; display: grid; gap: 10px; align-content: start; }
 .learn-card h3 { font-size: 15.5px; }
 .learn-card .btn { justify-self: start; margin-top: 4px; }
@@ -21,7 +21,7 @@
 .demo-card { background: var(--surface); border: 1px solid var(--rule); border-left: 3px solid var(--tour); border-radius: 6px; padding: 18px; display: grid; gap: 10px; }
 .demo-card h1 { font-size: 20px; margin: 0; }
 .demo-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0 8px; }
-.demo-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; }
+.demo-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 32px; }
 .demo-cols h2 + * { margin-bottom: 22px; }
 .demo-notes { list-style: disc; padding-left: 18px; display: grid; gap: 8px; max-width: 72ch; }
 .demo-steps { list-style: decimal; padding-left: 24px; display: grid; gap: 5px; }
@@ -99,7 +99,7 @@
 .gq-fields > div, .gq-facts > div { display: contents; }
 .gq-fields dt { color: var(--muted); }
 .gq-fields dd { overflow-wrap: anywhere; }
-.gq-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.gq-panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
 .gq-panel { border: 1px solid #3a4d66; border-radius: 6px; padding: 10px; display: grid; gap: 6px; align-content: start; background: var(--ink); }
 .gq-panel h4 { margin: 0; color: var(--text); font-size: 13.5px; }
 .gq-panel .raw-line { font-size: 11.5px; padding: 5px 7px; }

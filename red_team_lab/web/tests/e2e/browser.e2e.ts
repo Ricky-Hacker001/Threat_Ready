@@ -117,9 +117,8 @@ try {
   const sid = await solveViaApi(page, base);
   await remediateViaApi(page, base, sid);
 
-  // Reload the SPA and confirm the run resumes with completion + report render.
+  // Reload the SPA and confirm the run resumes straight into the workspace (UX-10), no catalog step.
   await page.goto(`${base}/lab/`);
-  await page.getByRole('button', { name: 'Start engagement' }).click();  // resumes the active (completed) run
   await page.getByRole('button', { name: 'Report' }).click();
   await page.getByRole('heading', { name: 'Penetration-Test Report' }).waitFor();
   assert(true, 'the completed report renders in the SPA');

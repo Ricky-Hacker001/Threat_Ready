@@ -178,7 +178,8 @@ const t14: TaskDef = {
       beginner: 'The Traffic Tester runs the packet through the simulated firewall and explains each stage.' }),
     nav('arp', 'network/system/arp', ['System', 'ARP']),
     info('arpinfo', `Find ${LAB.finPc}: it maps to ${LAB.macs.rogue} (vendor UNKNOWN), not FIN-PC’s ${LAB.macs.fin}`, { route: 'network/system/arp', target: `[data-guide="arp:${LAB.finPc}"]` }),
-    nav('as', AS, ['System', 'MAC IP Anti-Spoof']),
+    // 'asnav', not 'as': entry('a', …) below already produces the step id 'as' (ADMIN-PC save), and step ids must be unique.
+    nav('asnav', AS, ['System', 'MAC IP Anti-Spoof']),
     ...entry('a', 'ADMIN-PC', LAB.adminPc, LAB.macs.admin),
     ...entry('h', 'HR-PC', LAB.hrPc, LAB.macs.hr),
     ...entry('f', 'FIN-PC', LAB.finPc, LAB.macs.fin),

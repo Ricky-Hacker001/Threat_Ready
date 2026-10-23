@@ -13,6 +13,9 @@ import {
   memoryStorage,
   saveProgress,
   loadProgress,
+  saveSession,
+  loadSession,
+  resetProgress,
 } from "./progress";
 import type { GuardrailConfig } from "./types";
 
@@ -111,6 +114,35 @@ describe("Task 1 Intermediate — detection rule + layered fix", () => {
     const { detection } = finaliseScore(T1_I, state, customers, rule);
     expect(detection.ok).toBe(true);
   });
+
+  it("finishing with a failed re-test is never a pass, even at 70+ points", () => {
+    const { state, customers } = createAttempt(T1_I, 3);
+    const r = runVariant(T1_I, T1_I.attack, T1_I.initialGuardrails ?? {}, state.secrets, customers, new Rng(state.seed + 1));
+    state.logs.push(...r.events);
+    state.attackSucceeded = true;
+    state.markedEvidenceIds = state.logs.filter((e) => !e.noise).map((e) => e.id);
+    let cfg: GuardrailConfig = T1_I.initialGuardrails ?? {};
+    cfg = set(cfg, "systemPrompt", "secretsRemoved", true);
+    cfg = set(cfg, "outputGuard", "echoBlock", true);
+    cfg = set(cfg, "outputGuard", "echoBlockFuzzy", true);
+    // Every required control, but an over-broad block word breaks "support hours": the re-test fails.
+    cfg = set(cfg, "inputGuard", "blockWords", ["system prompt", "instructions", "hours"]);
+    state.guardrails = cfg;
+    const rule: DetectionRule = {
+      id: "r2",
+      name: "Canary leak",
+      description: "",
+      logSource: "response",
+      conditions: [{ field: "canaryHit", op: "eq", value: "true" }],
+      combine: "and",
+      severity: "critical",
+    };
+    const { score, retest } = finaliseScore(T1_I, state, customers, rule);
+    expect(retest.overall).toBe(false);
+    expect(score.total).toBeGreaterThanOrEqual(70);
+    expect(score.passed).toBe(false);
+    expect(score.lines.some((l) => l.includes("re-test failed"))).toBe(true);
+  });
 });
 
 describe("Task 1 Expert — chained fix required", () => {
@@ -164,6 +196,16 @@ describe("Unlock rules + badges", () => {
     saveProgress(store, p);
     const back = loadProgress(store);
     expect(back?.results["T1-F"].bestScore).toBe(90);
+  });
+  it("the attempt in progress round-trips through storage and is cleared by a reset", () => {
+    const store = memoryStorage();
+    const { state } = createAttempt(T1_F, 1);
+    saveSession(store, { v: 1, attempt: { scenarioId: "T1-F", state } });
+    const back = loadSession<{ attempt: { scenarioId: string; state: typeof state } }>(store);
+    expect(back?.attempt.scenarioId).toBe("T1-F");
+    expect(back?.attempt.state.logs.length).toBe(state.logs.length);
+    resetProgress(store);
+    expect(loadSession(store)).toBeNull();
   });
 });
 

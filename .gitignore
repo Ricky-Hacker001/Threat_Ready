@@ -24,3 +24,6 @@ red_team_lab/web/data/
 test-results/
 .claude/
 .DS_Store
+
+# Internal audit reports: describe unfixed vulnerabilities, never publish
+audit/

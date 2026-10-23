@@ -1,11 +1,11 @@
 // Level page (#/level/:id): scenario cards with filters. The server decides
 // what may be started; a locked level is read-only.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api.js';
 import { ErrorNote, SOURCE_LABEL } from '../components/bits.jsx';
 import { Shield } from '../components/Badge.jsx';
-import { Brand, NameChip, Footer, Progress } from '../Console.jsx';
+import { Brand, NameChip, Footer, Progress, ResetNote } from '../Console.jsx';
 
 const STATES = [['all', 'All'], ['not_attempted', 'Not attempted'], ['passed', 'Passed'], ['not_passed', 'Not passed']];
 const GROUPS = [['windows', 'Windows'], ['firewall', 'Firewall'], ['proxy', 'Proxy'], ['dns', 'DNS'], ['email', 'Email'], ['endpoint', 'Endpoint'], ['vpn', 'VPN'], ['identity', 'Identity'], ['cloud', 'Cloud'], ['web', 'Web']];
@@ -36,6 +36,9 @@ export default function LevelPage({ id, go, openDemo }) {
   const [conflict, setConflict] = useState(null);
   // Dismissed for this visit only; the banner comes back on a later visit.
   const [banner, setBanner] = useState(() => !bannerHidden());
+  // The resume-or-abandon prompt takes focus so keyboard and screen-reader users meet it.
+  const conflictRef = useRef(null);
+  useEffect(() => { if (conflict) conflictRef.current?.focus(); }, [conflict]);
 
   const load = () => api.level(id).then(setData).catch(setErr);
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -67,12 +70,12 @@ export default function LevelPage({ id, go, openDemo }) {
     try { await api.abandon(c.attemptId); await start(c.s); } catch (e) { setErr(e); }
   };
 
-  if (!data && !err) return <div className="page"><p className="muted">Loading…</p></div>;
+  if (!data && !err) return <main className="page"><p className="muted" role="status">Loading…</p></main>;
   const lv = data?.level;
   const locked = lv?.state === 'locked';
 
   return (
-    <div className="page">
+    <main className="page">
       <header className="home-head">
         <div>
           <Brand />
@@ -108,8 +111,8 @@ export default function LevelPage({ id, go, openDemo }) {
       )}
 
       {conflict && (
-        <div className="note" role="alertdialog" aria-label="Attempt in progress">
-          <p>You have an attempt in progress. Resume it, or abandon it and start a new variant?</p>
+        <div className="note" role="alertdialog" aria-label="Attempt in progress" aria-describedby="conflict-text" tabIndex={-1} ref={conflictRef}>
+          <p id="conflict-text">You have an attempt in progress. Resume it, or abandon it and start a new variant?</p>
           <p className="muted small">An abandoned attempt scores 0 and stays in your history as Abandoned.</p>
           <div className="row-actions">
             <button type="button" className="btn btn-primary btn-sm" onClick={() => go(`#/case/${conflict.caseId}`)}>Resume</button>
@@ -151,8 +154,8 @@ export default function LevelPage({ id, go, openDemo }) {
           ))}
         </div>
       )}
-      <p className="reset-note">Practice records reset daily at 00:00 UTC.</p>
+      <ResetNote />
       <Footer />
-    </div>
+    </main>
   );
 }

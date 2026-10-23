@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-pLwWvcjLaaqgbRUxCC7XN9givw+p6XobD6zlNB+9q08='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://threatready-db.onrender.com; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://threatready-db.onrender.com; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()">
-<script>try{if(localStorage.getItem('tr-theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
+<script>try{var m=document.cookie.match(/(?:^|;\s*)tr-theme=(light|dark)/),t=m?m[1]:localStorage.getItem('tr-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
 <title>ThreatReady — Certified is not job-ready</title>
 <meta name="description" content="ThreatReady measures how you reason through a live attack, how you do the daily security work, and how you hold up in the interview for the role you want. Start free.">
 <link rel="canonical" href="https://threatready.io/">
@@ -31,11 +31,11 @@
 </script>
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"FAQPage","mainEntity":[
-{"@type":"Question","name":"Do I need security experience?","acceptedAnswer":{"@type":"Answer","text":"No. Every role track starts at Beginner, and the free trial includes two Beginner scenarios on any of the 15 tracks, with no card required. Levels then step up through Intermediate, Advanced and Expert."}},
+{"@type":"Question","name":"Do I need security experience?","acceptedAnswer":{"@type":"Answer","text":"No. Every role track starts at Beginner, and a free account (no card required) is all you need to start practising. Levels then step up through Intermediate, Advanced and Expert."}},
 {"@type":"Question","name":"How is an AI score evaluated fairly?","acceptedAnswer":{"@type":"Answer","text":"Every answer goes through three passes — Evaluator, Challenger and Reconciler — against a published rubric with written definitions for every score band. When the passes disagree, the score carries a confidence flag. You can dispute any score within 14 days and a security engineer reviews it."}},
 {"@type":"Question","name":"How is my data handled?","acceptedAnswer":{"@type":"Answer","text":"Assessment answers are sent to Anthropic's Claude API for scoring; Anthropic does not train models on API inputs. Deleting your account removes your personal data within 30 days. The Privacy Policy and Security page cover the details."}},
 {"@type":"Question","name":"Can hiring teams use ThreatReady?","acceptedAnswer":{"@type":"Answer","text":"Yes. Teams start with a free pilot: we set up role-specific assessments for your candidates and share the scored reports. We respond to pilot requests within one business day."}},
-{"@type":"Question","name":"What is the difference between the three products?","acceptedAnswer":{"@type":"Answer","text":"Attack Reasoning Lab tests how you think through an attack. Lab Simulations, in development and releasing one track at a time, will test whether you can do the daily work of a role. InterviewPrep tests how you perform in an interview built from a real job description and your resume."}}
+{"@type":"Question","name":"What is the difference between the three products?","acceptedAnswer":{"@type":"Answer","text":"Attack Reasoning Lab tests how you think through an attack. Lab Simulations test whether you can do the daily work of a role, in hands-on labs. InterviewPrep tests how you perform in an interview built from a real job description and your resume."}}
 ]}
 </script>
 </head>
@@ -51,7 +51,7 @@
           <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-product">Product <svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg></button>
           <ul class="menu" id="menu-product">
             <li><a href="attack-reasoning-lab.html"><span class="dot dot-lab"></span><span><span class="mi-t">Attack Reasoning Lab</span><span class="mi-d">Reason through a live attack chain</span></span></a></li>
-            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Role-based daily work · in development</span></span></a></li>
+            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Hands-on labs for the daily work of a role</span></span></a></li>
             <li><a href="interviewprep.html"><span class="dot dot-int"></span><span><span class="mi-t">InterviewPrep</span><span class="mi-d">An interview built from a real job description</span></span></a></li>
           </ul>
         </li>
@@ -76,30 +76,30 @@
         <svg class="icon i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         <svg class="icon i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a class="nav-link nav-signin" href="https://threatready.io/app/">Sign in</a>
-      <a class="btn btn-primary btn-sm" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
+      <a class="nav-link nav-signin" href="https://onboard.threatready.io/">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="https://onboard.threatready.io/?mode=signup">Start free</a>
       <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Open menu">
         <svg class="icon i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         <svg class="icon i-close" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </div>
   </div>
-  <div class="drawer" id="drawer">
-    <h3>Product</h3>
-    <ul>
+  <nav class="drawer" id="drawer" aria-label="Menu">
+    <p class="drawer-h" id="drawer-product">Product</p>
+    <ul aria-labelledby="drawer-product">
       <li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li>
-      <li><a href="lab-simulations.html">Lab Simulations <span class="tag tag-soon" style="margin-left:8px">In development</span></a></li>
+      <li><a href="lab-simulations.html">Lab Simulations</a></li>
       <li><a href="interviewprep.html">InterviewPrep</a></li>
     </ul>
-    <h3>Company</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-company">Company</p>
+    <ul aria-labelledby="drawer-company">
       <li><a href="pilot.html">For Teams</a></li>
       <li><a href="transparent-scoring.html">Scoring</a></li>
       <li><a href="pricing.html">Pricing</a></li>
       <li><a href="contact.html">Contact</a></li>
     </ul>
-    <h3>Resources</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-resources">Resources</p>
+    <ul aria-labelledby="drawer-resources">
       <li><a href="resources.html">All resources</a></li>
       <li><a href="sample-report.html">Sample report</a></li>
       <li><a href="rubric.html">Scoring rubric</a></li>
@@ -107,10 +107,10 @@
       <li><a href="security.html">Security</a></li>
     </ul>
     <div class="drawer-cta">
-      <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&plan=free">Start free</a>
-      <a class="btn btn-secondary" href="https://threatready.io/app/">Sign in</a>
+      <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a>
+      <a class="btn btn-secondary" href="https://onboard.threatready.io/">Sign in</a>
     </div>
-  </div>
+  </nav>
 </header>
 <!-- /@nav -->
 
@@ -123,7 +123,7 @@
       <h1 class="h1" id="hero-h">Certified is not job-ready.</h1>
       <p class="lead">ThreatReady measures what certifications can't: how you reason through a live attack, how you do the daily work, and how you hold up in the interview for the role you want.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&amp;plan=free">Start free — no card required</a>
+        <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free — no card required</a>
         <a class="btn btn-secondary" href="#demo">Try a live scenario</a>
       </div>
       <p class="trust-line">
@@ -136,15 +136,15 @@
     <div class="showcase" aria-label="ThreatReady product overview">
       <div class="sc-bar">
         <div class="sc-tabs" role="tablist" aria-label="Products">
-          <button class="sc-tab" role="tab" id="t-reason" aria-controls="p-reason" aria-selected="true"><span class="dot dot-lab" aria-hidden="true"></span>Reason</button>
-          <button class="sc-tab" role="tab" id="t-sim" aria-controls="p-sim" aria-selected="false" tabindex="-1"><span class="dot dot-sim" aria-hidden="true"></span>Simulate</button>
-          <button class="sc-tab" role="tab" id="t-int" aria-controls="p-int" aria-selected="false" tabindex="-1"><span class="dot dot-int" aria-hidden="true"></span>Interview</button>
+          <button class="sc-tab" role="tab" id="t-reason" aria-controls="p-reason" aria-selected="true"><span class="dot dot-lab" aria-hidden="true"></span>Attack Reasoning Lab</button>
+          <button class="sc-tab" role="tab" id="t-sim" aria-controls="p-sim" aria-selected="false" tabindex="-1"><span class="dot dot-sim" aria-hidden="true"></span>Lab Simulations</button>
+          <button class="sc-tab" role="tab" id="t-int" aria-controls="p-int" aria-selected="false" tabindex="-1"><span class="dot dot-int" aria-hidden="true"></span>InterviewPrep</button>
         </div>
         <span class="sc-note">Product overview</span>
       </div>
 
       <div class="sc-panels">
-        <!-- REASON -->
+        <!-- ATTACK REASONING LAB -->
         <div class="sc-panel" role="tabpanel" id="p-reason" aria-labelledby="t-reason" tabindex="0">
           <div class="sc-head">
             <div>
@@ -188,14 +188,14 @@
           <div class="sc-foot"><span>Report includes</span><span class="sc-pill">Dimension scores</span><span class="sc-pill">Model answer</span><span class="sc-pill">Confidence flag</span><span class="sc-pill">Shareable badge</span></div>
         </div>
 
-        <!-- SIMULATE -->
+        <!-- LAB SIMULATIONS -->
         <div class="sc-panel" role="tabpanel" id="p-sim" aria-labelledby="t-sim" tabindex="0" hidden>
           <div class="sc-head">
             <div>
               <p class="sc-kicker">Lab Simulations</p>
               <p class="sc-title">SOC Analyst · Beginner</p>
             </div>
-            <span class="tag tag-soon">In development</span>
+            <span class="tag tag-live">Live</span>
           </div>
           <div class="sc-steps">
             <div class="sc-step done"><b>01</b><span>Read the alert and sign-in logs</span></div>
@@ -208,7 +208,7 @@
             <div class="sc-box"><p class="sc-label">You missed</p><p class="sc-meta">…and what you overlooked, and why it mattered.</p></div>
           </div>
           <div class="sc-row"><span class="sc-label" style="margin:0">Progression</span><span class="lv">Beginner</span><span aria-hidden="true">→</span><span class="lv">Intermediate</span><span aria-hidden="true">→</span><span class="lv">Advanced</span><span aria-hidden="true">→</span><span class="lv">Expert</span></div>
-          <div class="sc-foot"><span>Preview of the planned format · released one role track at a time</span></div>
+          <div class="sc-foot"><span>Illustrative example · labs are live in four tracks: Cloud Security, Blue Team, Red Team and Network Security</span></div>
         </div>
 
         <!-- INTERVIEW -->
@@ -306,7 +306,7 @@
         <div class="pcard-body">
           <div class="pcard-top">
             <span class="pcard-ic" aria-hidden="true"><svg class="icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 9l3 2.5L7 14M12 14h5"/></svg></span>
-            <span class="tag tag-soon">In development</span>
+            <span class="tag tag-live">Live</span>
           </div>
           <h3><a href="lab-simulations.html"><span class="dot dot-sim" aria-hidden="true"></span>Lab Simulations</a></h3>
           <p class="promise">Do the job before you have it.</p>
@@ -316,8 +316,8 @@
             <li>Feedback on what you identified and what you missed.</li>
           </ul>
         </div>
-        <a href="lab-simulations.html" tabindex="-1" aria-hidden="true" class="pcard-thumb pcard-thumb-plan"><div class="mini-steps"><span class="on">01 Read</span><span class="on">02 Decide</span><span>03 Contain</span><span>04 Hand off</span></div><span class="thumb-tag">Preview</span></a>
-        <div class="pcard-foot"><a class="link" href="lab-simulations.html">Explore Simulations <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>
+        <a href="lab-simulations.html" tabindex="-1" aria-hidden="true" class="pcard-thumb pcard-thumb-plan"><div class="mini-steps"><span class="on">01 Read</span><span class="on">02 Decide</span><span>03 Contain</span><span>04 Hand off</span></div><span class="thumb-tag">Example</span></a>
+        <div class="pcard-foot"><a class="link" href="lab-simulations.html">Explore Lab Simulations <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>
       </article>
 
       <article class="pcard">
@@ -359,7 +359,7 @@
     </div>
     <ol class="pipeline p4">
       <li><span class="p-k">01 · Role</span><h3>Pick your role</h3><p>15 security tracks, Beginner to Expert.</p></li>
-      <li><span class="p-k">02 · Practise</span><h3>Practise and reason</h3><p>Live attack scenarios now; role simulations as each track is released.</p></li>
+      <li><span class="p-k">02 · Practise</span><h3>Practise and reason</h3><p>Live attack scenarios and hands-on labs for your role.</p></li>
       <li><span class="p-k">03 · Interview</span><h3>Prepare for the interview</h3><p>Tailored to a real job description and your resume.</p></li>
       <li><span class="p-k">04 · Report</span><h3>Get your report</h3><p>Scores, written feedback and a shareable badge.</p></li>
     </ol>
@@ -420,7 +420,7 @@
             <div class="note" id="dModel" style="margin-top:12px" hidden><b>Model answer</b><span></span></div>
             <div class="demo-actions" style="margin-top:16px">
               <button type="button" class="btn btn-secondary btn-sm" id="dAgain">Try another scenario</button>
-              <a class="btn btn-primary btn-sm" href="https://threatready.io/app/auth?mode=signup">Get the full 5-question version</a>
+              <a class="btn btn-primary btn-sm" href="https://onboard.threatready.io/?mode=signup">Get the full 5-question version</a>
             </div>
           </div>
           <p class="xsmall muted" style="margin-top:auto">The demo scores one question. A full Lab session runs five adaptive questions.</p>
@@ -453,7 +453,7 @@
       </div>
     </div>
     <div class="below-panels">
-      <a class="link" href="lab-simulations.html">Lab Simulations walkthrough <span class="tag tag-soon">Preview</span></a>
+      <a class="link" href="lab-simulations.html">Lab Simulations: the live labs <span class="tag tag-live">Live</span></a>
       <a class="link" href="interviewprep.html">InterviewPrep sample question <span class="tag tag-sample">Example</span></a>
     </div>
   </div>
@@ -556,7 +556,7 @@
     <div class="faq">
       <details>
         <summary>Do I need security experience?<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
-        <div class="faq-a"><p>No. Every role track starts at Beginner, and the free trial includes two Beginner scenarios on any of the 15 tracks, with no card required. Levels then step up through Intermediate, Advanced and Expert.</p></div>
+        <div class="faq-a"><p>No. Every role track starts at Beginner, and a free account (no card required) is all you need to start practising. Levels then step up through Intermediate, Advanced and Expert.</p></div>
       </details>
       <details>
         <summary>How is an AI score evaluated fairly?<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
@@ -572,7 +572,7 @@
       </details>
       <details>
         <summary>What is the difference between the three products?<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></summary>
-        <div class="faq-a"><p>Attack Reasoning Lab tests how you think through an attack. Lab Simulations, in development and releasing one track at a time, will test whether you can do the daily work of a role. InterviewPrep tests how you perform in an interview built from a real job description and your resume. <a href="attack-reasoning-lab.html">Compare the products</a>.</p></div>
+        <div class="faq-a"><p>Attack Reasoning Lab tests how you think through an attack. Lab Simulations test whether you can do the daily work of a role, in hands-on labs. InterviewPrep tests how you perform in an interview built from a real job description and your resume. <a href="attack-reasoning-lab.html">Compare the products</a>.</p></div>
       </details>
     </div>
   </div>
@@ -584,7 +584,7 @@
       <h2 class="h2" id="close-h">Find out where you really stand.</h2>
       <p>No credit card · Two free Beginner scenarios on any of 15 roles</p>
     </div>
-    <a class="btn btn-primary" href="https://threatready.io/app/auth?mode=signup&amp;plan=free">Start free</a>
+    <a class="btn btn-primary" href="https://onboard.threatready.io/?mode=signup">Start free</a>
   </div>
 </section>
 
@@ -601,7 +601,7 @@
       </div>
       <nav aria-labelledby="f-product"><h2 id="f-product">Product</h2><ul><li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li><li><a href="lab-simulations.html">Lab Simulations</a></li><li><a href="interviewprep.html">InterviewPrep</a></li><li><a href="pricing.html">Pricing</a></li><li><a href="pilot.html">For teams</a></li></ul></nav>
       <nav aria-labelledby="f-resources"><h2 id="f-resources">Resources</h2><ul><li><a href="resources.html" target="_blank" rel="noopener noreferrer">All resources<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="sample-report.html" target="_blank" rel="noopener noreferrer">Sample report<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="rubric.html" target="_blank" rel="noopener noreferrer">Scoring rubric<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="transparent-scoring.html" target="_blank" rel="noopener noreferrer">How scoring works<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="how-it-works.html" target="_blank" rel="noopener noreferrer">How it works<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
-      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html" target="_blank" rel="noopener noreferrer">Contact<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
+      <nav aria-labelledby="f-company"><h2 id="f-company">Company</h2><ul><li><a href="https://aerovanttech.com/" target="_blank" rel="noopener noreferrer">Aerovant Technologies<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="https://aerovantacademy.com/" target="_blank" rel="noopener noreferrer">Aerovant Academy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="contact.html">Contact</a></li><li><a href="mailto:admin@aerovanttech.com" target="_blank" rel="noopener noreferrer">admin@aerovanttech.com<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
       <nav aria-labelledby="f-legal"><h2 id="f-legal">Legal</h2><ul><li><a href="privacy.html" target="_blank" rel="noopener noreferrer">Privacy policy<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="terms.html" target="_blank" rel="noopener noreferrer">Terms of service<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="dpa.html" target="_blank" rel="noopener noreferrer">Data processing agreement<span class="sr-only"> (opens in a new tab)</span></a></li><li><a href="security.html" target="_blank" rel="noopener noreferrer">Security<span class="sr-only"> (opens in a new tab)</span></a></li></ul></nav>
     </div>
     <div class="footer-bottom">

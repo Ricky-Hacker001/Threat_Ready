@@ -10,8 +10,9 @@ A page may set its active nav item with <body data-nav="pricing"> (product|teams
 import pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-APP = "https://threatready.io/app/"
-SIGNUP = "https://threatready.io/app/auth?mode=signup&plan=free"
+# Sign-in and sign-up live on onboard (the identity provider); ?mode=signup opens the Create-account tab.
+APP = "https://onboard.threatready.io/"
+SIGNUP = "https://onboard.threatready.io/?mode=signup"
 
 CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg>'
 
@@ -28,7 +29,7 @@ def nav(active):
           <button class="nav-link" type="button" data-menu aria-expanded="false" aria-controls="menu-product"{cur("product")}>Product {CHEV}</button>
           <ul class="menu" id="menu-product">
             <li><a href="attack-reasoning-lab.html"><span class="dot dot-lab"></span><span><span class="mi-t">Attack Reasoning Lab</span><span class="mi-d">Reason through a live attack chain</span></span></a></li>
-            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Role-based daily work · in development</span></span></a></li>
+            <li><a href="lab-simulations.html"><span class="dot dot-sim"></span><span><span class="mi-t">Lab Simulations</span><span class="mi-d">Hands-on labs for the daily work of a role</span></span></a></li>
             <li><a href="interviewprep.html"><span class="dot dot-int"></span><span><span class="mi-t">InterviewPrep</span><span class="mi-d">An interview built from a real job description</span></span></a></li>
           </ul>
         </li>
@@ -61,22 +62,22 @@ def nav(active):
       </button>
     </div>
   </div>
-  <div class="drawer" id="drawer">
-    <h3>Product</h3>
-    <ul>
+  <nav class="drawer" id="drawer" aria-label="Menu">
+    <p class="drawer-h" id="drawer-product">Product</p>
+    <ul aria-labelledby="drawer-product">
       <li><a href="attack-reasoning-lab.html">Attack Reasoning Lab</a></li>
-      <li><a href="lab-simulations.html">Lab Simulations <span class="tag tag-soon" style="margin-left:8px">In development</span></a></li>
+      <li><a href="lab-simulations.html">Lab Simulations</a></li>
       <li><a href="interviewprep.html">InterviewPrep</a></li>
     </ul>
-    <h3>Company</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-company">Company</p>
+    <ul aria-labelledby="drawer-company">
       <li><a href="pilot.html">For Teams</a></li>
       <li><a href="transparent-scoring.html">Scoring</a></li>
       <li><a href="pricing.html">Pricing</a></li>
       <li><a href="contact.html">Contact</a></li>
     </ul>
-    <h3>Resources</h3>
-    <ul>
+    <p class="drawer-h" id="drawer-resources">Resources</p>
+    <ul aria-labelledby="drawer-resources">
       <li><a href="resources.html">All resources</a></li>
       <li><a href="sample-report.html">Sample report</a></li>
       <li><a href="rubric.html">Scoring rubric</a></li>
@@ -87,7 +88,7 @@ def nav(active):
       <a class="btn btn-primary" href="{SIGNUP}">Start free</a>
       <a class="btn btn-secondary" href="{APP}">Sign in</a>
     </div>
-  </div>
+  </nav>
 </header>'''
 
 SOCIAL = [
@@ -106,7 +107,9 @@ def footer():
         for n, u, p in SOCIAL)
     def grp(gid, title, items, newtab):
         sr = '<span class="sr-only"> (opens in a new tab)</span>'
-        lis = "".join(f'<li><a href="{h}"{NT if newtab else ""}>{t}{sr if newtab else ""}</a></li>' for h, t in items)
+        # The Contact page is part of this site, so it opens in the same tab even inside a new-tab group.
+        tab = lambda h: newtab and h != "contact.html"
+        lis = "".join(f'<li><a href="{h}"{NT if tab(h) else ""}>{t}{sr if tab(h) else ""}</a></li>' for h, t in items)
         return f'<nav aria-labelledby="{gid}"><h2 id="{gid}">{title}</h2><ul>{lis}</ul></nav>'
     product = grp("f-product", "Product", [("attack-reasoning-lab.html", "Attack Reasoning Lab"), ("lab-simulations.html", "Lab Simulations"),
         ("interviewprep.html", "InterviewPrep"), ("pricing.html", "Pricing"), ("pilot.html", "For teams")], False)

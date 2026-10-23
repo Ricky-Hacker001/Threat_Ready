@@ -1,6 +1,6 @@
 import React from "react";
 import { useApp } from "@/state/store";
-import { LevelTag } from "@/components/common";
+import { Crumbs, LevelTag } from "@/components/common";
 import { variantCountFor } from "@/engine/validation";
 
 export function Briefing() {
@@ -8,16 +8,11 @@ export function Briefing() {
   const at = state.attempt!;
   const s = at.scenario;
   const bypassN = variantCountFor(s.level);
+  const started = at.state.phase !== "briefing";
 
   return (
     <div className="stack">
-      <div className="crumbs">
-        <span>Mission Control</span>
-        <span className="sep">/</span>
-        <span>Task {s.taskId}</span>
-        <span className="sep">/</span>
-        <span style={{ color: "var(--text-0)" }}>{s.title}</span>
-      </div>
+      <Crumbs onHome={() => dispatch({ t: "requestExit" })} trail={[`Task ${s.taskId}`, s.title]} />
 
       <div className="card pad-lg stack">
         <div className="row between wrap">
@@ -86,11 +81,11 @@ export function Briefing() {
           </div>
         )}
 
-        <div className="row">
+        <div className="row wrap">
           <button className="btn primary" onClick={() => dispatch({ t: "startScenario" })}>
-            Start scenario
+            {started ? "Resume scenario" : "Start scenario"}
           </button>
-          <button className="btn ghost" onClick={() => dispatch({ t: "mission" })}>
+          <button className="btn ghost" onClick={() => dispatch({ t: "requestExit" })}>
             Back to Mission Control
           </button>
         </div>

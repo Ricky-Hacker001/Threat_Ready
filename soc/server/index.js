@@ -163,6 +163,9 @@ app.get('/api/cases/:id/export', wrap((req, res) => {
 // Live stream: new log lines every second, plus a nudge whenever the case changes.
 // Each connection holds a timer and a response for as long as the tab is open, so a user gets at
 // most MAX_SSE_PER_USER at once and a closed case ends its stream rather than ticking for ever.
+// Every "logs" message carries the last sequence number as its SSE id, so a
+// browser that reconnects (Last-Event-ID) or a client that reopens the stream
+// (?after=<seq>) receives the lines it missed instead of a silent gap.
 const MAX_SSE_PER_USER = 3;
 const sseOpen = new Map(); // uid -> open connections
 export const openStreamsOf = (uid) => sseOpen.get(uid) || 0;
@@ -175,10 +178,12 @@ app.get('/api/cases/:id/stream', wrap((req, res) => {
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
   sseOpen.set(uid, openStreamsOf(uid) + 1);
-  let seq = stream.seq;
+  const resume = Number(req.get('Last-Event-ID') ?? req.query.after);
+  // A resume point from before a restart may be ahead of this stream: start live then.
+  let seq = Number.isInteger(resume) && resume >= 0 && resume <= stream.seq ? resume : stream.seq;
   let rev = c.rev;
   let done = false;
-  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const send = (event, data, id) => res.write(`${id != null ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   const finish = () => {
     if (done) return;
     done = true;
@@ -194,7 +199,7 @@ app.get('/api/cases/:id/stream', wrap((req, res) => {
       const fresh = stream.since(seq);
       if (fresh.length) {
         seq = fresh[fresh.length - 1].seq;
-        send('logs', alias.outDeep(fresh.map(publicEvent)));
+        send('logs', alias.outDeep(fresh.map(publicEvent)), seq);
       } else res.write(': keep-alive\n\n');
       if (c.rev !== rev) { rev = c.rev; send('case', { rev }); }
       if (c.status === 'closed') { send('closed', {}); finish(); res.end(); }
@@ -240,7 +245,7 @@ app.get('/api/me/export', (req, res) => {
   res.set('Content-Disposition', `attachment; filename="soc-simulation-record-${new Date().toISOString().slice(0, 10)}.json"`);
   res.json({
     schema: 'soc-record/1', exportedAt: new Date().toISOString(),
-    note: 'Practice record from the ThreatReady SOC Simulation. Internal progress only; not a certification or professional qualification. Records reset daily at 00:00 UTC.',
+    note: `Practice record from the ThreatReady SOC Simulation. Internal progress only; not a certification or professional qualification.${config.dailyWipe ? ' Records reset daily at 00:00 UTC.' : ''}`,
     user: { uid: req.user.uid, name: req.user.name },
     attempts,
     badges: repo.listAwards(req.user.uid),

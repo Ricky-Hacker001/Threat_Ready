@@ -8,6 +8,15 @@ import { ApiError } from './lib/api';
 import './ui/platform.css';
 import './ui/theme.css';
 
+/** Keeps the browser's theme-color (address bar on phones) in step with the dark or light theme. */
+function syncThemeColor() {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  const apply = () => meta?.setAttribute('content', document.documentElement.getAttribute('data-theme') === 'light' ? '#ffffff' : '#0b1020');
+  apply();
+  new MutationObserver(apply).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+syncThemeColor();
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

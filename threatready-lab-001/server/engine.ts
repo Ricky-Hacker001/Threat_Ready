@@ -499,6 +499,7 @@ const BRIEFING = {
   rules: [
     'Everything here is simulated. No real AWS account, credentials or customer data are involved.',
     'Nothing is fixed for you. Opening a page never changes a resource — you inspect, decide, act, confirm and then verify.',
+    'The simulated clock is not real time. It moves forward with every step you take, including opening a resource\'s details to inspect it, and the intruder keeps working as it moves.',
     'A finding is only resolved when the server has verified the resulting configuration and you have tested it.',
     'AeroCart is live. Changes that break the storefront, uploads, invoicing or order processing count against you — and can be undone.',
     'Hints are available per objective and reduce that objective\'s points by 25% each.',

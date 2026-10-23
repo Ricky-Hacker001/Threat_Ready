@@ -1,7 +1,22 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError, BASE } from './api';
-import { ToastHost, useToast, Sev, StatusBadge } from './ui';
+import { ToastHost, useToast, Sev, StatusBadge, Dialog, useMedia, Deco } from './ui';
 import { BrowserTool, ProxyTool, RepeaterTool, TerminalTool, FindingsTool, ReportTool, type ToolProps } from './tools';
+
+/** The one loading screen every ThreatReady app shows while it opens (shared platform markup). */
+function PlatformLoading({ app }: { app: string }) {
+  return <div className="trp tr-loading" role="status" aria-live="polite">
+    <div className="tr-loading-in">
+      <div className="tr-loading-radar" aria-hidden="true">
+        <span className="tr-loading-ping" />
+        <svg className="tr-loading-ring" viewBox="0 0 100 100"><circle className="tr-loading-track" cx="50" cy="50" r="46" /><circle className="tr-loading-sweep" cx="50" cy="50" r="46" /></svg>
+        <img src={`${BASE}logo-sm.png`} alt="" />
+      </div>
+      <span className="tr-loading-mark">ThreatReady</span>
+      <p className="tr-loading-line"><span className="tr-loading-prompt">›</span>opening {app}<span className="tr-loading-cursor" /></p>
+    </div>
+  </div>;
+}
 
 type User = { id: string; name: string; onboardUrl?: string | null } | null;
 
@@ -21,7 +36,7 @@ function Root() {
   useEffect(() => {
     api.me().then((u: any) => setUser(u)).catch((e) => { if (e instanceof ApiError && e.body?.devLogin === false) setPlatformOut(true); setUser(null); }).finally(() => setLoading(false));
   }, []);
-  if (loading) return <div className="center-wrap"><p className="muted">Loading ThreatReady…</p></div>;
+  if (loading) return <PlatformLoading app="the Web Pentest Lab" />;
   if (!user && platformOut) return <SessionEnded />;
   if (!user) return <Login onIn={setUser} />;
   return <Authed user={user} onOut={() => { if (user.onboardUrl) setPlatformOut(true); setUser(null); }} />;
@@ -42,25 +57,41 @@ function Login({ onIn }: { onIn: (u: any) => void }) {
   const [name, setName] = useState('');
   const [err, setErr] = useState('');
   const go = async () => { try { await api.devLogin(name.trim()); onIn(await api.me()); } catch (e: any) { setErr(e.message); } };
-  return <div className="trp wl"><div className="center-wrap" style={{ maxWidth: 440 }}>
+  return <main className="trp wl"><div className="center-wrap" style={{ maxWidth: 440 }}>
     <div className="card">
-      <div className="row" style={{ marginBottom: 12 }}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" /><strong style={{ fontSize: 18 }}>ThreatReady Web Pentest Lab</strong></div>
+      <div className="row" style={{ marginBottom: 12 }}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" /><h1 style={{ fontSize: 18, margin: 0 }}>ThreatReady Web Pentest Lab</h1></div>
       <p className="muted small">Enter a display name to start. This is a standalone training simulation — no real account, credential or system is involved.</p>
-      <input className="wl-input" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }} placeholder="Your name" autoFocus />
-      {err && <p className="small" style={{ color: 'var(--bad)' }}>{err}</p>}
+      <label className="tr-sr" htmlFor="rt-login-name">Display name</label>
+      <input id="rt-login-name" className="wl-input" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') go(); }} placeholder="Your name" autoComplete="nickname" autoFocus />
+      {err && <p className="small" role="alert" style={{ color: 'var(--bad)' }}>{err}</p>}
       <button className="wl-btn primary" style={{ marginTop: 10 }} disabled={name.trim().length < 2} onClick={go}>Enter the lab</button>
     </div>
-  </div></div>;
+  </div></main>;
 }
 
 function Authed({ user, onOut }: { user: any; onOut: () => void }) {
   const toast = useToast();
   const [def, setDef] = useState<any>(null);
   const [snap, setSnap] = useState<Snap>(null);
+  const [resuming, setResuming] = useState(true);
   const [starting, setStarting] = useState(false);
   const labId = 'TR-RED-001';
 
-  useEffect(() => { api.definition(labId).then(setDef).catch(e => toast(e.message, 'err')); }, []);
+  // On load, go straight to an existing run instead of back to the catalog (UX-10). The mode
+  // picker is only for a first run, so no button ever offers a mode that will not be applied.
+  useEffect(() => {
+    let dead = false;
+    api.definition(labId).then(d => { if (!dead) setDef(d); }).catch(e => toast(e.message, 'err'));
+    api.catalog()
+      .then(async (list: any[]) => {
+        if (dead) return;
+        const entry = list.find(c => c.id === labId);
+        if (entry?.progress) { const s = await api.startSession(labId); if (!dead) setSnap(s); }
+      })
+      .catch(() => { /* no prior run, or catalog unavailable: show the catalog */ })
+      .finally(() => { if (!dead) setResuming(false); });
+    return () => { dead = true; };
+  }, []);
 
   const start = async (mode?: string) => { setStarting(true); try { const s = await api.startSession(labId, mode); setSnap(s); } catch (e: any) { toast(e.message, 'err'); } setStarting(false); };
 
@@ -76,18 +107,20 @@ function Authed({ user, onOut }: { user: any; onOut: () => void }) {
 
   const logout = async () => { if (user.onboardUrl) return platformSignOut(user.onboardUrl); try { await api.devLogout(); } catch {} onOut(); };
 
-  if (!snap) return <div className="trp wl"><TopBar user={user} logout={logout} /><Catalog def={def} start={start} starting={starting} /></div>;
+  if (resuming) return <PlatformLoading app="the Web Pentest Lab" />;
+  if (!snap) return <div className="trp wl"><TopBar user={user} logout={logout} /><main className="wl-center"><Catalog def={def} start={start} starting={starting} /></main></div>;
   return <Workspace user={user} def={def} snap={snap} act={act} logout={logout} reset={async () => { const s = await api.reset(snap.session.id); setSnap(s); toast('Lab reset — fresh engagement started.', 'ok'); }} />;
 }
 
 function TopBar({ user, logout, extra }: { user: any; logout: () => void; extra?: React.ReactNode }) {
-  return <div className="wl-top">
+  return <div className="wl-top" role="banner">
     {user.onboardUrl ? <span className="brand">Web Pentest Lab</span> : <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady <span className="muted" style={{ fontWeight: 400 }}>Web Pentest Lab</span></span>}
     <span className="simbadge">Simulation environment</span>
     {extra}
     <span className="spacer" />
     <span className="muted small">{user.name}</span>
-    <button className="wl-btn sm" onClick={logout}>Sign out</button>
+    {/* Hosted inside ThreatReady, the platform strip owns sign-out (FUNC-17). */}
+    {!user.onboardUrl && <button className="wl-btn sm" onClick={logout}>Sign out</button>}
   </div>;
 }
 
@@ -110,9 +143,9 @@ function Catalog({ def, start, starting }: { def: any; start: (mode?: string) =>
         <p className="small muted">{def?.subtitle || 'Investigate, exploit, remediate and report on a vulnerable e-commerce application.'}</p>
         <div className="small muted">9 vulnerability classes · recon → exploit → remediate → report</div>
         <div style={{ marginTop: 4 }}>
-          <label className="fld">Choose your guidance level</label>
-          <div className="modepick">
-            {modes.map((m: any) => <button key={m.id} type="button" className={`modeopt${mode === m.id ? ' sel' : ''}`} onClick={() => setMode(m.id)}>
+          <span className="fld" id="mode-label">Choose your guidance level</span>
+          <div className="modepick" role="radiogroup" aria-labelledby="mode-label">
+            {modes.map((m: any) => <button key={m.id} type="button" role="radio" aria-checked={mode === m.id} className={`modeopt${mode === m.id ? ' sel' : ''}`} onClick={() => setMode(m.id)}>
               <span className="row"><b>{m.label}</b>{mode === m.id && <span className="badge st-ok" style={{ marginLeft: 'auto' }}>Selected</span>}</span>
               <span className="small muted">{m.blurb}</span>
             </button>)}
@@ -121,7 +154,7 @@ function Catalog({ def, start, starting }: { def: any; start: (mode?: string) =>
         <button className="wl-btn primary" onClick={() => start(mode)} disabled={starting}>{starting ? 'Starting…' : `Start engagement · ${modes.find((m: any) => m.id === mode)?.label || 'Beginner'}`}</button>
         <span className="small muted">You can change the mode any time from the top bar.</span>
       </div>
-      {['AeroPay — FinTech SaaS', 'AeroDesk — Enterprise SaaS'].map(t => <div key={t} className="cat-card" style={{ opacity: .6 }}>
+      {['AeroPay — FinTech SaaS', 'AeroDesk — Enterprise SaaS'].map(t => <div key={t} className="cat-card soon">
         <div className="row"><span className="badge st-none">Coming soon</span></div>
         <strong style={{ fontSize: 16 }}>{t}</strong>
         <p className="small muted">Access-control, business-logic and multi-tenant isolation testing. Built on the same engine.</p>
@@ -142,10 +175,17 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
   const [repeater, setRepeater] = useState<any>(null);
   const [showBrief, setShowBrief] = useState(!snap.status.acknowledged);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuBtn = useRef<HTMLButtonElement>(null);
+  const menuPop = useRef<HTMLDivElement>(null);
+  // The More menu is a disclosure: focus moves to its first action, Escape closes it and returns focus.
+  useEffect(() => { if (menuOpen) menuPop.current?.querySelector('button')?.focus(); }, [menuOpen]);
+  const closeMenu = () => { setMenuOpen(false); menuBtn.current?.focus(); };
   // Show the guide once per browser. For a new run the briefing comes first, then the guide (see onAck);
   // a returning, already-briefed learner who hasn't seen it gets it on open.
   const guideSeen = () => { try { return !!localStorage.getItem('tr_guide_seen'); } catch { return false; } };
   const [rail, setRail] = useState<null | 'left' | 'right'>(null);  // narrow-screen drawers
+  const narrow = useMedia('(max-width: 1100px)');  // below this the side rails are drawers
   const { view, status } = snap;
 
   const [browserPrefill, setBrowserPrefill] = useState<any>(null);
@@ -172,62 +212,91 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
   const copyText = (t: string) => { navigator.clipboard?.writeText(t).then(() => toast('Copied.', 'ok'), () => toast('Copy failed — select and copy manually.', 'err')); };
 
   return <div className="trp wl">
-    <div className="wl-top">
+    <div className="wl-top" role="banner">
       {user.onboardUrl ? <span className="brand">Web Pentest Lab</span> : <span className="brand"><img src={`${BASE}logo-sm.png`} alt="" />ThreatReady<span className="brandsub"> · Web Pentest Lab</span></span>}
       <span className="simbadge">Simulation</span>
       <span className="lvlpill">L{status.level}/4 · {LEVEL_NAMES[status.level - 1]}</span>
       <span className="scorepill hide-sm">{status.score.total}/{status.score.max} pts</span>
       <span className="spacer" />
-      <select className="wl-select modesel" value={status.mode} onChange={e => act('settings.setMode', { mode: e.target.value })} title="Guidance mode">
-        <option value="beginner">◆ Beginner</option>
-        <option value="intermediate">◆ Intermediate</option>
-        <option value="advanced">◆ Advanced</option>
+      <label className="tr-sr" htmlFor="mode-select">Guidance mode</label>
+      <select id="mode-select" className="wl-select modesel" value={status.mode} onChange={e => act('settings.setMode', { mode: e.target.value })} title="Guidance mode">
+        <option value="beginner">Beginner</option>
+        <option value="intermediate">Intermediate</option>
+        <option value="advanced">Advanced</option>
       </select>
       <button className="wl-btn sm hide-sm" onClick={() => setShowBrief(true)}>Brief</button>
       <button className="wl-btn sm hide-sm" onClick={() => setConfirmReset(true)}>Reset</button>
+      {/* On small screens Brief and Reset move into this menu so they stay reachable (UX-18). */}
+      <div className="wl-menu show-sm" onKeyDown={e => { if (e.key === 'Escape' && menuOpen) { e.stopPropagation(); closeMenu(); } }}>
+        <button ref={menuBtn} className="wl-btn sm" aria-expanded={menuOpen} aria-controls="rt-more-menu" onClick={() => setMenuOpen(o => !o)}>More <Deco>▾</Deco></button>
+        {menuOpen && <>
+          <div className="wl-menu-back" onClick={closeMenu} />
+          <div className="wl-menu-pop" id="rt-more-menu" ref={menuPop} role="group" aria-label="More actions">
+            <button className="wl-menu-item" onClick={() => { setMenuOpen(false); setShowBrief(true); }}>Brief</button>
+            <button className="wl-menu-item" onClick={() => { setMenuOpen(false); setConfirmReset(true); }}>Reset engagement</button>
+            {!user.onboardUrl && <button className="wl-menu-item" onClick={() => { setMenuOpen(false); logout(); }}>Sign out</button>}
+          </div>
+        </>}
+      </div>
       <span className="muted small hide-sm">{user.name}</span>
-      <button className="wl-btn sm" onClick={logout}>Sign out</button>
+      {!user.onboardUrl && <button className="wl-btn sm hide-sm" onClick={logout}>Sign out</button>}
     </div>
 
+    <h1 className="tr-sr">ThreatReady Web Pentest Lab — {def?.title || 'TR-RED-001'}</h1>
     <div className="wl-main">
       {rail && <div className="wl-railback" onClick={() => setRail(null)} />}
-      <aside className={`wl-rail${rail === 'left' ? ' open' : ''}`}>
-        <div className="railclose"><b>Mission</b><button className="wl-btn sm" onClick={() => setRail(null)}>✕</button></div>
+      {/* When these rails are closed drawers they are removed from the tab order and the a11y tree (A11Y-03). */}
+      <aside className={`wl-rail${rail === 'left' ? ' open' : ''}`} aria-label="Mission" {...(narrow && rail !== 'left' ? { inert: true, 'aria-hidden': true } : {})}>
+        <div className="railclose"><b>Mission</b><button className="wl-btn sm" onClick={() => setRail(null)} aria-label="Close Mission panel"><Deco>✕</Deco></button></div>
         <MissionRail status={status} act={act} />
       </aside>
-      <section className="wl-center">
+      <main className="wl-center">
         <GuidanceBanner guidance={status.guidance} gotoTab={gotoTab} complete={status.complete} doStep={doStep} runCmd={runCmd} copyText={copyText} goUrl={goUrl} level={status.level} />
         <div className="wl-tabs">
-          <button className="wl-tab railtoggle" onClick={() => setRail('left')} title="Objectives & hints">☰ Mission {objDone > 0 && <span className="count">{objDone}</span>}</button>
-          {TABS.map(t => <button key={t.id} className={`wl-tab ${tab === t.id ? 'active' : ''}${pointTab === t.id && tab !== t.id ? ' point' : ''}`} onClick={() => setTab(t.id)}>
+          <button className="wl-tab railtoggle" onClick={() => setRail('left')} aria-label="Open Objectives and hints"><Deco>☰</Deco> Mission {objDone > 0 && <span className="count">{objDone}</span>}</button>
+          <div className="wl-tablist" role="tablist" aria-label="Tools" onKeyDown={onTabKey}>
+          {TABS.map(t => <button key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`} tabIndex={tab === t.id ? 0 : -1} className={`wl-tab ${tab === t.id ? 'active' : ''}${pointTab === t.id && tab !== t.id ? ' point' : ''}`} onClick={() => setTab(t.id)}>
             {t.label}
             {pointTab === t.id && tab !== t.id && <span className="point-dot" aria-hidden="true" />}
             {t.id === 'proxy' && view.history.length > 0 && <span className="count">{view.history.length}</span>}
             {t.id === 'findings' && status.posture.confirmed > 0 && <span className="count">{status.posture.confirmed}</span>}
           </button>)}
-          <button className="wl-tab railtoggle rt-right" onClick={() => setRail('right')} title="Evidence, findings & story">Activity {status.evidence.length > 0 && <span className="count">{status.evidence.length}</span>}</button>
+          </div>
+          <button className="wl-tab railtoggle rt-right" onClick={() => setRail('right')} aria-label="Open Evidence, findings and story">Activity {status.evidence.length > 0 && <span className="count">{status.evidence.length}</span>}</button>
         </div>
         <div className="wl-toolwrap">
-          <div style={{ display: tab === 'browser' ? 'block' : 'none' }}><BrowserTool {...toolProps} /></div>
-          <div style={{ display: tab === 'proxy' ? 'block' : 'none' }}><ProxyTool {...toolProps} /></div>
-          <div style={{ display: tab === 'repeater' ? 'block' : 'none' }}><RepeaterTool {...toolProps} /></div>
-          <div style={{ display: tab === 'terminal' ? 'block' : 'none', height: '100%' }}><TerminalTool {...toolProps} /></div>
-          <div style={{ display: tab === 'findings' ? 'block' : 'none' }}><FindingsTool {...toolProps} /></div>
-          <div style={{ display: tab === 'report' ? 'block' : 'none' }}><ReportTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-browser" aria-labelledby="tab-browser" hidden={tab !== 'browser'}><BrowserTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-proxy" aria-labelledby="tab-proxy" hidden={tab !== 'proxy'}><ProxyTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-repeater" aria-labelledby="tab-repeater" hidden={tab !== 'repeater'}><RepeaterTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-terminal" aria-labelledby="tab-terminal" hidden={tab !== 'terminal'} style={{ height: tab === 'terminal' ? '100%' : undefined }}><TerminalTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-findings" aria-labelledby="tab-findings" hidden={tab !== 'findings'}><FindingsTool {...toolProps} /></div>
+          <div role="tabpanel" id="panel-report" aria-labelledby="tab-report" hidden={tab !== 'report'}><ReportTool {...toolProps} /></div>
         </div>
-      </section>
-      <aside className={`wl-rail right${rail === 'right' ? ' open' : ''}`}>
-        <div className="railclose"><b>Activity</b><button className="wl-btn sm" onClick={() => setRail(null)}>✕</button></div>
+      </main>
+      <aside className={`wl-rail right${rail === 'right' ? ' open' : ''}`} aria-label="Evidence, findings and story" {...(narrow && rail !== 'right' ? { inert: true, 'aria-hidden': true } : {})}>
+        <div className="railclose"><b>Activity</b><button className="wl-btn sm" onClick={() => setRail(null)} aria-label="Close Activity panel"><Deco>✕</Deco></button></div>
         <ContextRail status={status} view={view} act={act} def={def} gotoTab={gotoTab} defaultGuideOpen={!guideSeen()} />
       </aside>
     </div>
 
-    {showBrief && def && <Briefing def={def} acknowledged={status.acknowledged} onAck={() => { if (!status.acknowledged) act('engagement.acknowledge'); setShowBrief(false); }} />}
-    {confirmReset && <div className="modal-back" onClick={() => setConfirmReset(false)}><div className="modal" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
-      <h2>Reset the engagement?</h2><p className="muted">This archives your current run (its report stays readable) and starts a fresh one from the beginning.</p>
-      <div className="row"><button className="wl-btn primary" onClick={() => { reset(); setConfirmReset(false); }}>Reset</button><button className="wl-btn" onClick={() => setConfirmReset(false)}>Cancel</button></div>
-    </div></div>}
+    {showBrief && def && <Briefing def={def} acknowledged={status.acknowledged} onAck={() => { if (!status.acknowledged) act('engagement.acknowledge'); setShowBrief(false); }} onClose={() => setShowBrief(false)} />}
+    {confirmReset && <Dialog title="Reset the engagement?" onClose={() => setConfirmReset(false)} maxWidth={440}>
+      <p className="muted">This archives your current run (its report stays readable) and starts a fresh one from the beginning.</p>
+      <div className="row"><button className="wl-btn primary" data-autofocus onClick={() => { reset(); setConfirmReset(false); }}>Reset</button><button className="wl-btn" onClick={() => setConfirmReset(false)}>Cancel</button></div>
+    </Dialog>}
   </div>;
+}
+
+// Tabs follow the ARIA tabs pattern: one tab stop, arrow keys move the active tab.
+function onTabKey(e: React.KeyboardEvent) {
+  const key = e.key;
+  if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(key)) return;
+  const tabs = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
+  const cur = tabs.indexOf(document.activeElement as HTMLElement);
+  if (cur === -1) return;
+  e.preventDefault();
+  const n = { ArrowRight: (cur + 1) % tabs.length, ArrowLeft: (cur - 1 + tabs.length) % tabs.length, Home: 0, End: tabs.length - 1 }[key]!;
+  tabs[n].click(); tabs[n].focus();
 }
 
 const LEVEL_NAMES = ['Reconnaissance', 'Exploitation', 'Remediation', 'Reporting'];
@@ -236,34 +305,47 @@ const TOOL_LABEL: Record<string, string> = { browser: 'Browser', proxy: 'Proxy',
 function GuidanceBanner({ guidance, gotoTab, complete, doStep, runCmd, copyText, goUrl, level }: { guidance: any; gotoTab: (t: string) => void; complete: boolean; doStep: (s: any) => void; runCmd: (c: string) => void; copyText: (t: string) => void; goUrl: (u: string) => void; level: number }) {
   const [expanded, setExpanded] = useState(false);
   const [whyOpen, setWhyOpen] = useState(true);
+  // Collapsing the step panel is remembered, so the tools are not pushed below the fold (UX-02).
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('tr_guide_collapsed') === '1'; } catch { return false; } });
+  const setCollapse = (v: boolean) => { setCollapsed(v); try { localStorage.setItem('tr_guide_collapsed', v ? '1' : '0'); } catch { /* storage unavailable */ } };
   if (!guidance || guidance.mode === 'advanced') return null;
 
   if (guidance.mode === 'intermediate')
-    return <div className="guidebar int"><span className="gb-tag">Guided · Intermediate</span><span className="gb-tip">{guidance.tip}</span><span className="gb-hint muted small">Need more? Reveal a hint under any objective (☰ Mission).</span></div>;
+    return <div className="guidebar int"><span className="gb-tag">Guided · Intermediate</span><span className="gb-tip">{guidance.tip}</span><span className="gb-hint muted small">Need more? Reveal a hint under any objective (<Deco>☰</Deco> Mission).</span></div>;
 
   // beginner
   const steps = guidance.steps as any[];
   const i = guidance.currentIndex;
   const levelLine = <div className="gb-level"><span className="gb-level-name">Level {level} · {LEVEL_NAMES[level - 1]}</span> — {guidance.levelWhy}</div>;
   if (i === -1 || complete)
-    return <div className="guidebar done"><span className="gb-tag ok">Guided · Beginner</span><span className="gb-tip">🎉 All steps complete{complete ? ' — engagement delivered!' : ' for now. Great work!'}</span><button className="wl-btn sm" onClick={() => setExpanded(e => !e)}>{expanded ? 'Hide steps' : 'Review steps'}</button>{expanded && <StepList steps={steps} current={i} />}</div>;
+    return <div className="guidebar done"><span className="gb-tag ok">Guided · Beginner</span><span className="gb-tip"><Deco>🎉</Deco> All steps complete{complete ? ' — engagement delivered!' : ' for now. Great work!'}</span><button className="wl-btn sm" onClick={() => setExpanded(e => !e)}>{expanded ? 'Hide steps' : 'Review steps'}</button>{expanded && <StepList steps={steps} current={i} />}</div>;
 
   const step = steps[i];
   const p = step.prefill;
-  const doLabel = p?.tool === 'repeater' ? `Load into Repeater →` : `Do it in the Browser →`;
+  const doLabel = <>Load into {p?.tool === 'repeater' ? 'Repeater' : 'the Browser'} <Deco>→</Deco></>;
+  if (collapsed)
+    return <div className="guidebar collapsed">
+      <span className="gb-tag">Guided · Beginner</span>
+      <span className="gb-step">Step {i + 1} of {guidance.total}</span>
+      <span className="gb-tip gb-collapsed-title">{step.title}</span>
+      <span className="grow" />
+      <button className="wl-btn primary sm" onClick={() => (p ? doStep(step) : gotoTab(step.tool))}>{p ? doLabel : <>Go to {TOOL_LABEL[step.tool] || step.tool} <Deco>→</Deco></>}</button>
+      <button className="wl-btn sm" aria-expanded={false} onClick={() => setCollapse(false)}>Show steps</button>
+    </div>;
   return <div className="guidebar">
     <div className="gb-head">
       <span className="gb-tag">Guided · Beginner</span>
       <span className="gb-step">Step {i + 1} of {guidance.total}</span>
       <span className="muted small hide-sm">in {TOOL_LABEL[step.tool] || step.tool}</span>
       <span className="grow" />
-      <button className="wl-btn sm" onClick={() => setWhyOpen(w => !w)} title="Why are we doing this?">{whyOpen ? 'Hide why' : 'Why?'}</button>
-      <button className="wl-btn sm" onClick={() => setExpanded(e => !e)}>{expanded ? 'Hide all' : 'All steps'}</button>
+      <button className="wl-btn sm" aria-pressed={whyOpen} onClick={() => setWhyOpen(w => !w)} title="Why are we doing this?">{whyOpen ? 'Hide why' : 'Why?'}</button>
+      <button className="wl-btn sm" aria-expanded={expanded} onClick={() => setExpanded(e => !e)}>{expanded ? 'Hide all' : 'All steps'}</button>
+      <button className="wl-btn sm" aria-expanded={true} onClick={() => setCollapse(true)}>Collapse</button>
     </div>
     {whyOpen && levelLine}
     <div className="gb-current">
       <div className="gb-title">{step.title}</div>
-      {whyOpen && step.why && <div className="gb-why">🎯 <b>Why this step:</b> {step.why}</div>}
+      {whyOpen && step.why && <div className="gb-why"><Deco>🎯</Deco> <b>Why this step:</b> {step.why}</div>}
       <div className="gb-detail">{step.detail}</div>
 
       {p?.tool === 'terminal' && <div className="gb-cmds">
@@ -275,14 +357,14 @@ function GuidanceBanner({ guidance, gotoTab, complete, doStep, runCmd, copyText,
       </div>}
 
       {p?.urls && <div className="gb-urls"><span className="muted small" style={{ width: '100%' }}>Click each to visit it (every one is logged in the Proxy):</span>
-        {p.urls.map((u: any, k: number) => <button key={k} className="wl-btn sm" onClick={() => goUrl(u.url)}>{u.label} →</button>)}
+        {p.urls.map((u: any, k: number) => <button key={k} className="wl-btn sm" onClick={() => goUrl(u.url)}>{u.label} <Deco>→</Deco></button>)}
       </div>}
 
       {!p?.urls && <div className="row" style={{ marginTop: 8 }}>
         {p?.tool === 'terminal'
-          ? <button className="wl-btn sm" onClick={() => gotoTab('terminal')}>Open Terminal →</button>
+          ? <button className="wl-btn sm" onClick={() => gotoTab('terminal')}>Open Terminal <Deco>→</Deco></button>
           : p ? <button className="wl-btn primary sm" onClick={() => doStep(step)}>{doLabel}</button>
-            : <button className="wl-btn primary sm" onClick={() => gotoTab(step.tool)}>Go to {TOOL_LABEL[step.tool] || step.tool} →</button>}
+            : <button className="wl-btn primary sm" onClick={() => gotoTab(step.tool)}>Go to {TOOL_LABEL[step.tool] || step.tool} <Deco>→</Deco></button>}
         <span className="muted small">This step checks off automatically once done.</span>
       </div>}
     </div>
@@ -293,7 +375,7 @@ function GuidanceBanner({ guidance, gotoTab, complete, doStep, runCmd, copyText,
 function StepList({ steps, current }: { steps: any[]; current: number }) {
   return <ol className="gb-list">
     {steps.map((s, idx) => <li key={s.id} className={s.done ? 'done' : idx === current ? 'cur' : ''}>
-      <span className="gb-tick">{s.done ? '✓' : idx === current ? '▸' : '○'}</span> {s.title}
+      <span className="gb-tick" aria-hidden="true">{s.done ? '✓' : idx === current ? '▸' : '○'}</span> {s.title}{s.done && <span className="tr-sr"> (done)</span>}
     </li>)}
   </ol>;
 }
@@ -302,22 +384,23 @@ function MissionRail({ status, act }: { status: any; act: ToolProps['act'] }) {
   const byLevel = useMemo(() => { const m: Record<number, any[]> = {}; for (const o of status.objectives) (m[o.level] ||= []).push(o); return m; }, [status.objectives]);
   return <div>
     <div className="railsec">
-      <h4>Attack surface</h4>
-      <div className="small">Routes seen: <b>{status.recon.routes}</b> · robots.txt {status.recon.robots ? '✓' : '—'} · API {status.recon.apiSeen ? '✓' : '—'} · admin {status.recon.adminSeen ? '✓' : '—'}</div>
+      <h2>Attack surface</h2>
+      <div className="small">Routes seen: <b>{status.recon.routes}</b> · robots.txt {status.recon.robots ? 'yes' : 'no'} · API {status.recon.apiSeen ? 'yes' : 'no'} · admin {status.recon.adminSeen ? 'yes' : 'no'}</div>
       <div className="small muted" style={{ marginTop: 4 }}>Posture: {status.posture.confirmed} confirmed · {status.posture.verified} verified / {status.posture.total}</div>
-      <div className="hintbox" style={{ marginTop: 8 }}>💡 Stuck on an objective below? Use its <b>Reveal hint</b> button for a staged nudge (−25% each). New here? Open the <b>Guide</b> in the Activity panel (right).</div>
+      <div className="hintbox" style={{ marginTop: 8 }}><Deco>💡</Deco> Stuck on an objective below? Use its <b>Reveal hint</b> button for a staged nudge (−25% each). New here? Open the <b>Guide</b> in the Activity panel (right).</div>
     </div>
     {[1, 2, 3, 4].map(lvl => <div key={lvl} className="railsec">
-      <div className="lvlhead">Level {lvl}: {LEVEL_NAMES[lvl - 1]} {lvl > status.level && <span className="lk">🔒</span>}</div>
+      <div className="lvlhead">Level {lvl}: {LEVEL_NAMES[lvl - 1]} {lvl > status.level && <span className="lk"><Deco>🔒</Deco> <span className="tr-sr">locked</span></span>}</div>
       {(byLevel[lvl] || []).map(o => <Objective key={o.id} o={o} act={act} />)}
     </div>)}
   </div>;
 }
 
 function Objective({ o, act }: { o: any; act: ToolProps['act'] }) {
+  // Completion is shown by a check mark and label, not colour alone (A11Y-15).
   return <div className={`obj ${o.done ? 'done' : ''} ${o.locked ? 'locked' : ''}`}>
-    <div className="obh"><span className="tick" /><span className="ot">{o.title}</span><span className="pts">{o.awarded ?? 0}/{o.points}</span></div>
-    {o.hints.map((h: string, i: number) => <div key={i} className="hintbox">💡 {h}</div>)}
+    <div className="obh"><span className="tick" aria-hidden="true">{o.done ? '✓' : ''}</span><span className="ot">{o.title}</span><span className="pts">{o.done ? 'Done · ' : ''}{o.awarded ?? 0}/{o.points}</span></div>
+    {o.hints.map((h: string, i: number) => <div key={i} className="hintbox"><Deco>💡</Deco> {h}</div>)}
     {!o.locked && !o.done && o.hintsRemaining > 0 && <button className="wl-btn sm" style={{ marginTop: 6 }} onClick={() => act('hint.request', { objectiveId: o.id })}>Reveal hint ({o.hintsRemaining} left · −25%)</button>}
   </div>;
 }
@@ -328,19 +411,19 @@ function ContextRail({ status, view, act, def, gotoTab, defaultGuideOpen }: { st
   useEffect(() => { if (defaultGuideOpen) { try { localStorage.setItem('tr_guide_seen', '1'); } catch {} } }, []);
   return <div>
     <div className="railsec">
-      <h4 className="railsec-head"><span>📖 Guide</span><button className="wl-btn sm" onClick={toggleGuide}>{guideOpen ? 'Hide' : 'How this lab works'}</button></h4>
+      <h2 className="railsec-head"><span><Deco>📖</Deco> Guide</span><button className="wl-btn sm" aria-expanded={guideOpen} onClick={toggleGuide}>{guideOpen ? 'Hide' : 'How this lab works'}</button></h2>
       {guideOpen ? <GuideBody def={def} gotoTab={gotoTab} /> : <div className="muted small">Workflow, every tool, a terminal cheat-sheet and good habits — with links that jump to the right tool.</div>}
     </div>
     <div className="railsec">
-      <h4>Story &amp; activity</h4>
-      {[...status.timeline].slice(-14).reverse().map((e: any, i: number) => <div key={i} className="timeline-ev"><span className={`k-${e.kind}`}>●</span><span className="small">{e.text}</span></div>)}
+      <h2>Story &amp; activity</h2>
+      {[...status.timeline].slice(-14).reverse().map((e: any, i: number) => <div key={i} className="timeline-ev"><span className={`k-${e.kind}`} aria-hidden="true">●</span><span className="small">{e.text}</span></div>)}
     </div>
     <div className="railsec">
-      <h4>Evidence locker ({status.evidence.length})</h4>
-      {status.evidence.length ? status.evidence.map((e: any) => <div key={e.id} className="small row" style={{ padding: '3px 0' }}><span className="code2 mono">{e.id}</span> <span className="mono">{e.method} {e.path.slice(0, 22)}</span> <span className="grow" /><span className="muted">{e.status}</span><button className="wl-btn sm" onClick={() => act('evidence.remove', { historyId: e.id })}>✕</button></div>) : <div className="muted small">Save requests from the Proxy, Browser or Repeater as evidence for your report.</div>}
+      <h2>Evidence locker ({status.evidence.length})</h2>
+      {status.evidence.length ? status.evidence.map((e: any) => <div key={e.id} className="small row" style={{ padding: '3px 0' }}><span className="code2 mono">{e.id}</span> <span className="mono">{e.method} {e.path.slice(0, 22)}</span> <span className="grow" /><span className="muted">{e.status}</span><button className="wl-btn sm" onClick={() => act('evidence.remove', { historyId: e.id })} aria-label={`Remove evidence ${e.id} from the locker`}><Deco>✕</Deco></button></div>) : <div className="muted small">Save requests from the Proxy, Browser or Repeater as evidence for your report.</div>}
     </div>
     <div className="railsec">
-      <h4>Findings</h4>
+      <h2>Findings</h2>
       {status.findings.map((f: any) => <div key={f.id} className="small row" style={{ padding: '3px 0' }}><span>{f.title.length > 30 ? f.title.slice(0, 30) + '…' : f.title}</span><span className="grow" />{f.confirmed ? <StatusBadge status={f.status} /> : <span className="badge st-none">—</span>}</div>)}
     </div>
   </div>;
@@ -363,10 +446,10 @@ function GuideBody({ def, gotoTab }: { def: any; gotoTab: (t: string) => void })
 
     <h5>First steps</h5>
     <ol className="tight">
-      <li>Open the <a onClick={() => jump('terminal')}>Terminal</a> and run <span className="code2 mono">whatweb {`http://${host}/`}</span>, then <span className="code2 mono">curl {`http://${host}/robots.txt`}</span> — <span className="code2 mono">Disallow</span> maps what they'd rather you not see.</li>
-      <li>In the <a onClick={() => jump('browser')}>Browser</a>, visit pages (click the link chips). Every request is logged in the <a onClick={() => jump('proxy')}>Proxy</a>.</li>
-      <li>Send anything interesting to <a onClick={() => jump('repeater')}>Repeater</a> and tamper with it. When your traffic proves a flaw it turns up as <b>Confirmed</b> in <a onClick={() => jump('findings')}>Findings</a>.</li>
-      <li>Stuck? Each objective (left) has staged <b>💡 Reveal hint</b> buttons.</li>
+      <li>Open the <button type="button" className="guide-link" onClick={() => jump('terminal')}>Terminal</button> and run <span className="code2 mono">whatweb {`http://${host}/`}</span>, then <span className="code2 mono">curl {`http://${host}/robots.txt`}</span> — <span className="code2 mono">Disallow</span> maps what they'd rather you not see.</li>
+      <li>In the <button type="button" className="guide-link" onClick={() => jump('browser')}>Browser</button>, visit pages (click the link chips). Every request is logged in the <button type="button" className="guide-link" onClick={() => jump('proxy')}>Proxy</button>.</li>
+      <li>Send anything interesting to <button type="button" className="guide-link" onClick={() => jump('repeater')}>Repeater</button> and tamper with it. When your traffic proves a flaw it turns up as <b>Confirmed</b> in <button type="button" className="guide-link" onClick={() => jump('findings')}>Findings</button>.</li>
+      <li>Stuck? Each objective (left) has staged <b><Deco>💡</Deco> Reveal hint</b> buttons.</li>
     </ol>
 
     <h5>The tools</h5>
@@ -382,18 +465,18 @@ function GuideBody({ def, gotoTab }: { def: any; gotoTab: (t: string) => void })
     <h5>Good habits</h5>
     <ul className="tight">
       <li><b>Prove, don't guess</b> — reporting an unconfirmed issue is penalised.</li>
-      <li><b>Save evidence as you go</b> (★ Save to evidence) — your report cites it.</li>
+      <li><b>Save evidence as you go</b> (<Deco>★</Deco> Save to evidence) — your report cites it.</li>
       <li><b>Fix ≠ verified</b> — always Re-test after remediating.</li>
       <li>Progress saves automatically; <b>Reset</b> archives the run and starts fresh.</li>
     </ul>
   </div>;
 }
 
-function Briefing({ def, acknowledged, onAck }: { def: any; acknowledged: boolean; onAck: () => void }) {
+function Briefing({ def, acknowledged, onAck, onClose }: { def: any; acknowledged: boolean; onAck: () => void; onClose: () => void }) {
   const b = def.briefing;
-  return <div className="modal-back"><div className="modal">
+  // A new run must be acknowledged, so it cannot be dismissed with Escape/backdrop; a reopened one can.
+  return <Dialog title={def.title} onClose={acknowledged ? onClose : undefined} backdropCloses={acknowledged}>
     <div className="row"><span className="badge st-Confirmed">{b.engagement}</span><span className="badge sev-High">Authorized engagement</span></div>
-    <h2 style={{ marginBottom: 2 }}>{def.title}</h2>
     <p className="muted small">Client: {b.client} · Your role: {b.role}</p>
     <p>{b.intro}</p>
     <dl className="kv">
@@ -407,6 +490,6 @@ function Briefing({ def, acknowledged, onAck }: { def: any; acknowledged: boolea
     <ul className="tight">{b.rules.map((r: string, i: number) => <li key={i}>{r}</li>)}</ul>
     <h3 style={{ marginBottom: 4 }}>Levels</h3>
     <ul className="tight">{b.levels.map((l: any) => <li key={l.n}>Level {l.n}: {l.name}</li>)}</ul>
-    <div className="row" style={{ marginTop: 16 }}><button className="wl-btn primary" onClick={onAck}>{acknowledged ? 'Close' : 'Acknowledge & enter the workspace'}</button></div>
-  </div></div>;
+    <div className="row" style={{ marginTop: 16 }}><button className="wl-btn primary" data-autofocus onClick={onAck}>{acknowledged ? 'Close' : 'Acknowledge & enter the workspace'}</button></div>
+  </Dialog>;
 }

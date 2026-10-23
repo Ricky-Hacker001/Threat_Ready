@@ -53,7 +53,7 @@ export function IncidentCenter() {
   const { status, cloud, def, act, busy, route, nav, openReport } = useLab(); const tab = route.tab || 'ticket';
   const keys = Object.values<any>(cloud.iam.users).flatMap(u => u.accessKeys.map((k: any) => ({ ...k, user: u.name }))); const [key, setKey] = useState('');
   return <div className="page"><PageHeader crumbs={[{ label: 'Incident Center' }]} title="Incident Center" desc="Ticket, alerts, evidence, company policies and reporting for INC-2041." />
-    <Tabs value={tab} onChange={t => nav({ service: 'incident', tab: t })} tabs={[{ id: 'ticket', label: 'Ticket & alerts' }, { id: 'policies', label: 'Company policies' }, { id: 'evidence', label: `Evidence locker (${status.evidence.length})` }, { id: 'regression', label: 'Regression suite' }, { id: 'report', label: 'Incident report' }, { id: 'story', label: 'Story' }]} />
+    <Tabs value={tab} onChange={t => nav({ service: 'incident', tab: t })} tabs={[{ id: 'ticket', label: 'Ticket & alerts' }, { id: 'policies', label: 'Company policies' }, { id: 'evidence', label: `Evidence locker (${status.evidence.length})` }, { id: 'regression', label: 'Regression suite' }, { id: 'report', label: 'Incident report' }, { id: 'story', label: 'Story' }]}>
     {tab === 'ticket' && <>
       <Panel title={<>INC-2041 · Suspicious access patterns in aerocart-training <Badge tone={sevTone(status.incident.severity)}>{status.incident.severity}</Badge></>} actions={!status.incident.acknowledged && <button className="btn primary" disabled={busy} onClick={() => act('incident.acknowledge')}>Acknowledge ticket</button>}>
         <KV items={[['Status', status.incident.status], ['Containment', status.incident.containment], ['Assigned to', status.incident.acknowledged ? 'You (Cloud Security Analyst)' : 'Unassigned — acknowledge to take ownership'], ['Compromised credential', status.incident.declaredKey ? <code>{status.incident.declaredKey}</code> : 'Not identified']]} />
@@ -71,6 +71,7 @@ export function IncidentCenter() {
         <table className="plain"><tbody>{status.regression.results.map((r: any) => <tr key={r.label}><td><StatusDot ok={r.ok} label={r.label} /></td><td className="muted">{r.detail}</td></tr>)}</tbody></table></>}</Panel>}
     {tab === 'report' && (status.level < 4 ? <Panel><Empty title="Unlocks at Level 4">The final incident report is written once the environment is hardened. A draft generated from your session so far is always available.</Empty><button className="btn" onClick={openReport}>View draft report</button></Panel> : status.complete ? <Panel><Note tone="ok">Report submitted.</Note><button className="btn primary" onClick={openReport}>Open final incident report</button></Panel> : <ReportForm />)}
     {tab === 'story' && status.chapters.map((c: any) => <Panel key={c.n} title={`Chapter ${c.n} — ${c.title}`}><p>{c.text}</p></Panel>)}
+    </Tabs>
   </div>;
 }
 
@@ -99,15 +100,18 @@ function ReportForm() {
   </Panel>;
 }
 
-export function ReportScreen({ onBack }: { onBack: () => void }) {
+/** The incident report of this run, or (sid) of an archived run, which is read-only and never changes. */
+export function ReportScreen({ onBack, sid }: { onBack: () => void; sid?: string | null }) {
   const { session, status } = useLab(); const [r, setR] = useState<any>(null); const [err, setErr] = useState('');
-  useEffect(() => { api(`/sessions/${session.id}/report`).then(setR).catch(e => setErr(e.message)); }, [session.id, status.minutes]);
-  if (err) return <div className="page"><Note tone="bad">{err}</Note></div>;
-  if (!r) return <div className="page"><div className="spinner" /></div>;
+  const id = sid || session.id; const archived = !!sid && sid !== session.id;
+  useEffect(() => { setErr(''); api(`/sessions/${id}/report`).then(setR).catch(e => setErr(e.message)); }, [id, archived ? 0 : status.minutes]);
+  if (err) return <div className="page"><Note tone="bad">{err}</Note><button className="btn" onClick={onBack}>Back to console</button></div>;
+  if (!r) return <div className="page" role="status"><div className="spinner" aria-hidden="true" /><span className="sr">Loading the incident report…</span></div>;
   const sc = r.performance.score; const A = r.reportAssessment;
   const yn = (b: any) => b === null ? '—' : b ? <Badge tone="green">Yes</Badge> : <Badge tone="grey">No</Badge>;
-  return <div className="page report"><PageHeader crumbs={[{ label: 'Incident Center', to: 'incident' }, { label: 'Incident report' }]} title={`Incident report — INC-2041 ${r.meta.final ? '' : '(draft)'}`} desc={`${r.meta.lab} · ${r.meta.learner} · run ${r.meta.run} · generated from session event history`} actions={<><button className="btn" onClick={onBack}>Back to console</button><button className="btn" onClick={() => window.print()}>Print</button></>} />
-    {!r.meta.final && <Note tone="warn">Draft: the incident is still open. This reflects what you have done and verified so far — nothing more.</Note>}
+  return <div className="page report"><PageHeader crumbs={[{ label: 'Incident Center', to: 'incident' }, { label: archived ? `Incident report · run ${r.meta.run}` : 'Incident report' }]} title={`Incident report — INC-2041 ${archived ? `· run ${r.meta.run} ` : ''}${r.meta.final ? '' : '(draft)'}`} desc={`${r.meta.lab} · ${r.meta.learner} · run ${r.meta.run} · generated from session event history`} actions={<><button className="btn" onClick={onBack}>Back to console</button><button className="btn" onClick={() => window.print()}>Print</button></>} />
+    {archived && <Note tone="info"><b>Archived run {r.meta.run}.</b> This run ended with a reset. It is read-only; the console shows your current run.</Note>}
+    {!r.meta.final && <Note tone="warn">{archived ? 'Draft: this run ended before the incident report was submitted. It shows what was done and verified in that run, nothing more.' : 'Draft: the incident is still open. This reflects what you have done and verified so far — nothing more.'}</Note>}
     <Panel title="Executive summary"><KV items={[['Outcome', <><Badge tone={sevTone(r.summary.severity)}>{r.summary.severity}</Badge> · {r.summary.containment}</>], ['Findings verified', `${r.summary.findingsVerified} of ${r.summary.findingsTotal}`], ['Simulated duration', `${Math.floor(r.meta.simulatedMinutes / 60)}h ${r.meta.simulatedMinutes % 60}m`], ['Final score', <b>{sc.total} / {sc.max} ({sc.percent}%)</b>]]} />
       {r.summary.learnerText ? <><h4>Analyst summary</h4><p className="quote">{r.summary.learnerText}</p><h4>Containment rationale</h4><p className="quote">{r.summary.containmentRationale}</p></> : <p className="muted">The analyst's written summary is added when the report is submitted at Level 4.</p>}</Panel>
     <Panel title="Findings" pad={false}><div className="dt-scroll"><table><thead><tr><th>ID</th><th>Finding</th><th>Severity</th><th>Discovered</th><th>Root cause remediated</th><th>Verified</th><th>Statement</th></tr></thead><tbody>{r.findings.map((f: any) => <tr key={f.id}><td>{f.id}</td><td>{f.title}</td><td>{f.severity}</td><td>{yn(f.discovered)}</td><td>{yn(f.remediated)}</td><td>{yn(f.verified)}</td><td>{f.statement}</td></tr>)}</tbody></table></div></Panel>

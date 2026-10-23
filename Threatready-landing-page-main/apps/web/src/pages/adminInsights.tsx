@@ -97,7 +97,8 @@ export function ShareBar({ value, max, label }: { value: number; max: number; la
 
 /**
  * Active time per day (or week, for long ranges) as bars, with the busiest value labelled. The
- * days come from `from`..`to` so idle days show as gaps rather than disappearing.
+ * days come from `from`..`to` so idle days show as gaps rather than disappearing. The bars are
+ * decorative for assistive technology; a visually hidden table carries the same numbers.
  */
 export function ActivityChart({ daily, from, to, title }: { daily: { day: string; seconds: number; users?: number }[]; from: string; to: string; title: string }) {
   const byDay = new Map(daily.map((d) => [d.day, d]));
@@ -119,14 +120,35 @@ export function ActivityChart({ daily, from, to, title }: { daily: { day: string
   if (!max) return <p className="quota">No measured activity in this range yet.</p>;
   return (
     <figure className="chart" aria-label={title}>
-      <div className="chart-bars">
+      <table className="visually-hidden">
+        <caption>
+          {title}, {weekly ? "per week" : "per day"}
+        </caption>
+        <thead>
+          <tr>
+            <th scope="col">{weekly ? "Week of" : "Day"}</th>
+            <th scope="col">Active time</th>
+            <th scope="col">Users</th>
+          </tr>
+        </thead>
+        <tbody>
+          {bins.map((b) => (
+            <tr key={b.label}>
+              <th scope="row">{b.label.replace("Week of ", "")}</th>
+              <td>{b.seconds ? fmtDuration(b.seconds) : "None"}</td>
+              <td>{fmtInt(b.users)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="chart-bars" aria-hidden="true">
         {bins.map((b) => (
           <span key={b.label} className="chart-bar" title={`${b.label}: ${fmtDuration(b.seconds)}${b.users ? `, ${b.users} user${b.users === 1 ? "" : "s"}` : ""}`}>
             <i style={{ height: `${b.seconds ? Math.max(4, (b.seconds / max) * 100) : 0}%` }} />
           </span>
         ))}
       </div>
-      <figcaption className="chart-axis">
+      <figcaption className="chart-axis" aria-hidden="true">
         <span>{bins[0]!.label.replace("Week of ", "")}</span>
         <span>
           {weekly ? "Per week" : "Per day"} · busiest {fmtDuration(max)}

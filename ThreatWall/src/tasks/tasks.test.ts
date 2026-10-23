@@ -44,3 +44,12 @@ describe('task checks against the answer key', () => {
     for (const [id] of CHAIN) expect([id, failing(id, s)]).toEqual([id, []]);
   });
 });
+
+describe('task definitions', () => {
+  it('step ids are unique within each task (they key the task panel, the notebook and recorded failures)', () => {
+    for (const t of TASKS) {
+      const ids = t.steps.map((s) => s.id);
+      expect(ids.filter((id, i) => ids.indexOf(id) !== i), `task ${t.id}`).toEqual([]);
+    }
+  });
+});

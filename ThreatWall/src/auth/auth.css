@@ -14,6 +14,13 @@
 .tw-newtab .tw-btn { margin-top: 14px; }
 .tw-urlbar .insecure { display: inline-flex; align-items: center; gap: 4px; color: #c5221f; font-weight: 600; }
 .tw-urlbar .scheme-bad { color: #c5221f; text-decoration: line-through; }
+@media (max-width: 600px) {
+  /* OVF-14: give the address field the whole bar on phones. */
+  .tw-urlbar { gap: 6px; padding: 0 6px; }
+  .tw-urlbar .url { padding: 0 10px; gap: 6px; }
+  .tw-url-who { display: none; }
+  .tw-urlbar .insecure .lbl { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 .tw-lab-banner { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: #fff7e6; border-bottom: 1px solid #f1d9a6; color: #6b4b00; font-size: 12.5px; }
 
 /* ---------- Certificate interstitial ---------- */
@@ -42,8 +49,8 @@
 .tw-login-field input { flex: 1; border: 0; outline: 0; background: none; color: #fff; font-size: 14px; }
 .tw-login-field input::placeholder { color: #8a95a3; }
 .tw-login-field button { background: none; border: 0; color: #9fb0c3; display: grid; place-items: center; }
-.tw-login-submit { margin-top: 22px; height: 40px; border: 0; border-radius: 3px; background: var(--tw-accent); color: #fff; font-weight: 700; font-size: 14px; letter-spacing: .04em; }
-.tw-login-submit:hover { background: var(--tw-accent-2); }
+.tw-login-submit { margin-top: 22px; height: 40px; border: 0; border-radius: 3px; background: var(--tw-accent-strong); color: #fff; font-weight: 700; font-size: 14px; letter-spacing: .04em; }
+.tw-login-submit:hover { background: var(--tw-accent-strong-2); }
 .tw-login-err { margin-top: 10px; color: #ffb4a9; font-size: 13px; display: flex; gap: 6px; align-items: center; }
 .tw-login-setup { margin-top: 26px; font-size: 13px; color: #c5ced8; }
 .tw-login-setup button { background: none; border: 0; color: #ffa86a; padding: 0; text-decoration: underline; font-size: 13px; }
@@ -51,7 +58,7 @@
 
 .tw-login-right { background: #eef1f4; padding: 64px 48px; display: flex; flex-direction: column; gap: 18px; overflow: auto; }
 .tw-login-card { background: #fff; border: 1px solid #d9dde2; padding: 18px 20px; max-width: 620px; }
-.tw-login-card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--tw-accent); margin: 0 0 12px; }
+.tw-login-card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--tw-accent-strong); margin: 0 0 12px; }
 .tw-login-kv { display: grid; grid-template-columns: 170px 1fr; row-gap: 7px; font-size: 13px; }
 .tw-login-kv dt { color: var(--text-2); }
 .tw-login-kv dd { margin: 0; font-weight: 600; }
@@ -67,7 +74,7 @@
 .tw-wiz-rail li .n { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1px solid #66717f; font-size: 11.5px; flex: none; }
 .tw-wiz-rail li.done .n { background: var(--tw-ok); border-color: var(--tw-ok); color: #fff; }
 .tw-wiz-rail li.cur { background: #2b333d; color: #fff; box-shadow: inset 3px 0 0 var(--tw-accent); }
-.tw-wiz-rail li.cur .n { border-color: var(--tw-accent); color: #fff; background: var(--tw-accent); }
+.tw-wiz-rail li.cur .n { border-color: var(--tw-accent-strong); color: #fff; background: var(--tw-accent-strong); }
 .tw-wiz-main { display: flex; flex-direction: column; min-width: 0; }
 .tw-wiz-main .body { padding: 22px 26px; flex: 1; }
 .tw-wiz-main h1 { font-size: 19px; font-weight: 600; margin: 0 0 6px; }
@@ -76,7 +83,7 @@
 .tw-wiz .tw-form { padding-left: 0; grid-template-columns: 190px minmax(0, 1fr); }
 .tw-pwcheck { list-style: none; padding: 0; margin: 4px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 3px 16px; font-size: 12px; }
 .tw-pwcheck li { display: flex; gap: 6px; align-items: center; color: var(--text-2); }
-.tw-pwcheck li.ok { color: #4f7d0d; }
+.tw-pwcheck li.ok { color: #3c6a06; }
 .tw-summary { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tw-summary th { text-align: left; width: 200px; color: var(--text-2); font-weight: 500; padding: 6px 0; vertical-align: top; }
 .tw-summary td { padding: 6px 0; font-weight: 600; }

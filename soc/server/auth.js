@@ -135,6 +135,6 @@ authRouter.post('/session/logout', (req, res) => {
 });
 
 // Public: whether a session exists. No secrets.
-authRouter.get('/session/info', (req, res) => res.json({ homeUrl: config.trHomeUrl || null, signedIn: !!req.user, name: req.user?.name || null }));
+authRouter.get('/session/info', (req, res) => res.json({ homeUrl: config.trHomeUrl || null, signedIn: !!req.user, name: req.user?.name || null, dailyWipe: config.dailyWipe }));
 
 authRouter.get('/me', (req, res) => res.json({ uid: req.user.uid, name: req.user.name }));

@@ -2,11 +2,13 @@
   "name": "threatready-e2e",
   "private": true,
   "type": "module",
-  "description": "Cross-browser journeys across every ThreatReady app (Chromium, Firefox, WebKit)",
+  "description": "Cross-browser journeys and the UI/UX regression sweep across every ThreatReady app",
   "scripts": {
-    "test": "node cross-browser.mjs"
+    "test": "node cross-browser.mjs",
+    "ui-audit": "node ui-audit.mjs"
   },
   "devDependencies": {
-    "playwright": "^1.64.0"
+    "playwright": "^1.64.0",
+    "axe-core": "^4.10.3"
   }
 }

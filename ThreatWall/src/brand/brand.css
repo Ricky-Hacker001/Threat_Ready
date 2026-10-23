@@ -6,9 +6,10 @@
   --tr-line: #23384c;
   --tr-text: #e6edf3;
   --tr-text-2: #9fb2c3;
-  --tr-text-3: #6f8597;
-  --tr-teal: #2dd4bf;
-  --tr-teal-strong: #14b8a6;
+  --tr-text-3: #879db0;       /* 5.3:1 on --tr-surface-2 (was #6f8597, 4.4:1 on --tr-surface) */
+  --tr-teal: #3fb6a8;         /* ThreatReady Labs product marker (platform --m-sim) */
+  --tr-teal-strong: #349c90;
+  --tr-teal-soft: #3fb6a81f;
   --tr-teal-ink: #04201c;
   --tr-pass: #4ade80;
   --tr-fail: #f87171;
@@ -17,20 +18,22 @@
   --tr-mono: 'IBM Plex Mono', Consolas, monospace;
 }
 
-.tr-page { min-height: 100vh; background: var(--tr-bg); color: var(--tr-text); font: 14px/1.5 var(--tr-font); color-scheme: dark; }
+.tr-page { min-height: calc(100vh - var(--tr-labnav-h, 0px)); background: var(--tr-bg); color: var(--tr-text); font: 14px/1.5 var(--tr-font); color-scheme: dark; }
 .tr-page .mono, .tr-mono { font-family: var(--tr-mono); }
 .tr-wrap { max-width: 1080px; margin: 0 auto; padding: 22px 24px 28px; }
-.tr-brandrow { display: flex; align-items: center; gap: 14px; height: 40px; }
+.tr-brandrow { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; min-height: 40px; }
+.tr-brandmark { display: flex; align-items: center; gap: 14px; }
 .tr-brandrow img { height: 40px; width: auto; display: block; }
 .tr-brandrow .div { width: 1px; height: 22px; background: var(--tr-line); }
 .tr-brandrow .word { font-size: 11.5px; letter-spacing: .22em; text-transform: uppercase; color: var(--tr-text-2); font-weight: 500; }
-.tr-brandrow .right { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.tr-brandrow .right { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; min-width: 0; }
+.tr-brandrow .right > span { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .tr-hero { margin: 34px 0 22px; }
 .tr-hero h1 { font-size: 30px; font-weight: 600; margin: 0 0 8px; letter-spacing: -.01em; }
 .tr-hero p { margin: 0; color: var(--tr-text-2); max-width: 760px; font-size: 15px; }
-.tr-name { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--tr-text-2); font-size: 13px; }
-.tr-name input { background: var(--tr-surface); border: 1px solid var(--tr-line); color: var(--tr-text); border-radius: 6px; height: 30px; padding: 0 10px; font: inherit; width: 220px; }
+.tr-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; margin-top: 14px; color: var(--tr-text-2); font-size: 13px; }
+.tr-name input { background: var(--tr-surface); border: 1px solid var(--tr-line); color: var(--tr-text); border-radius: 6px; height: 30px; padding: 0 10px; font: inherit; width: 220px; max-width: 100%; }
 .tr-name input:focus { outline: 2px solid var(--tr-teal); outline-offset: 1px; }
 
 .tr-btn { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--tr-line); background: var(--tr-surface); color: var(--tr-text); font: 500 13.5px var(--tr-font); cursor: pointer; text-decoration: none; }
@@ -46,17 +49,22 @@
 .tr-section > h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--tr-text-2); font-weight: 600; margin: 0 0 10px; }
 .tr-card { background: var(--tr-surface); border: 1px solid var(--tr-line); border-radius: 10px; padding: 16px 18px; }
 .tr-continue { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.tr-continue .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+.tr-notice { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-top: 18px; border-color: #5b4a1f; background: #2a2416; color: #fde68a; }
+.tr-notice p { margin: 0; flex: 1 1 260px; }
 .tr-continue .t { font-size: 17px; font-weight: 600; }
 .tr-continue .s { color: var(--tr-text-2); font-size: 13px; }
 .tr-continue .tr-btn { margin-left: auto; }
+.tr-continue .acts .tr-btn { margin-left: 0; }
 
-.tr-new { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.tr-new { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 12px; }
 .tr-new .tr-card h3 { margin: 0 0 4px; font-size: 14px; }
 .tr-new .tr-card p { margin: 0; color: var(--tr-text-2); font-size: 13px; }
 
-.tr-levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 12px; }
+.tr-levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(196px, 100%), 1fr)); gap: 12px; }
 .tr-level { display: flex; flex-direction: column; gap: 8px; min-height: 196px; }
-.tr-level.locked { opacity: .55; }
+/* Locked levels stay readable (text contrast); the dashed border and "Locked" tag carry the state. */
+.tr-level.locked { border-style: dashed; }
 .tr-level .top { display: flex; align-items: flex-start; gap: 10px; }
 .tr-level h3 { margin: 0; font-size: 14.5px; line-height: 1.3; }
 .tr-level .tag { font-size: 12px; color: var(--tr-text-2); }
@@ -112,7 +120,16 @@
   .tr-page, .tr-btn, .tr-section > h2, .tr-hero p, .tr-kv span, .tr-footer, .tr-evidence dt { color: #111 !important; }
   .tr-brandrow img { content: url('/brand/aerovant-logo-dark.svg'); }
 }
-@media (max-width: 640px) { .tr-wrap { padding: 16px; } .tr-hero h1 { font-size: 24px; } }
+@media (max-width: 640px) {
+  .tr-wrap { padding: 16px; }
+  .tr-hero h1 { font-size: 24px; }
+  /* OVF-02/03: the page buttons take their own full-width row under the logo. */
+  .tr-brandrow .right { margin-left: 0; width: 100%; justify-content: flex-start; }
+  .tr-brandrow.in-platform .right { margin-top: 0; }
+}
+/* Inside ThreatReady the platform strip already shows the mark (also hides the panel wordmark). */
+.tr-brandrow.in-platform { min-height: 0; }
+html.tr-has-labnav .tr-panel-word { display: none; }
 
 /* ── Task panel skin: the training layer is ThreatReady (dark slate + teal); the appliance stays as it is. ── */
 .tw-panel { background: var(--tr-bg); color: var(--tr-text); border-left-color: var(--tr-line); font-family: var(--tr-font); --text: var(--tr-text); --text-2: var(--tr-text-2); --text-3: var(--tr-text-3); --line: var(--tr-line); --line-2: var(--tr-line); --tw-link: var(--tr-teal); }
@@ -129,7 +146,7 @@ a.tw-panel-iconbtn { color: #dfe5ec; text-decoration: none; }
 .tw-seg button.on { background: var(--tr-teal); color: var(--tr-teal-ink); }
 .tw-lv li button { color: var(--tr-text); }
 .tw-lv li button:hover:not(:disabled) { background: var(--tr-surface-2); }
-.tw-lv li button.cur { background: #2dd4bf1f; }
+.tw-lv li button.cur { background: var(--tr-teal-soft); }
 .tw-report-link { background: var(--tr-surface); border-color: var(--tr-line); color: var(--tr-teal); }
 .tw-progress { background: var(--tr-surface-2); }
 .tw-progress > div { background: var(--tr-teal); }
@@ -141,7 +158,7 @@ a.tw-panel-iconbtn { color: #dfe5ec; text-decoration: none; }
 .tw-step .n { background: var(--tr-surface-2); color: var(--tr-text-2); }
 .tw-step.done .n { background: #166534; color: #dcfce7; }
 .tw-step.cur .n { background: var(--tr-teal); color: var(--tr-teal-ink); }
-.tw-expect { background: #2dd4bf1a; }
+.tw-expect { background: #3fb6a81a; }
 .tw-expect span { color: var(--tr-teal); }
 .tw-beg { background: #7dd3fc14; color: #bae6fd; }
 .tw-fail { background: #f871711f; color: #fecaca; }
@@ -158,20 +175,20 @@ a.tw-panel-iconbtn { color: #dfe5ec; text-decoration: none; }
 .tw-panel .tw-btn.tw-btn-primary:hover { background: var(--tr-teal-strong); }
 .tw-panel .tw-pill.ok { background: #4ade801f; color: var(--tr-pass); }
 .tw-panel .tw-pill.warn { background: #fbbf241f; color: var(--tr-warn); }
-.tw-panel .tw-pill.info { background: #2dd4bf1f; color: var(--tr-teal); }
+.tw-panel .tw-pill.info { background: var(--tr-teal-soft); color: var(--tr-teal); }
 .tw-panel .tw-pill.muted { background: var(--tr-surface-2); color: var(--tr-text-2); }
 .tw-panel .tw-note.warn { background: #fbbf241a; color: #fde68a; border-color: transparent; }
 .tw-panel .muted { color: var(--tr-text-2); }
 
 /* Guide ring and Lab Tools toggle share the training accent. */
-.tw-guide-ring { border-color: var(--tr-teal); box-shadow: 0 0 0 4px #2dd4bf40; }
+.tw-guide-ring { border-color: var(--tr-teal); box-shadow: 0 0 0 4px #3fb6a840; }
 .tw-guide-tip { background: #08111a; border: 1px solid var(--tr-teal-strong); font-family: var(--tr-font); }
 .tw-guide-tip.above::after { border-top-color: var(--tr-teal-strong); }
 .tw-guide-tip.below::after { border-bottom-color: var(--tr-teal-strong); }
 .tw-lab-toggle { background: var(--tr-teal); color: var(--tr-teal-ink); }
 .tw-lab-tabs button.on { border-bottom-color: var(--tr-teal); }
 .tw-guide-ring { animation: tr-pulse 1.4s ease-out 2; }
-@keyframes tr-pulse { 0% { box-shadow: 0 0 0 0 #2dd4bf88; } 100% { box-shadow: 0 0 0 12px #2dd4bf00; } }
+@keyframes tr-pulse { 0% { box-shadow: 0 0 0 0 #3fb6a888; } 100% { box-shadow: 0 0 0 12px #3fb6a800; } }
 /* Appliance notifications belong to the lab screen only. */
 body:not([data-screen="lab"]) .tw-toasts { display: none; }
 .tw-panel-head { gap: 6px; }

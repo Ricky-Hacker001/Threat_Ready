@@ -54,6 +54,8 @@ export function useInterviewSession(initial: SessionView) {
   /** Alex's live reply to a clarifying question. */
   const [reply, setReply] = useState<{ question: string; text: string } | null>(null);
   const busy = useRef(false);
+  /** The last request, so "Try again" resends it (same turn, same idempotency key) instead of just hiding the error. */
+  const lastAttempt = useRef<(() => Promise<void>) | null>(null);
 
   const apply = useCallback(
     (s: SessionView) => {
@@ -134,17 +136,26 @@ export function useInterviewSession(initial: SessionView) {
   );
 
   const start = useCallback(() => {
-    setPhase('starting');
-    return run(`/v1/interviews/${session.id}/start`);
+    const attempt = () => {
+      setPhase('starting');
+      return run(`/v1/interviews/${session.id}/start`);
+    };
+    lastAttempt.current = attempt;
+    return attempt();
   }, [run, session.id]);
 
   const submit = useCallback(
     (answer: string) => {
       const turn = session.currentTurn;
       if (!turn) return Promise.resolve();
-      setFeedback(null);
-      setPhase('evaluating');
-      return run(`/v1/interviews/${session.id}/turns`, { turnId: turn.turnId, answer, clientSubmissionId: submissionIdFor(turn.turnId) });
+      const body = { turnId: turn.turnId, answer, clientSubmissionId: submissionIdFor(turn.turnId) };
+      const attempt = () => {
+        setFeedback(null);
+        setPhase('evaluating');
+        return run(`/v1/interviews/${session.id}/turns`, body);
+      };
+      lastAttempt.current = attempt;
+      return attempt();
     },
     [run, session],
   );
@@ -154,21 +165,29 @@ export function useInterviewSession(initial: SessionView) {
     (message: string) => {
       const turn = session.currentTurn;
       if (!turn || !message.trim()) return Promise.resolve();
-      setPhase('replying');
-      setReply({ question: message.trim(), text: '' });
-      return run(`/v1/interviews/${session.id}/clarify`, { turnId: turn.turnId, message: message.trim() });
+      const attempt = () => {
+        setPhase('replying');
+        setReply({ question: message.trim(), text: '' });
+        return run(`/v1/interviews/${session.id}/clarify`, { turnId: turn.turnId, message: message.trim() });
+      };
+      lastAttempt.current = attempt;
+      return attempt();
     },
     [run, session],
   );
 
   const control = useCallback(
     async (action: 'pause' | 'resume' | 'end') => {
-      setError(null);
-      try {
-        apply(await api[action](session.id));
-      } catch (e) {
-        setError(e);
-      }
+      const attempt = async () => {
+        setError(null);
+        try {
+          apply(await api[action](session.id));
+        } catch (e) {
+          setError(e);
+        }
+      };
+      lastAttempt.current = attempt;
+      return attempt();
     },
     [apply, session.id],
   );
@@ -177,6 +196,7 @@ export function useInterviewSession(initial: SessionView) {
   useEffect(() => {
     if (busy.current || phase !== 'idle' || error) return;
     if (session.state === 'asking') {
+      lastAttempt.current = () => run(`/v1/interviews/${session.id}/question`);
       const t = setTimeout(() => void run(`/v1/interviews/${session.id}/question`), 1500);
       return () => clearTimeout(t);
     }
@@ -200,5 +220,17 @@ export function useInterviewSession(initial: SessionView) {
         ? 'evaluating'
         : session.interviewerStatus;
 
-  return { session, phase, status, streaming, error, feedback, reply, start, submit, clarify, control, clearError: () => setError(null), refresh: async () => apply(await api.session(session.id)) };
+  /** Resends the request that failed; with nothing to resend, it fetches the session from the server. */
+  const retry = useCallback(async () => {
+    setError(null);
+    const attempt = lastAttempt.current;
+    if (attempt) return attempt();
+    try {
+      apply(await api.session(session.id));
+    } catch (e) {
+      setError(e);
+    }
+  }, [apply, session.id]);
+
+  return { session, phase, status, streaming, error, feedback, reply, start, submit, clarify, control, retry, clearError: () => setError(null), refresh: async () => apply(await api.session(session.id)) };
 }
