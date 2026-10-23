@@ -24,10 +24,11 @@ export function validateUser(cfg: FirewallConfig, f: UserForm, originalId: strin
   return e;
 }
 
-export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | null): Result {
+/** `passwordHash` is the SHA-256 digest of f.password from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
+export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | null, passwordHash: string = f.password ? hashPassword(f.password) : ''): Result {
   const before = cfg.users.local.find((u) => u.id === originalId);
   const u: LocalUser = {
-    id: f.id || uid(), name: f.name, passwordHash: f.password ? hashPassword(f.password) : before?.passwordHash ?? '', groups: [...new Set(['Everyone', ...f.groups])],
+    id: f.id || uid(), name: f.name, passwordHash: f.password ? passwordHash : before?.passwordHash ?? '', groups: [...new Set(['Everyone', ...f.groups])],
     otp: f.otp, vpnAccess: before?.vpnAccess ?? [], comment: f.comment,
   };
   const local = originalId ? cfg.users.local.map((x) => (x.id === originalId ? u : x)) : [...cfg.users.local, u];

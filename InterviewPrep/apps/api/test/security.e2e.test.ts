@@ -217,14 +217,21 @@ describe('upload validation and storage access', () => {
     expect(edited.body.extractedText).not.toMatch(/hiring@acme|99887/);
   });
 
-  it('the upload endpoint enforces the signed policy (type, key, signature)', async () => {
+  it('the upload endpoint enforces the signed policy (type, key, signature) before reading the body', async () => {
     const created = await agent.post('/v1/documents').set('Origin', ORIGIN).send({ kind: 'resume', contentType: 'application/pdf', sizeBytes: 2000 });
     const { upload } = created.body;
-    const tampered = { ...upload.fields, signature: 'x'.repeat(43) };
-    const form = agent.post('/v1/dev-storage/upload');
-    for (const [k, v] of Object.entries(tampered as Record<string, string>)) form.field(k, v);
+    const target = new URL(upload.url);
+    // The policy and signature travel in the query string, so a bad signature is refused without buffering the file.
+    expect(target.searchParams.get('policy')).toBeTruthy();
+    expect(target.searchParams.get('signature')).toBeTruthy();
+    expect(upload.fields.policy).toBeUndefined();
+    const tampered = new URL(upload.url);
+    tampered.searchParams.set('signature', 'x'.repeat(43));
+    const form = agent.post(`${tampered.pathname}${tampered.search}`);
+    for (const [k, v] of Object.entries(upload.fields as Record<string, string>)) form.field(k, v);
     expect((await form.attach('file', Buffer.from('%PDF-1.4'), 'a.pdf')).status).toBe(403);
-    const wrongType = agent.post('/v1/dev-storage/upload');
+    expect((await agent.post('/v1/dev-storage/upload').attach('file', Buffer.from('%PDF-1.4'), 'a.pdf')).status).toBe(403);
+    const wrongType = agent.post(`${target.pathname}${target.search}`);
     for (const [k, v] of Object.entries({ ...upload.fields, 'Content-Type': 'text/html' } as Record<string, string>)) wrongType.field(k, v);
     expect((await wrongType.attach('file', Buffer.from('<script>'), 'a.html')).status).toBe(415);
   });

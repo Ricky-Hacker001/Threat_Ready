@@ -143,4 +143,32 @@ describe('TR-RED-001 engine — vulnerabilities are reachable and gradable', () 
     // sqlmap traffic also confirms the SQLi finding (shared state).
     expect(l.finding('V-SQLI').confirmed).toBe(true);
   });
+
+  it('grep and find never hand the regex engine a catastrophic pattern', () => {
+    const l = new Lab();
+    // Ordinary grep/find keep working.
+    expect(l.term('grep -i robots notes.md').result.output).toContain('robots.txt');
+    expect(l.term('cat wordlists/common.txt | grep "^a.*"').result.output).toMatch(/admin\n/);
+    expect(l.term('grep -v "^#" notes.md').result.output).not.toContain('# Recon');
+    expect(l.term('grep "[0-9]+" engagement-brief.txt').result.output).toContain('ENG-2041');
+    expect(l.term('find . -name "*.txt"').result.output).toContain('engagement-brief.txt');
+    expect(l.term('find / -name "common.???"').result.output).toContain('/home/analyst/wordlists/common.txt');
+    // Exponential and polynomial patterns are refused up front, in well under the time they would take to run.
+    const t0 = performance.now();
+    const r = l.term(`echo ${'a'.repeat(40)} | grep "(a+)+$"`);
+    expect(performance.now() - t0).toBeLessThan(50);
+    expect(r.result.output).toMatch(/^grep: invalid pattern/);
+    for (const p of ['.*.*x', 'a?a?a?a?a?a?a?a', '(a|aa)*b', '(?=a)b', '(a)\\1', 'x'.repeat(129)]) expect(l.term(`grep "${p}" notes.md`).result.output, p).toMatch(/^grep: invalid pattern/);
+    // Scans stay bounded even for a fat pipe: one `.*` on a long, non-matching line.
+    const t1 = performance.now();
+    l.term(`echo ${'b'.repeat(900)} | grep ".*x"`);
+    expect(performance.now() - t1).toBeLessThan(100);
+    // find -name treats regex metacharacters literally and never throws.
+    for (const p of ['(', '[', '*(', 'a{2', '\\\\', '+']) expect(l.term(`find . -name "${p}"`).result.output).toBe('\n');
+    expect(l.term(`find . -name "${'*'.repeat(30)}x"`).result.output).toBe('\n');
+    // Prototype names are unknown findings/objectives, not server errors.
+    expect(l.do('finding.report', { findingId: 'constructor', severity: 'High' }).code).toBe('VALIDATION_FAILED');
+    expect(l.do('finding.remediate', { findingId: '__proto__', optionId: 'x' }).code).toBe('VALIDATION_FAILED');
+    expect(l.do('hint.request', { objectiveId: 'toString' }).code).toBe('VALIDATION_FAILED');
+  });
 });

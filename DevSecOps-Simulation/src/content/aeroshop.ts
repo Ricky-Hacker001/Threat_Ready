@@ -2,6 +2,7 @@ import type { Files } from '../engine/types';
 import { resolve, writeLock, type PkgJson } from '../engine/sca';
 import { moduleLoadError, parameterised, routeBlock, sqlInjectable, usesEval } from '../engine/appmodel';
 import type { TestCase } from '../engine/shell';
+import { cached, prepare, type CaseSpec } from '../engine/sandbox';
 
 // AeroShop: the synthetic sample application every lab starts from.
 
@@ -225,39 +226,50 @@ export function baseFiles(extra: Files = {}): Files {
 // ---------------------------------------------------------------------------
 // Unit tests run by `npm test` (locally and in CI)
 
-/** Load a dependency-free CommonJS module from the repo and execute it for real. */
-function loadModule(files: Files, path: string): Record<string, unknown> {
-  const src = files[path];
-  if (src === undefined) throw new Error(`Cannot find module '../${path.replace(/\.js$/, '')}' from 'tests'`);
-  const module = { exports: {} as Record<string, unknown> };
-  new Function('module', 'exports', 'require', src)(module, module.exports, (n: string) => {
-    throw new Error(`Cannot require '${n}' in the unit-test sandbox`);
-  });
-  return module.exports;
+/**
+ * The learner's cart.js is executed for real, but never on this origin: src/engine/sandbox.ts runs
+ * it in an opaque-origin iframe ahead of time (see prepareCartTests) and the synchronous test
+ * cases below read the cached outcome for the exact source they are given.
+ */
+const CART_PATH = 'src/lib/cart.js';
+const CART_CASES: { call: string; name: string; spec: CaseSpec; expected: unknown }[] = [
+  { name: 'sums price x quantity for every line', call: 'cartTotal([{price:10,quantity:2},{price:5,quantity:1}])', spec: { fn: 'cartTotal', args: [[{ price: 10, quantity: 2 }, { price: 5, quantity: 1 }]] }, expected: 25 },
+  { name: 'empty cart is zero', call: 'cartTotal([])', spec: { fn: 'cartTotal', args: [[]] }, expected: 0 },
+  { name: 'coupon never makes the total negative', call: 'applyCoupon(5, {amount:10})', spec: { fn: 'applyCoupon', args: [5, { amount: 10 }] }, expected: 0 },
+];
+const CART_SPECS = CART_CASES.map((c) => c.spec);
+
+/** Evaluate (once, cached) every cart.js the lab may test: the working tree and every commit. */
+export function prepareCartTests(sources: Iterable<string | undefined>): Promise<unknown> {
+  const distinct = new Set<string>();
+  for (const src of sources) if (typeof src === 'string') distinct.add(src);
+  return Promise.all([...distinct].map((src) => prepare(src, CART_SPECS)));
 }
 
-function cartCase(name: string, call: string, fn: (m: Record<string, unknown>) => unknown, expected: unknown): TestCase {
+/** All cart.js versions a lab state can run tests against. */
+export function cartSourcesOf(s: { files: Files; commits: { files: Files }[] }): string[] {
+  return [s.files[CART_PATH], ...s.commits.map((c) => c.files[CART_PATH])].filter((x): x is string => typeof x === 'string');
+}
+
+function cartCase(i: number): TestCase {
+  const { name, call, expected } = CART_CASES[i];
   return {
     suite: 'tests/cart.test.js',
     name,
     run: (fs) => {
-      try {
-        const actual = fn(loadModule(fs, 'src/lib/cart.js'));
-        return actual === expected ? null : `expect(received).toBe(expected)\n\nExpected: ${JSON.stringify(expected)}\nReceived: ${JSON.stringify(actual)}\n\n  at ${call}`;
-      } catch (e) {
-        return `${(e as Error).name}: ${(e as Error).message}`;
-      }
+      const src = fs[CART_PATH];
+      if (src === undefined) return `Error: Cannot find module '../${CART_PATH.replace(/\.js$/, '')}' from 'tests'`;
+      const o = cached(src, CART_SPECS)?.[i];
+      if (!o) return `Error: the unit-test sandbox has not finished loading ${CART_PATH} — run npm test again`;
+      if (!o.ok) return `${o.name}: ${o.message}`;
+      if (o.primitive && o.value === expected) return null;
+      const received = o.primitive ? JSON.stringify(o.value) : o.received;
+      return `expect(received).toBe(expected)\n\nExpected: ${JSON.stringify(expected)}\nReceived: ${received}\n\n  at ${call}`;
     },
   };
 }
 
-type Fn = (...a: unknown[]) => unknown;
-
-export const CART_TESTS: TestCase[] = [
-  cartCase('sums price x quantity for every line', 'cartTotal([{price:10,quantity:2},{price:5,quantity:1}])', (m) => (m.cartTotal as Fn)([{ price: 10, quantity: 2 }, { price: 5, quantity: 1 }]), 25),
-  cartCase('empty cart is zero', 'cartTotal([])', (m) => (m.cartTotal as Fn)([]), 0),
-  cartCase('coupon never makes the total negative', 'applyCoupon(5, {amount:10})', (m) => (m.applyCoupon as Fn)(5, { amount: 10 }), 0),
-];
+export const CART_TESTS: TestCase[] = CART_CASES.map((_, i) => cartCase(i));
 
 function routeCase(name: string, method: string, path: string, check: (b: string) => string | null): TestCase {
   return {

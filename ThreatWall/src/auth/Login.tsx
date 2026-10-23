@@ -4,11 +4,11 @@ import { BrowserFrame } from './BrowserFrame';
 import { SetupWizard } from './SetupWizard';
 import { ShieldMark, Wordmark } from '../components/Logo';
 import { useStore } from '../state/store';
-import { hashPassword, labTotp } from '../lib/hash';
+import { labTotp, verifyPassword } from '../lib/hash';
 import { ui } from '../state/ui';
 
 export function Login() {
-  const { config, session, patchSession, addAudit, emit } = useStore();
+  const { config, session, patchSession, addAudit, emit, commit } = useStore();
   const sys = config.system;
   const [user, setUser] = useState('');
   const [pw, setPw] = useState('');
@@ -29,7 +29,7 @@ export function Login() {
     );
   }
 
-  const submit = (e: FormEvent) => {
+  const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (Date.now() < lockedUntil) {
       setError(`Too many failed attempts. Try again in ${Math.ceil((lockedUntil - Date.now()) / 1000)} seconds.`);
@@ -39,8 +39,8 @@ export function Login() {
       setError('Enter your username and password.');
       return;
     }
-    const ok = user.trim() === sys.adminUser && hashPassword(pw) === sys.adminPasswordHash;
-    if (!ok) {
+    const v = user.trim() === sys.adminUser ? await verifyPassword(pw, sys.adminPasswordHash) : { ok: false };
+    if (!v.ok) {
       const n = fails + 1;
       setFails(n);
       emit('login', { ok: false, user: user.trim(), defaultPw: pw === 'password' });
@@ -69,6 +69,8 @@ export function Login() {
       setWizard(true);
       return;
     }
+    // A hash stored before the SHA-256 upgrade is replaced on the first successful login.
+    if (v.rehash) commit({ ...config, system: { ...sys, adminPasswordHash: v.rehash } }, []);
     patchSession({ loggedIn: true, user: sys.adminUser, lastActivity: Date.now() });
     addAudit([{ category: 'Session', action: 'Administrator login', detail: `${sys.adminUser} from ${session.pc.ip} via ${session.connectedVia}` }]);
   };
@@ -86,11 +88,11 @@ export function Login() {
           <form className="tw-login-form" onSubmit={submit} noValidate>
             <label htmlFor="tw-user">Username</label>
             <div className="tw-login-field">
-              <input id="tw-user" data-guide="login-user" autoComplete="off" value={user} onChange={(e) => setUser(e.target.value)} placeholder="Enter your username" />
+              <input id="tw-user" data-guide="login-user" autoComplete="off" name="fw-admin-login" value={user} onChange={(e) => setUser(e.target.value)} placeholder="Enter your username" />
             </div>
             <label htmlFor="tw-pass">Password</label>
             <div className="tw-login-field">
-              <input id="tw-pass" data-guide="login-pass" type={show ? 'text' : 'password'} autoComplete="off" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Enter your password" />
+              <input id="tw-pass" data-guide="login-pass" type={show ? 'text' : 'password'} autoComplete="off" name="fw-admin-passphrase" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Enter your password" />
               <button type="button" onClick={() => setShow((s) => !s)} aria-label={show ? 'Hide password' : 'Show password'}>
                 {show ? <EyeOff size={17} /> : <Eye size={17} />}
               </button>

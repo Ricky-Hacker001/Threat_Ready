@@ -28,6 +28,7 @@ import {
 import { analysisOf } from '../interview/analysis.service.js';
 import { rubricKindFor } from '../interview/plan.types.js';
 import { configOf, loadOwnedSession, loadTurns, planOf, progressOf } from '../interview/session.repo.js';
+import { stripOpening } from '../interview/turn.service.js';
 import { computeScores, SCORING_VERSION, type ScoredTurnInput } from '../scoring/scoring.js';
 import { buildReport } from './report.builder.js';
 import { renderReportPdf } from './report.pdf.js';
@@ -81,7 +82,7 @@ export class ReportsService {
       const inputsFor: ScoringTurnInput[] = answered.map((t) => {
         const item = { ...itemOf(t.planItemId), kind: rubricKindFor(itemOf(t.planItemId), t.kind) };
         const parent = t.kind === 'follow_up' ? turns.find((p) => p.planItemId === t.planItemId && p.kind === 'question') : undefined;
-        return { turnId: t.id, item, criteria: criteriaFor(item.kind), question: t.question, answer: t.answer!, parentQuestion: parent?.question };
+        return { turnId: t.id, item, criteria: criteriaFor(item.kind), question: stripOpening(t.question), answer: t.answer!, parentQuestion: parent ? stripOpening(parent.question) : undefined };
       });
       // Step 1: assess the answers in small batches, in parallel, so no single response is long.
       const batches: ScoringTurnInput[][] = [];
@@ -112,7 +113,7 @@ export class ReportsService {
             return {
               skill: c.skills.get(t.item.skillId)?.label ?? t.item.skillId,
               kind: t.item.kind.replace(/_/g, ' '),
-              question: t.question,
+              question: stripOpening(t.question),
               answerExcerpt: t.answer.slice(0, 600),
               levels: a?.criteria.map((cr) => `${cr.criterion_id} ${cr.level}`).join(', ') ?? 'not assessed',
               missing: a?.missing_concepts.slice(0, 4) ?? [],

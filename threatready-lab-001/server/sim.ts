@@ -1,5 +1,5 @@
 // Deterministic simulation helpers shared by handlers, verification and health probes.
-import { arn, authorize, ANON, cidrContains, Decision } from './policy';
+import { arn, authorize, ANON, cidrContains, Decision, own } from './policy';
 import { SG_ALB, SG_APP, I_APP, KEY_APP, FN, ATTACKER_IP } from './fixture';
 
 export const SOURCES: Record<string, { label: string; ip: string; sgs: string[]; external: boolean }> = {
@@ -40,7 +40,7 @@ export function internetExposure(state: any) {
 }
 
 export function s3Access(state: any, q: { principal: string; operation: 'GET' | 'PUT'; bucket: string; key: string; accessKeyId?: string }): Decision & { encryption?: string; preview?: string } {
-  const b = state.s3.buckets[q.bucket];
+  const b = own<any>(state.s3.buckets, q.bucket);
   if (!b) return { allowed: false, reason: 'NoSuchBucket' };
   const action = q.operation === 'GET' ? 's3:GetObject' : 's3:PutObject';
   const d = authorize(state, { principal: q.principal, action, resource: arn.object(q.bucket, q.key), accessKeyId: q.accessKeyId });

@@ -15,7 +15,7 @@ import { hostNet, pcLease, ifaceUp, hostIface, haActiveUnit } from '../engine/ne
 import { evaluate, VERDICT_LABEL, type FlowResult, type FlowSpec } from '../engine/traffic';
 import { DAY_NAMES, labNow, localTime, tsAt, findAddress } from '../engine/objects';
 import { isIPv4, isMask, inSubnet } from '../lib/ip';
-import { hashPassword, labTotp } from '../lib/hash';
+import { labTotp, verifyPassword } from '../lib/hash';
 import { LAB } from '../state/baseline';
 
 export const LAB_TABS = [
@@ -454,13 +454,13 @@ function LabControlsTab() {
     emit('lab', { action: 'isp', iface, state: v });
   };
 
-  const nxConnect = (e: FormEvent) => {
+  const nxConnect = async (e: FormEvent) => {
     e.preventDefault();
     const fail = (m: string) => { setNxMsg(m); emit('lab', { action: 'netextender', ok: false, reason: m }); };
     const portal = evaluate(state, { from: 'remote-user', to: LAB.wanIp, proto: 'TCP', port: config.sslvpn.port }).result;
     if (!portal.ok) return fail(`Cannot reach the SSL VPN portal on ${LAB.wanIp}:${config.sslvpn.port} — ${portal.reason}`);
     const u = config.users.local.find((x) => x.name === nx.user.trim());
-    if (!u || u.passwordHash !== hashPassword(nx.pw)) return fail('Authentication failed: wrong username or password.');
+    if (!u || !(await verifyPassword(nx.pw, u.passwordHash)).ok) return fail('Authentication failed: wrong username or password.');
     if (!u.groups.includes('SSLVPN Services')) return fail(`${u.name} is not a member of SSLVPN Services, so SSL VPN access is refused.`);
     if (u.otp && nx.otp.trim() !== labTotp(u.name, Date.now())) return fail('One-time code required or incorrect. Use the code shown under “Authenticator”.');
     if (!config.sslvpn.pool || !findAddress(config, config.sslvpn.pool)) return fail('Connected, but the firewall has no client address pool to hand out.');
@@ -469,12 +469,12 @@ function LabControlsTab() {
     setNxMsg(`Connected as ${u.name}.`);
   };
 
-  const userLogin = (e: FormEvent) => {
+  const userLogin = async (e: FormEvent) => {
     e.preventDefault();
     const u = config.users.local.find((x) => x.name === au.user.trim());
     const h = hostById(au.host);
     if (!h) return;
-    if (!u || u.passwordHash !== hashPassword(au.pw)) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
+    if (!u || !(await verifyPassword(au.pw, u.passwordHash)).ok) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
     const net = hostNet(state, h);
     if (!net) { setAuMsg(`${h.name} has no network address, so it cannot reach the login page.`); return; }
     patchLab({ authSessions: [...lab.authSessions.filter((a) => a.host !== h.id), { user: u.name, host: h.id, since: Date.now() }] }, [{ category: 'Users', action: 'User login', detail: `${u.name} on ${h.name} (${net.ip})` }]);
@@ -535,7 +535,7 @@ function LabControlsTab() {
         ) : (
           <form onSubmit={nxConnect} className="tw-ctl-form">
             <input className="tw-input" data-guide="lab-nx-user" placeholder="Username" value={nx.user} onChange={(e) => setNx({ ...nx, user: e.target.value })} aria-label="NetExtender username" />
-            <input className="tw-input" type="password" placeholder="Password" value={nx.pw} onChange={(e) => setNx({ ...nx, pw: e.target.value })} aria-label="NetExtender password" />
+            <input className="tw-input" type="password" autoComplete="off" name="fw-lab-vpn-passphrase" placeholder="Password" value={nx.pw} onChange={(e) => setNx({ ...nx, pw: e.target.value })} aria-label="NetExtender password" />
             <input className="tw-input mono" placeholder="One-time code" value={nx.otp} onChange={(e) => setNx({ ...nx, otp: e.target.value })} aria-label="One-time code" style={{ width: 110 }} />
             <button className="tw-btn tw-btn-primary" data-guide="lab-nx-connect" type="submit">Connect to {LAB.wanIp}:{config.sslvpn.port}</button>
           </form>
@@ -551,7 +551,7 @@ function LabControlsTab() {
             {HOSTS.filter((h) => h.segment === 'iface' || h.segment === 'vlan').filter((h) => h.id !== 'web01').map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
           <input className="tw-input" data-guide="lab-auth-user" placeholder="Username" value={au.user} onChange={(e) => setAu({ ...au, user: e.target.value })} aria-label="Username" />
-          <input className="tw-input" type="password" placeholder="Password" value={au.pw} onChange={(e) => setAu({ ...au, pw: e.target.value })} aria-label="Password" />
+          <input className="tw-input" type="password" autoComplete="off" name="fw-lab-user-passphrase" placeholder="Password" value={au.pw} onChange={(e) => setAu({ ...au, pw: e.target.value })} aria-label="Password" />
           <button className="tw-btn" data-guide="lab-auth-login" type="submit">Log in</button>
         </form>
         {auMsg ? <div className="muted" style={{ fontSize: 12 }}>{auMsg}</div> : null}

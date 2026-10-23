@@ -4,7 +4,7 @@ import { ShieldMark } from '../components/Logo';
 import { Note, Row } from '../components/ui';
 import { useStore } from '../state/store';
 import { useDraft } from '../state/ui';
-import { passwordProblems } from '../lib/hash';
+import { hashPasswordSecure, passwordProblems } from '../lib/hash';
 import { LAB } from '../state/baseline';
 import {
   TIMEZONES, applySetup, validateAppliance, validateCredentials, validateWan, type SetupInput,
@@ -46,10 +46,10 @@ export function SetupWizard({ onClose }: { onClose: () => void }) {
   useDraft('wizard', { step, adminUser: f.adminUser, hostname: f.hostname, timezone: f.timezone, wanMode: f.wanMode,
     pwOk: f.password.length > 0 && missing.length === 0, confirmOk: f.confirm.length > 0 && f.confirm === f.password });
 
-  const next = () => {
+  const next = async () => {
     if (Object.keys(issues.errors).length) { setTouched((t) => ({ ...t, [step]: true })); return; }
     if (step === 5) {
-      const { next: cfg, audit } = applySetup(config, f);
+      const { next: cfg, audit } = applySetup(config, f, await hashPasswordSecure(f.password));
       commit(cfg, audit);
     }
     setStep((s) => s + 1);

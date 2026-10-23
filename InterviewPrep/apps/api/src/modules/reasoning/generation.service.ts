@@ -6,7 +6,7 @@ import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
-import { LlmService } from '../ai/llm.service.js';
+import { LlmService, type CallMeta } from '../ai/llm.service.js';
 import { getDomain, registeredDomains } from './domains/index.js';
 import { fingerprintOf, type ReasoningDomain, type VariationSeed } from './domain.types.js';
 import type { GeneratedItem } from './item.types.js';
@@ -19,8 +19,18 @@ import { normaliseGeneratorOutput, toGeneratedItem, validateGeneratedItem } from
 /** The platform account that owns pool generation in the AI ledger (migration 0009). */
 export const POOL_USER_ID = 'threatready-reasoning-pool';
 export const POOL_ORG_ID = '00000000-0000-4000-8000-0000000a11d0';
-/** Difficulties the product offers; the pool keeps a bucket for each. */
+/** Difficulties the pool keeps a bucket for. */
 export const POOL_DIFFICULTIES: readonly ReasoningDifficulty[] = ['beginner', 'intermediate', 'advanced'];
+
+/**
+ * The pool bucket a requested difficulty is served from. The contract also accepts 'expert', which
+ * shares the 'advanced' bucket: without this every expert request missed the pool and queued a
+ * 16k-token on-demand generation billed to the platform account (pool-budget DoS, audit §3.5).
+ */
+export function poolBucket(difficulty: string): ReasoningDifficulty {
+  if (difficulty === 'expert') return 'advanced';
+  return (POOL_DIFFICULTIES as readonly string[]).includes(difficulty) ? (difficulty as ReasoningDifficulty) : 'intermediate';
+}
 
 /** Budget codes that a job retry cannot fix: the attempt is marked failed with the code instead of retried. */
 const TERMINAL_CODES = new Set(['LLM_BUDGET_EXCEEDED', 'AI_SERVICE_PAUSED', 'REASONING_DOMAIN_UNAVAILABLE']);
@@ -63,7 +73,7 @@ export class GenerationService {
   async refillPool(req: { domain?: string; difficulty?: string; userId?: string } = {}): Promise<void> {
     const domains = req.domain ? [getDomain(req.domain)].filter((d): d is ReasoningDomain => Boolean(d)) : registeredDomains();
     for (const domain of domains) {
-      const levels = req.difficulty ? POOL_DIFFICULTIES.filter((d) => d === req.difficulty) : POOL_DIFFICULTIES;
+      const levels = req.difficulty ? POOL_DIFFICULTIES.filter((d) => d === poolBucket(req.difficulty!)) : POOL_DIFFICULTIES;
       for (const difficulty of levels) await this.refillBucket(domain, difficulty, req.userId);
     }
   }
@@ -112,15 +122,20 @@ export class GenerationService {
     }
   }
 
-  /** How many questions this bucket should gain now. */
+  /**
+   * How many questions this bucket should gain now. A learner-triggered refill tops the bucket up for
+   * that learner but never past REASONING_POOL_TARGET: the target bounds what one learner can make
+   * the platform generate; past it, the learner's own daily cap pays for on-demand questions.
+   */
   private async needed(domain: string, difficulty: string, userId?: string): Promise<number> {
     const [{ n: total } = { n: 0 }] = await this.db.system(({ db }) =>
       db.select({ n: count() }).from(reasoningItems).where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), eq(reasoningItems.difficulty, difficulty))),
     );
-    let need = Math.max(0, this.cfg.REASONING_POOL_TARGET - total);
+    const headroom = Math.max(0, this.cfg.REASONING_POOL_TARGET - total);
+    let need = headroom;
     if (userId) {
       const available = await this.availableFor(userId, domain, difficulty);
-      need = Math.max(need, this.cfg.REASONING_POOL_MIN_AVAILABLE - available);
+      need = Math.min(Math.max(need, this.cfg.REASONING_POOL_MIN_AVAILABLE - available), headroom);
     }
     return Math.min(need, this.cfg.REASONING_POOL_BATCH);
   }
@@ -150,9 +165,14 @@ export class GenerationService {
     if (!a || a.state !== 'generating') return;
     const domain = getDomain(a.domain);
     if (!domain) return this.markFailed(attemptId, 'REASONING_DOMAIN_UNAVAILABLE');
-    const difficulty = (POOL_DIFFICULTIES as readonly string[]).includes(a.difficulty) ? (a.difficulty as ReasoningDifficulty) : domain.difficulty;
+    const difficulty = poolBucket(a.difficulty);
     const bank = await this.bankFor(a.domain, difficulty);
-    const r = await this.generateOne(domain, difficulty, bank, { sourceId: a.id, onTry: (n) => this.db.system(({ db }) => db.update(reasoningAttempts).set({ generationTries: n, updatedAt: new Date() }).where(eq(reasoningAttempts.id, attemptId))) });
+    // On demand for one learner: charged to that learner's daily cap, not the platform pool account.
+    const r = await this.generateOne(domain, difficulty, bank, {
+      sourceId: a.id,
+      owner: { userId: a.userId, orgId: a.orgId },
+      onTry: (n) => this.db.system(({ db }) => db.update(reasoningAttempts).set({ generationTries: n, updatedAt: new Date() }).where(eq(reasoningAttempts.id, attemptId))),
+    });
     if (!r.ok) return this.markFailed(attemptId, r.code);
     // The new question joins the pool for everyone else, and is recorded as served to this learner.
     await this.db.system(async ({ db }) => {
@@ -201,9 +221,11 @@ export class GenerationService {
     domain: ReasoningDomain,
     difficulty: ReasoningDifficulty,
     bank: Bank,
-    opts: { sourceId?: string; firstSeed?: VariationSeed; onTry?: (n: number) => Promise<unknown> },
+    opts: { sourceId?: string; firstSeed?: VariationSeed; owner?: { userId: string; orgId: string }; onTry?: (n: number) => Promise<unknown> },
   ): Promise<Generated> {
-    const meta = { feature: 'reasoning.generate', owner: { userId: POOL_USER_ID, orgId: POOL_ORG_ID }, sourceId: opts.sourceId, budget: 'pool' as const };
+    const meta: CallMeta = opts.owner
+      ? { feature: 'reasoning.generate', owner: opts.owner, sourceId: opts.sourceId, budget: 'reasoning' }
+      : { feature: 'reasoning.generate', owner: { userId: POOL_USER_ID, orgId: POOL_ORG_ID }, sourceId: opts.sourceId, budget: 'pool' };
     let feedback: string[] = [];
     const used = new Set(bank.seeds.map(fingerprintOf));
     const started = Date.now();

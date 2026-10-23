@@ -71,3 +71,29 @@ export class SseStream {
     this.res.write(chunk);
   }
 }
+
+/** Open event streams a user may hold at once; the next one is refused with 429 (RATE_LIMITED). */
+export const MAX_SSE_STREAMS_PER_USER = 3;
+/** How often a long-lived stream re-checks that its session is still valid. */
+export const SSE_IDENTITY_RECHECK_MS = 30_000;
+
+const openStreams = new Map<string, number>();
+
+/**
+ * Reserves one of the user's stream slots. Returns the release function; call it when the stream
+ * ends (the `close` event or the loop's exit). Without this, one session could hold any number of
+ * five-minute server loops open.
+ */
+export function acquireStreamSlot(userId: string, max = MAX_SSE_STREAMS_PER_USER): () => void {
+  const open = openStreams.get(userId) ?? 0;
+  if (open >= max) throw new DomainError('RATE_LIMITED', { message: 'Too many open event streams; close one and retry' });
+  openStreams.set(userId, open + 1);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const n = (openStreams.get(userId) ?? 1) - 1;
+    if (n <= 0) openStreams.delete(userId);
+    else openStreams.set(userId, n);
+  };
+}

@@ -1,0 +1,4 @@
+Contact: mailto:security@threatready.io
+Policy: https://threatready.io/security.html
+Preferred-Languages: en
+Expires: 2027-10-23T00:00:00.000Z

@@ -124,6 +124,28 @@ describe('gateway to the reasoning engine (the monolith)', () => {
     expect((await request(app).post('/v1/reasoning/attempts').set({ ...as('asha'), Origin: 'https://evil.example' }).send({})).status).toBe(403);
     expect(engine.calls.length).toBe(n);
   });
+  it('never forwards a learner-supplied client-IP header, strips hop-by-hop and Proxy-* headers, keeps the cookie', async () => {
+    const engine2 = await startEngineStub();
+    const app = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine2.url, clientIpHeader: 'x-threatready-client-ip' } });
+    try {
+      const r = await request(app).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': '203.0.113.9', 'proxy-authorization': 'Basic x', te: 'trailers', 'keep-alive': 'timeout=5' });
+      expect(r.status).toBe(200);
+      const h = engine2.calls.at(-1)!.headers;
+      expect(h['x-threatready-client-ip']).toBeDefined();
+      expect(h['x-threatready-client-ip']).not.toBe('203.0.113.9');
+      expect(h['proxy-authorization']).toBeUndefined(); expect(h.te).toBeUndefined(); expect(h['keep-alive']).toBeUndefined();
+      expect(h.cookie).toBe('tr.session_token=asha');
+    } finally { engine2.close(); }
+  });
+  it('cannot reach the engine\'s internal API through the /v1 proxy', async () => {
+    const app = await setup();
+    const n = engine.calls.length;
+    for (const path of ['/v1/../internal/v1/reasoning/ai-usage', '/v1/%2e%2e/internal/v1/reasoning/ai-usage', '/v1/reasoning/../../internal/v1/x', '/v1/internal/v1/reasoning/ai-usage', '/v1/%252e%252e/internal/x', '/v1/reasoning/%2Finternal%2Fx']) {
+      const r = await request(app).get(path).set(as('asha'));
+      expect(r.status, path).toBe(404);
+    }
+    expect(engine.calls.length).toBe(n);
+  });
   it('streams server-sent events through unchanged', async () => {
     const app = await setup();
     const r = await request(app).get('/v1/reasoning/attempts/x/events').set(as('asha')).buffer(true).parse((res, cb) => { let d = ''; res.setEncoding('utf8'); res.on('data', (c: string) => (d += c)); res.on('end', () => cb(null, d)); });
@@ -150,5 +172,26 @@ describe('gateway to the reasoning engine (the monolith)', () => {
     const r = await request(dead).get('/v1/reasoning/domains').set(as('asha'));
     expect(r.status).toBe(502);
     expect(r.body.error.code).toBe('UPSTREAM_UNAVAILABLE');
+  });
+});
+
+describe('rate limiting', () => {
+  it('answers 429 with Retry-After in the API error shape once a user exceeds the per-minute budget', async () => {
+    const limited = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', ratePerMin: 3, rateIpPerMin: 1000 });
+    for (let i = 0; i < 3; i++) expect((await request(limited).get('/api/scenarios').set(as('asha'))).status).toBe(200);
+    const r = await request(limited).get('/api/scenarios').set(as('asha'));
+    expect(r.status).toBe(429);
+    expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
+    expect(r.body).toMatchObject({ code: 'RATE_LIMITED' }); expect(typeof r.body.error).toBe('string');
+    // Another user is unaffected; the limit is per account.
+    expect((await request(limited).get('/api/scenarios').set(as('bharat'))).status).toBe(200);
+  });
+  it('limits per client IP before sign-in is resolved, reading the gateway header', async () => {
+    const limited = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', ratePerMin: 1000, rateIpPerMin: 2 });
+    const ip = { 'x-threatready-client-ip': '198.51.100.7' };
+    expect((await request(limited).get('/api/scenarios').set(ip)).status).toBe(401);
+    expect((await request(limited).get('/api/scenarios').set(ip)).status).toBe(401);
+    expect((await request(limited).get('/api/scenarios').set(ip)).status).toBe(429);
+    expect((await request(limited).get('/api/scenarios').set({ 'x-threatready-client-ip': '198.51.100.8' })).status).toBe(401);
   });
 });

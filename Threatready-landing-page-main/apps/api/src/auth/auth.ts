@@ -1,11 +1,14 @@
+import { createHash, randomUUID } from "node:crypto";
 import { Logger } from "@nestjs/common";
 import { OTP_LENGTH, OTP_TTL_SECONDS, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@threatready/contracts";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { anonymous, captcha, emailOTP, username } from "better-auth/plugins";
+import { sql } from "drizzle-orm";
 import type { Config } from "../config.js";
 import type { Db } from "../db/db.js";
-import { authSchema } from "../db/schema.js";
+import { authSchema, rateLimits } from "../db/schema.js";
 import { dispatch, type EmailPort } from "../email/email.port.js";
 import { existingAccountEmail, otpEmail } from "../email/templates.js";
 import { ensurePersonalWorkspace } from "../tenancy/tenancy.js";
@@ -33,6 +36,33 @@ export const CAPTCHA_ENDPOINTS = [
   "/email-otp/send-verification-otp",
   "/email-otp/request-password-reset",
 ];
+
+/** Endpoints that email a code to the address in the body; capped per address, not just per IP. */
+const OTP_ISSUE_PATHS = ["/email-otp/send-verification-otp", "/email-otp/request-password-reset"];
+const OTP_ISSUE_WINDOW_MS = 60 * 60 * 1000;
+const OTP_ISSUE_MAX_PER_HOUR = 5;
+
+/**
+ * Fixed one-hour window per e-mail address, stored in Better Auth's rate_limits table (shared across
+ * instances, survives restarts). Returns the number of codes issued in the current window including
+ * this one. The key is a hash: the table never holds the address itself.
+ */
+async function countOtpIssue(db: Db, email: string, now: number): Promise<number> {
+  const key = `otp-issue:${createHash("sha256").update(email).digest("hex")}`;
+  const windowStart = now - OTP_ISSUE_WINDOW_MS;
+  const [row] = await db
+    .insert(rateLimits)
+    .values({ id: randomUUID(), key, count: 1, lastRequest: now })
+    .onConflictDoUpdate({
+      target: rateLimits.key,
+      set: {
+        count: sql`case when ${rateLimits.lastRequest} < ${windowStart} then 1 else ${rateLimits.count} + 1 end`,
+        lastRequest: sql`case when ${rateLimits.lastRequest} < ${windowStart} then ${now} else ${rateLimits.lastRequest} end`,
+      },
+    })
+    .returning({ count: rateLimits.count });
+  return row?.count ?? 1;
+}
 
 export function createAuth(config: Config, db: Db, email: EmailPort) {
   const logger = new Logger("Auth");
@@ -86,6 +116,8 @@ export function createAuth(config: Config, db: Db, email: EmailPort) {
     },
 
     account: {
+      // Provider access/refresh/id tokens are encrypted at rest (XChaCha20-Poly1305 with the auth secret).
+      encryptOAuthTokens: true,
       accountLinking: {
         enabled: true,
         // No trustedProviders: implicit linking happens only when the IdP
@@ -100,9 +132,9 @@ export function createAuth(config: Config, db: Db, email: EmailPort) {
       expiresIn: 60 * 60 * 24 * 7, // seven-day sliding expiry (ADD L6)
       updateAge: 60 * 60 * 24,
       // Signed cookie cache: avoids a DB lookup per request; revocation lags up
-      // to 5 minutes. Routes that must see revocation immediately pass
-      // disableCookieCache (see AuthGuard).
-      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      // to one minute. Routes that must see revocation immediately pass
+      // disableCookieCache (see AuthGuard and the admin console).
+      cookieCache: { enabled: true, maxAge: 60 },
     },
 
     rateLimit: {
@@ -130,6 +162,22 @@ export function createAuth(config: Config, db: Db, email: EmailPort) {
       defaultCookieAttributes: { sameSite: "lax", httpOnly: true },
       // One sign-in for onboard.*, interviewprep.*, labs.* and ar.* (cookie Domain=threatready.io).
       ...(config.COOKIE_DOMAIN ? { crossSubDomainCookies: { enabled: true, domain: config.COOKIE_DOMAIN } } : {}),
+    },
+
+    hooks: {
+      // Per-address issuance cap for verification and reset codes (the rateLimit rules above are per IP):
+      // a 6-digit code with 3 tries must not be re-requestable without limit. Same response as success
+      // would give nothing away; 429 is fine here because the address's owner is the one locked out.
+      before: createAuthMiddleware(async (ctx) => {
+        if (!OTP_ISSUE_PATHS.includes(ctx.path)) return;
+        const body = ctx.body as { email?: unknown } | undefined;
+        const to = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+        if (!to) return;
+        const issued = await countOtpIssue(db, to, Date.now());
+        if (issued > Math.ceil(OTP_ISSUE_MAX_PER_HOUR * m)) {
+          throw new APIError("TOO_MANY_REQUESTS", { message: "Too many codes were requested for this email. Try again in an hour." });
+        }
+      }),
     },
 
     databaseHooks: {

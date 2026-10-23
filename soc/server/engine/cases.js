@@ -22,6 +22,12 @@ import { levelById } from '../levels.js';
 
 const streams = new Map();
 const aliases = new Map();
+// When each stream was last used. A stream is rebuilt from the case's seed on demand, so one that
+// belongs to a closed case, or that nobody has touched for two hours, can be dropped (every live
+// stream keeps up to six hours of events in memory).
+const streamUsed = new Map();
+const STREAM_IDLE_MS = 2 * 3600 * 1000;
+const SWEEP_EVERY_MS = 5 * 60 * 1000;
 // Hooks set by the attempt layer (server/attempts.js) so this module does
 // not depend on it.
 export const hooks = { onClose: null, onChange: null };
@@ -54,8 +60,26 @@ export function streamFor(c) {
     s = new LogStream(c, getScenario(c.scenarioId), aliasFor(c));
     streams.set(c.id, s);
   }
+  streamUsed.set(c.id, Date.now());
   return s;
 }
+
+/** Drops the in-memory streams (and alias maps) of closed, removed or idle cases. Returns how many went. */
+export function sweepStreams(now = Date.now()) {
+  let dropped = 0;
+  for (const id of [...streams.keys()]) {
+    const c = store.get(id) || ephemeral.get(id);
+    const idle = now - (streamUsed.get(id) || 0) > STREAM_IDLE_MS;
+    if (c && c.status !== 'closed' && !idle) continue;
+    streams.delete(id);
+    streamUsed.delete(id);
+    if (!c || c.status === 'closed') aliases.delete(id);
+    dropped++;
+  }
+  return dropped;
+}
+const sweeper = setInterval(() => { try { sweepStreams(); } catch (err) { console.error(err); } }, SWEEP_EVERY_MS);
+sweeper.unref?.();
 
 // Level rules for this case: rounds, decay and hint policy. Demo and
 // preview cases keep the scenario's own settings.
@@ -677,12 +701,14 @@ export function recordSearch(c, q) {
 export function removeCase(c) {
   if (c.kind === 'preview') throw new HttpError(403, READ_ONLY);
   streams.delete(c.id);
+  streamUsed.delete(c.id);
   aliases.delete(c.id);
   store.remove(c.id);
 }
 
 export function dropPreview(id) {
   streams.delete(id);
+  streamUsed.delete(id);
   ephemeral.delete(id);
 }
 
@@ -691,9 +717,13 @@ export { describeValue, describeExpected };
 // Daily wipe: forget every in-memory stream and alias map.
 export function dropAll() {
   streams.clear();
+  streamUsed.clear();
   aliases.clear();
   ephemeral.clear();
 }
+
+/** Number of live streams (tests). */
+export const liveStreams = () => streams.size;
 
 // Exposed for tests.
 export const __alias = aliasModule;

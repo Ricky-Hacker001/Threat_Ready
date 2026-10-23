@@ -4,9 +4,15 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  onboard:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Threatready-landing-page-main
     services:
       postgres:
         image: postgres:16-alpine
@@ -23,13 +29,20 @@ jobs:
       BETTER_AUTH_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
       BETTER_AUTH_URL: http://localhost:5173
       WEB_ORIGIN: http://localhost:5173
+      # CI-only value (64 hex chars); the API refuses to boot without one.
+      INTERNAL_API_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       EMAIL_DRIVER: log
       RATE_LIMIT_MULTIPLIER: "10"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: Threatready-landing-page-main/package.json
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: Threatready-landing-page-main/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f infra/db/init.sql
       - run: pnpm --filter @threatready/contracts build
@@ -41,7 +54,12 @@ jobs:
       - name: End-to-end against a live API
         run: |
           node apps/api/dist/main.js > api.log 2>&1 &
-          for i in $(seq 1 30); do curl -sf localhost:3000/api/health && break; sleep 1; done
+          up=0
+          for i in $(seq 1 30); do
+            if curl -sf localhost:3000/api/health; then up=1; break; fi
+            sleep 1
+          done
+          if [ "$up" != "1" ]; then echo "API did not come up within 30 s"; cat api.log; exit 1; fi
           pnpm test:e2e
       - if: failure()
         run: cat api.log

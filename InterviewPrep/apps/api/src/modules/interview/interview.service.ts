@@ -16,6 +16,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { ContentService } from '../../platform/content/content.service.js';
 import { Database, type Tx } from '../../platform/db/database.js';
+import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
 import { PARSER_VERSION } from '../ai/prompts/documents.prompts.js';
 import { SCORING_VERSION } from '../scoring/scoring.js';
@@ -24,6 +25,8 @@ import { emptyProgress } from './plan.types.js';
 import { applyCorrections, buildPlan } from './planner.js';
 import { buildSessionView, configOf, loadOwnedSession, progressOf, transition, type SessionRow } from './session.repo.js';
 import { IDLE_PAUSE_MS, stopClock, startClock } from './timing.js';
+
+const MAX_REPORT_RETRIES = 3;
 
 @Injectable()
 export class InterviewService {
@@ -94,7 +97,7 @@ export class InterviewService {
 
   async list(p: Principal, cursor: string | undefined, limit = 20): Promise<SessionList> {
     return this.db.user(p, async (tx) => {
-      const before = cursor ? new Date(Buffer.from(cursor, 'base64url').toString()) : null;
+      const before = cursorBefore(cursor);
       const rows = await tx.db
         .select({
           s: interviewSessions,
@@ -122,7 +125,7 @@ export class InterviewService {
         };
       });
       const last = rows[limit - 1];
-      return { items, nextCursor: rows.length > limit && last ? Buffer.from(last.s.createdAt.toISOString()).toString('base64url') : null };
+      return { items, nextCursor: rows.length > limit && last ? cursorOf(last.s.createdAt) : null };
     });
   }
 
@@ -230,6 +233,8 @@ export class InterviewService {
       if (!(s.state === 'failed' && s.failureStage === 'scoring')) throw new DomainError('INTERVIEW_INVALID_STATE');
       const progress = progressOf(s);
       const attempt = (progress.retryReportCount ?? 0) + 1;
+      // Every manual retry re-runs the LARGE scoring batches: three retries, then the report stays failed.
+      if (attempt > MAX_REPORT_RETRIES) throw new DomainError('INTERVIEW_LIMIT_REACHED', { message: 'The report has been retried the maximum number of times; contact support' });
       const next = await transition(tx, s, ['failed'], { state: 'scoring', failureCode: null, failureStage: null, progress: { ...progress, retryReportCount: attempt } });
       // A new key per manual retry; the handler itself is idempotent on (session, scoring version).
       await this.queue.enqueue(JOBS.interviewFinalScoring, { kind: 'final_scoring', sessionId: s.id }, { key: `${s.id}:${SCORING_VERSION}:retry:${attempt}` }, tx);

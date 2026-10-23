@@ -8,9 +8,13 @@ import { ClientIpThrottlerGuard, clientIp } from "../common/throttle.js";
 import { CONFIG, type Config } from "../config.js";
 import { AdminService, listQuerySchema, parseRange } from "./admin.service.js";
 
-/** Platform admin console. Read routes plus one write: changing a user's platform role. */
+/**
+ * Platform admin console. Read routes plus one write: changing a user's platform role. Every route
+ * needs a fresh session (no cookie cache): an admin whose session was revoked loses the console at once.
+ */
 @Controller("admin")
 @RequirePermission("admin:read")
+@FreshSession()
 export class AdminController {
   constructor(
     private readonly admin: AdminService,
@@ -31,23 +35,27 @@ export class AdminController {
     return this.admin.listUsers(parseRange(query), parsed.data);
   }
 
-  /** Every matching user with time, location and AI usage, as CSV (opens in Excel / Sheets). */
+  /** Every matching user with time, location and AI usage, as CSV (opens in Excel / Sheets). Audited: a bulk read of personal data. */
   @Get("export/users.csv")
   @RequirePermission("admin:read")
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", 'attachment; filename="threatready-users.csv"')
-  async exportUsers(@Query() query: Record<string, unknown>): Promise<string> {
+  async exportUsers(@Query() query: Record<string, unknown>, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<string> {
     const parsed = listQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Invalid filters" });
     const range = parseRange(query);
     const { rows } = await this.admin.allUserRows(range, parsed.data);
+    await this.admin.audit("users.export", me, null, { rows: rows.length, from: range.from.toISOString(), to: range.to.toISOString(), q: parsed.data.q ?? null, includeTrial: parsed.data.includeTrial }, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
     return toCsv(rows, range);
   }
 
+  /** One user's sessions (IPs, user agents), sign-in methods and AI usage. Audited. */
   @Get("users/:id")
   @RequirePermission("admin:read")
-  user(@Param("id") id: string, @Query() query: Record<string, unknown>): Promise<AdminUserDetail> {
-    return this.admin.userDetail(id, parseRange(query));
+  async user(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminUserDetail> {
+    const detail = await this.admin.userDetail(id, parseRange(query));
+    await this.admin.audit("user.view", me, { id: detail.user.id, email: detail.user.email }, {}, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
+    return detail;
   }
 
   /**

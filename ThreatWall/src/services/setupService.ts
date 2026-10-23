@@ -46,14 +46,15 @@ export function validateWan(cfg: FirewallConfig, i: SetupInput): { errors: Recor
   return validateInterface(cfg, wanDraft(cfg, i));
 }
 
-export function applySetup(cfg: FirewallConfig, i: SetupInput): { next: FirewallConfig; audit: AuditInput[] } {
+/** `passwordHash` is the SHA-256 digest from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
+export function applySetup(cfg: FirewallConfig, i: SetupInput, passwordHash: string = hashPassword(i.password)): { next: FirewallConfig; audit: AuditInput[] } {
   const x1 = wanDraft(cfg, i);
   const next: FirewallConfig = {
     ...cfg,
     system: {
       ...cfg.system,
       adminUser: i.adminUser,
-      adminPasswordHash: hashPassword(i.password),
+      adminPasswordHash: passwordHash,
       defaultPassword: false,
       hostname: i.hostname,
       timezone: i.timezone,

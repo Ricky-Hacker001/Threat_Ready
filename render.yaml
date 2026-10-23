@@ -14,6 +14,8 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      - key: NODE_ENV
+        value: production
       # --- Neon connection strings (direct, not "-pooler"), one database per app ---
       - key: ONBOARD_DATABASE_URL
         sync: false
@@ -33,6 +35,12 @@ services:
         sync: false
       # --- AI interviewer (InterviewPrep) ---
       - key: ANTHROPIC_API_KEY
+        sync: false
+      # --- Cloudflare Turnstile (CAPTCHA on sign-up, sign-in and OTP requests). Set BOTH or none:
+      #     without them production runs on rate limits alone (the launcher warns at start).
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET_KEY
         sync: false
       # --- Optional: social sign-in. Redirect URIs: <service URL>/api/auth/callback/google and /github ---
       - key: GOOGLE_CLIENT_ID

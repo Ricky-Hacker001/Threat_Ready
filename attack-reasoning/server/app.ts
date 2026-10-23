@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { DIMENSIONS, LEVELS, SCENARIOS, scenarioById } from './scenarios';
 import { IdentityResolver, internalTokenMatches } from './identity';
 import { internalGet, proxyToApi } from './proxy';
+import { limitFromEnv, rateLimiter } from './ratelimit';
 
 export interface AppOptions {
   /** Resolves the shared ThreatReady session (onboard.threatready.io). */
@@ -22,6 +23,9 @@ export interface AppOptions {
    * Unset (tests, or before the engine is configured): /v1 answers 503 and the summary reports zeros.
    */
   reasoningApi?: { url: string; clientIpHeader?: string };
+  /** Requests per minute per signed-in user / per client IP (defaults 120 / 300; env AR_RATE_PER_MIN, AR_RATE_IP_PER_MIN; 0 disables). */
+  ratePerMin?: number;
+  rateIpPerMin?: number;
 }
 
 /**
@@ -36,6 +40,11 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
   // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
   // and a cached 304 must not stand in for a fresh list).
   app.set('etag', false);
+  const limiter = rateLimiter({
+    perUserPerMin: opts.ratePerMin ?? limitFromEnv('AR_RATE_PER_MIN', 120),
+    perIpPerMin: opts.rateIpPerMin ?? limitFromEnv('AR_RATE_IP_PER_MIN', 300),
+    body: (wait) => ({ error: `Too many requests. Try again in ${wait}s.`, code: 'RATE_LIMITED' }),
+  });
   /* ---------------- Reasoning engine: /v1/* to the monolith ---------------- */
   // Mounted before the body parser so the request streams through untouched, and at the app root so the
   // SPA's calls (/v1/reasoning/...) work unchanged in every layout: the Vite dev proxy locally, the
@@ -45,7 +54,7 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
       // Belt and braces: the monolith checks Origin too, but a state change must come from this origin.
       if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) return res.status(403).json({ error: 'Cross-origin request refused.' });
       next();
-    }, proxyToApi({ target: opts.reasoningApi.url, clientIpHeader: opts.reasoningApi.clientIpHeader }));
+    }, limiter.ipMiddleware, proxyToApi({ target: opts.reasoningApi.url, clientIpHeader: opts.reasoningApi.clientIpHeader }));
   } else {
     app.use('/v1', (_req, res) => res.status(503).json({ error: { code: 'REASONING_ENGINE_UNAVAILABLE', message: 'The reasoning engine is not configured.', retryable: true, request_id: 'req_gateway' } }));
   }
@@ -91,16 +100,19 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) return res.status(403).json({ error: 'Cross-origin request refused.' });
     next();
   });
+  // Per-IP limit before sign-in is resolved (protects the identity lookup too), per-user limit after.
+  api.use(limiter.ipMiddleware);
   api.use(async (req, res, next) => {
     try {
       const r = await opts.identity(req.headers);
       if (r.ok === false) {
-        if (r.reason === 'unavailable') return res.status(503).json({ error: 'Sign-in is briefly unavailable. Try again in a moment.', code: 'AUTH_PROVIDER_UNAVAILABLE' });
+        if (r.reason === 'unavailable') return res.status(503).set('Retry-After', '5').json({ error: 'Sign-in is briefly unavailable. Try again in a moment.', code: 'AUTH_PROVIDER_UNAVAILABLE' });
         for (const c of r.setCookies) res.append('Set-Cookie', c);
         return res.status(401).json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' });
       }
       for (const c of r.setCookies) res.append('Set-Cookie', c);
       if (r.user.isTrial) return res.status(403).json({ error: 'Attack Reasoning needs a ThreatReady account. Create one to continue.', code: 'AUTH_ACCOUNT_REQUIRED' });
+      if (!limiter.user(req, res, r.user.id)) return;
       (req as any).user = r.user;
       next();
     } catch (e) { next(e); }

@@ -110,6 +110,8 @@ export function levelDetail(userId, levelId) {
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+// Every open attempt keeps a case and a live log stream in memory.
+const MAX_OPEN_ATTEMPTS = 3;
 export function startAttempt(user, scenarioId, opts = {}) {
   const scn = getScenario(scenarioId);
   if (!scn || !scn.level || scn.hidden) throw new HttpError(404, 'not_found', { message: 'Unknown scenario.' });
@@ -117,6 +119,8 @@ export function startAttempt(user, scenarioId, opts = {}) {
   if (state.state === 'locked') throw new HttpError(403, 'level_locked', { message: `Earn the ${state.unlockAfterName} badge to unlock ${state.name}.` });
   const open = repo.listAttempts(user.uid).find((a) => a.scenarioId === scenarioId && a.status === 'open');
   if (open) throw new HttpError(409, 'attempt_open', { message: 'You have an attempt in progress. Resume it, or abandon it and start a new variant.', attemptId: open.attemptId, caseId: open.caseId });
+  const openCount = repo.listAttempts(user.uid).filter((a) => a.status === 'open').length;
+  if (openCount >= MAX_OPEN_ATTEMPTS) throw new HttpError(409, 'too_many_open', { message: `You have ${openCount} attempts in progress. Finish or abandon one before starting another.` });
   const lv = levelById(scn.level);
   const rec = {
     schema: 'soc-attempt/1',
@@ -164,6 +168,7 @@ export function abandonAttempt(user, id) {
   const a = ownAttempt(user, id);
   if (a.status !== 'open') throw new HttpError(409, 'not_open', { message: 'Only an open attempt can be abandoned.' });
   repo.updateAttempt(a.attemptId, { status: 'abandoned', score: 0, passed: false, closedAt: iso() });
+  beats.delete(a.attemptId);
   try {
     const c = getCase(a.caseId);
     c.abandoned = true;
@@ -174,12 +179,17 @@ export function abandonAttempt(user, id) {
 }
 
 // Heartbeats every 30 s while the console is open; only visible time counts.
+// An entry is dropped when its attempt closes or is abandoned, and anything silent for an hour
+// goes on the next sweep, so the map tracks open consoles rather than every attempt ever made.
 const beats = new Map();
+const BEAT_STALE_MS = 3600 * 1000;
+let lastBeatSweep = 0;
 export function heartbeat(c, visible) {
   if (!c.attemptId) return;
   const a = repo.getAttempt(c.attemptId);
-  if (!a || a.status !== 'open') return;
+  if (!a || a.status !== 'open') { beats.delete(c.attemptId); return; }
   const now = Date.now();
+  if (now - lastBeatSweep > 60000) { lastBeatSweep = now; for (const [k, v] of beats) if (now - v.at > BEAT_STALE_MS) beats.delete(k); }
   const last = beats.get(a.attemptId);
   if (last && last.visible && visible) a.activeSeconds += Math.min(45, Math.max(0, Math.round((now - last.at) / 1000)));
   beats.set(a.attemptId, { at: now, visible: !!visible });
@@ -224,6 +234,9 @@ export function questionsOf(c, scn) {
   }
   return out;
 }
+
+/** Open-console heartbeat entries (tests). */
+export const __beats = beats;
 
 export function skillScores(questions) {
   const acc = {};
@@ -360,6 +373,7 @@ hooks.onClose = (c) => {
     status: 'closed', closedAt: iso(c.closedAt), score, passed: score >= lv.passMark,
     stages: stagesOf(c, scn), answers, questions, skills: skillScores(questions), metrics: metricsOf(c, scn, questions),
   });
+  beats.delete(a.attemptId);
   const user = { uid: a.userId, name: a.userName };
   const awards = [];
   if (score >= lv.passMark) {

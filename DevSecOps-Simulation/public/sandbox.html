@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Unit-test sandbox for the learner's cart.js (src/engine/sandbox.ts). Loaded only in an
+         <iframe sandbox="allow-scripts">: an opaque origin with no cookies, storage or same-origin requests.
+         Hosted inside ThreatReady the server sends the equivalent header policy plus `sandbox allow-scripts`,
+         so the document is opaque even if opened directly. The script is inline so nothing here depends on
+         what 'self' means for a sandboxed document. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; connect-src 'none'; form-action 'none'; base-uri 'none'" />
+    <title>test sandbox</title>
+  </head>
+  <body>
+    <script>
+/* Unit-test sandbox (see src/engine/sandbox.ts). Runs inside <iframe sandbox="allow-scripts"> with an
+   opaque origin, so the learner's code has no cookies, storage or same-origin network. For each case the
+   CommonJS module is evaluated afresh and `module.exports[fn](...args)` is reported back to the parent.
+   The cases run in a dedicated Worker when one can be created (so a runaway loop never blocks the page
+   and is killed when the parent drops this frame), otherwise on this frame's own thread. */
+(function () {
+  'use strict';
+  var RUNNER = [
+    'function loadModule(src) {',
+    '  var module = { exports: {} };',
+    "  new Function('module', 'exports', 'require', src)(module, module.exports, function (n) {",
+    '    throw new Error("Cannot require \'" + n + "\' in the unit-test sandbox");',
+    '  });',
+    '  return module.exports;',
+    '}',
+    'function errorOf(e) { return { ok: false, name: String(e && e.name), message: String(e && e.message) }; }',
+    '// Called as `m.<fn>(...)` so a missing export reads the same as in jest: "m.cartTotal is not a function".',
+    'function callExport(m, c) {',
+    "  if (!/^[A-Za-z_$][\\w$]*$/.test(c.fn)) throw new TypeError(String(c.fn) + ' is not a valid export name');",
+    "  return new Function('m', 'args', 'return m.' + c.fn + '(...args);')(m, c.args);",
+    '}',
+    'function outcome(src, c) {',
+    '  var actual;',
+    '  try { actual = callExport(loadModule(src), c); } catch (e) { return errorOf(e); }',
+    '  var t = typeof actual;',
+    "  if (actual === null || t === 'number' || t === 'string' || t === 'boolean' || t === 'undefined') return { ok: true, primitive: true, value: actual };",
+    '  try { return { ok: true, primitive: false, received: JSON.stringify(actual) }; } catch (e) { return errorOf(e); }',
+    '}',
+    'function runAll(d, post) {',
+    '  for (var i = 0; i < d.cases.length; i++) post({ nonce: d.nonce, i: i, outcome: outcome(d.src, d.cases[i]) });',
+    '  post({ nonce: d.nonce, done: true });',
+    '}',
+  ].join('\n');
+  var WORKER_SRC = RUNNER + '\nself.onmessage = function (ev) { runAll(ev.data, function (m) { self.postMessage(m); }); };';
+  // Same code, on this thread, used when a Worker is unavailable.
+  var inline = null;
+  function runInline(d, post) {
+    try {
+      if (!inline) inline = new Function(RUNNER + '\nreturn runAll;')();
+    } catch (e) {
+      // eval is not permitted here at all: report that instead of hanging the caller
+      for (var i = 0; i < d.cases.length; i++) post({ nonce: d.nonce, i: i, outcome: { ok: false, name: 'Error', message: 'unit-test sandbox cannot evaluate code: ' + String(e && e.message) } });
+      post({ nonce: d.nonce, done: true });
+      return;
+    }
+    inline(d, post);
+  }
+
+  function run(d, post) {
+    var worker = null;
+    var started = false;
+    try {
+      if (typeof Worker === 'function' && typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
+        var url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+        worker = new Worker(url);
+        worker.onmessage = function (ev) {
+          started = true;
+          post(ev.data);
+          if (ev.data && ev.data.done) worker.terminate();
+        };
+        worker.onerror = function (e) {
+          // Blocked (CSP) or failed to start: fall back to this thread. A later runtime error is not expected,
+          // the runner catches everything, but never report twice.
+          if (e && e.preventDefault) e.preventDefault();
+          worker.terminate();
+          if (!started) { started = true; runInline(d, post); }
+        };
+        worker.postMessage(d);
+        return;
+      }
+    } catch (e) {
+      if (worker) worker.terminate();
+    }
+    runInline(d, post);
+  }
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (ev.source !== window.parent || !d || typeof d.nonce !== 'string' || typeof d.src !== 'string' || !Array.isArray(d.cases)) return;
+    var source = ev.source;
+    var origin = ev.origin;
+    run({ nonce: d.nonce, src: d.src, cases: d.cases }, function (m) { source.postMessage(m, origin); });
+  });
+  window.parent.postMessage({ sandboxReady: true }, '*');
+})();
+    </script>
+  </body>
+</html>

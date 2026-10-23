@@ -1,0 +1,31 @@
+# gitleaks configuration for the ThreatReady monorepo.
+# The labs teach secret detection, so synthetic AWS-style key ids are part of the training content.
+# Only the exact fake ids below, in the files that carry them, are allowed; anything else is a finding.
+title = "ThreatReady"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic training credentials (never valid): lab fixtures, SOC scenarios, tests"
+regexTarget = "match"
+regexes = [
+  '''AKIAFAKETRAININGKEY2''',
+  '''AKIAFAKETRAININGKEY3''',
+  '''AKIASYNTHNOVAAPP0001''',
+  '''AKIASYNTHNOVAOLD0002''',
+  '''AKIA4QX7LEAKED93KD2M''',
+  '''AKIA4QX7CIDEPLOY7Q2M''',
+  '''AKIATESTTESTTESTTEST''',
+]
+paths = [
+  '''DevSecOps-Simulation/src/content/labs/l1-secrets\.ts''',
+  '''DevSecOps-Simulation/src/content/labs/l6-pipeline-gate\.ts''',
+  '''threatready-lab-001/server/fixture\.ts''',
+  '''threatready-lab-001/server/scenario\.ts''',
+  '''soc/server/scenarios/expert/E04-aws-key\.js''',
+  '''soc/server/engine/noise\.js''',
+  '''InterviewPrep/apps/api/test/security\.e2e\.test\.ts''',
+  '''docs/AUDIT_REPORT_2026-10-15\.md''',
+  '''\.gitleaks\.toml''',
+]

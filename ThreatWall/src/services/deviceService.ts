@@ -1,6 +1,6 @@
 import type { ConfigBackup, FirewallConfig, SystemSettings } from '../state/types';
 import type { AuditInput } from '../state/store';
-import { hashPassword, passwordProblems, uid } from '../lib/hash';
+import { hashPasswordSecure, passwordProblems, uid, verifyPassword } from '../lib/hash';
 import { HOSTNAME_RE } from './setupService';
 
 /* ---------- Licensing (task 0.5) ---------- */
@@ -66,14 +66,14 @@ export function applyAdmin(cfg: FirewallConfig, f: AdminForm): { next: FirewallC
   };
 }
 
-export function changePassword(cfg: FirewallConfig, current: string, next: string, confirm: string): { error?: string; result?: { next: FirewallConfig; audit: AuditInput[] } } {
-  if (hashPassword(current) !== cfg.system.adminPasswordHash) return { error: 'The current password is incorrect.' };
+export async function changePassword(cfg: FirewallConfig, current: string, next: string, confirm: string): Promise<{ error?: string; result?: { next: FirewallConfig; audit: AuditInput[] } }> {
+  if (!(await verifyPassword(current, cfg.system.adminPasswordHash)).ok) return { error: 'The current password is incorrect.' };
   const p = passwordProblems(next, cfg.system.adminUser);
   if (p.length) return { error: `New password still needs: ${p.join(', ').toLowerCase()}.` };
   if (next !== confirm) return { error: 'The new passwords do not match.' };
   return {
     result: {
-      next: { ...cfg, system: { ...cfg.system, adminPasswordHash: hashPassword(next), defaultPassword: false } },
+      next: { ...cfg, system: { ...cfg.system, adminPasswordHash: await hashPasswordSecure(next), defaultPassword: false } },
       audit: [{ category: 'Users', action: 'Administrator password changed', detail: cfg.system.adminUser }],
     },
   };

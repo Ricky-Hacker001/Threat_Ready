@@ -50,13 +50,19 @@ function portProviders(role: AppRole): Provider[] {
       inject: [APP_CONFIG],
       useFactory: (cfg: AppConfig) =>
         cfg.STORAGE_DRIVER === 'fs'
-          ? new FilesystemStorageAdapter(cfg.FS_STORAGE_DIR, cfg.API_BASE_URL, cfg.BETTER_AUTH_SECRET)
+          // Config guarantees one of the two is set for fs storage; the dedicated secret wins.
+          ? new FilesystemStorageAdapter(cfg.FS_STORAGE_DIR, cfg.API_BASE_URL, (cfg.STORAGE_SIGNING_SECRET ?? cfg.BETTER_AUTH_SECRET)!)
           : new S3StorageAdapter(cfg.S3_BUCKET!, cfg.AWS_REGION),
     },
     {
       provide: QUEUE_PORT,
       inject: [APP_CONFIG],
-      useFactory: (cfg: AppConfig) => new PgBossQueueAdapter(role === 'worker' ? (cfg.WORKER_DATABASE_URL ?? cfg.DATABASE_URL) : cfg.DATABASE_URL, role),
+      useFactory: (cfg: AppConfig) =>
+        new PgBossQueueAdapter(role === 'worker' ? (cfg.WORKER_DATABASE_URL ?? cfg.DATABASE_URL) : cfg.DATABASE_URL, role, {
+          llmTimeoutMsLarge: cfg.LLM_TIMEOUT_MS_LARGE,
+          llmMaxRetries: cfg.LLM_MAX_RETRIES,
+          reasoningMaxGenerationTries: cfg.REASONING_MAX_GENERATION_TRIES,
+        }),
     },
     {
       provide: EMAIL_PORT,

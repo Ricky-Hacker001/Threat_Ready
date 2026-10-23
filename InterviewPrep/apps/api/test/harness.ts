@@ -234,7 +234,8 @@ export async function uploadDocument(t: TestApp, agent: Agent, kind: 'resume' | 
   const created = await agent.post('/v1/documents').set('Origin', ORIGIN).send({ kind, contentType, sizeBytes: file.length });
   expect(created.status, JSON.stringify(created.body)).toBe(201);
   const { document, upload } = created.body;
-  const form = agent.post(new URL(upload.url).pathname);
+  const target = new URL(upload.url);
+  const form = agent.post(`${target.pathname}${target.search}`); // the signed policy rides in the query string
   for (const [k, v] of Object.entries(upload.fields as Record<string, string>)) form.field(k, v);
   const up = await form.attach('file', file, { filename: 'upload.bin', contentType });
   expect(up.status).toBe(204);

@@ -6,9 +6,13 @@ import { cloudLab001, LabEngine } from './engine';
 import { CATALOG } from './catalog';
 import { IdentityResolver, internalTokenMatches } from './identity';
 import { HostedLab, hostedLabs } from './hosted';
+import { limitFromEnv, rateLimiter } from './ratelimit';
 export { loadHostedLabs } from './hosted';
 
 const ENGINES: Record<string, LabEngine> = { [cloudLab001.labId]: cloudLab001 };
+const hasOwn = (o: object, k: unknown) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+/** A lab engine by id from the URL ("constructor" and friends are not labs). */
+const engineOf = (labId: unknown): LabEngine | undefined => (hasOwn(ENGINES, labId) ? ENGINES[labId as string] : undefined);
 
 export interface AppOptions {
   /** Resolves the shared ThreatReady session (onboard.threatready.io). */
@@ -23,6 +27,9 @@ export interface AppOptions {
   apps?: () => Promise<{ key: string; title: string; url: string; status: string }[]>;
   /** Labs that are their own apps, served at /labs/<slug>/ (see hosted.ts). */
   hosted?: HostedLab[];
+  /** Requests per minute per signed-in user / per client IP (defaults 120 / 300; env LABS_RATE_PER_MIN, LABS_RATE_IP_PER_MIN; 0 disables). */
+  ratePerMin?: number;
+  rateIpPerMin?: number;
 }
 
 const pct = (score: number, max: number) => (max > 0 ? Math.round((score / max) * 100) : 0);
@@ -36,8 +43,14 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
   // and a cached 304 must not stand in for a fresh list).
   app.set('etag', false);
+  // Token-bucket rate limits for every API call, this app's and the hosted labs' alike (one process on Render).
+  const limiter = rateLimiter({
+    perUserPerMin: opts.ratePerMin ?? limitFromEnv('LABS_RATE_PER_MIN', 120),
+    perIpPerMin: opts.rateIpPerMin ?? limitFromEnv('LABS_RATE_IP_PER_MIN', 300),
+    body: (wait) => ({ error: `Too many requests. Try again in ${wait}s.`, code: 'RATE_LIMITED' }),
+  });
   // Before the JSON parser: hosted labs read their own request bodies.
-  if (opts.hosted?.length) app.use(hostedLabs(opts.hosted, opts));
+  if (opts.hosted?.length) app.use(hostedLabs(opts.hosted, { ...opts, limiter }));
   app.use(express.json({ limit: '64kb' }));
 
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
@@ -90,17 +103,21 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     next();
   });
 
+  // Per-IP limit before sign-in is resolved (protects the identity lookup too), per-user limit after.
+  api.use(limiter.ipMiddleware);
+
   // Identity: the ThreatReady session from onboard. No session → 401; a trial session → account required.
   api.use(async (req, res, next) => {
     try {
       const r = await opts.identity(req.headers);
       if (r.ok === false) {
-        if (r.reason === 'unavailable') return res.status(503).json({ error: 'Sign-in is briefly unavailable. Try again in a moment.', code: 'AUTH_PROVIDER_UNAVAILABLE' });
+        if (r.reason === 'unavailable') return res.status(503).set('Retry-After', '5').json({ error: 'Sign-in is briefly unavailable. Try again in a moment.', code: 'AUTH_PROVIDER_UNAVAILABLE' });
         for (const c of r.setCookies) res.append('Set-Cookie', c);
         return res.status(401).json({ error: 'Authentication required.', code: 'AUTH_REQUIRED' });
       }
       for (const c of r.setCookies) res.append('Set-Cookie', c);
       if (r.user.isTrial) return res.status(403).json({ error: 'Labs need a ThreatReady account. Create one to continue.', code: 'AUTH_ACCOUNT_REQUIRED' });
+      if (!limiter.user(req, res, r.user.id)) return;
       (req as any).user = store.upsertUser(r.user.id, r.user.name);
       (req as any).platformUser = r.user;
       next();
@@ -134,18 +151,18 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     }));
   });
 
-  api.get('/labs/:labId', (req, res) => { const e = ENGINES[req.params.labId]; if (!e) return res.status(404).json({ error: 'Lab not found.' }); res.json(e.definition()); });
+  api.get('/labs/:labId', (req, res) => { const e = engineOf(req.params.labId); if (!e) return res.status(404).json({ error: 'Lab not found.' }); res.json(e.definition()); });
 
   const snapshot = (s: Session) => { const e = ENGINES[s.labId]; return { session: { id: s.id, run: s.run, status: s.status, createdAt: s.createdAt }, cloud: e.view(s.state), status: e.status(s.state) }; };
 
   api.post('/labs/:labId/sessions', (req, res) => {
-    const e = ENGINES[req.params.labId]; if (!e) return res.status(404).json({ error: 'Lab not found.' });
+    const e = engineOf(req.params.labId); if (!e) return res.status(404).json({ error: 'Lab not found.' });
     const user = (req as any).user;
     const active = store.sessionsOf(user.id, e.labId).find(s => s.status === 'active') || store.createSession(user.id, e.labId, e.createInitialState());
     res.json(snapshot(active));
   });
   api.get('/labs/:labId/runs', (req, res) => {
-    const user = (req as any).user; const e = ENGINES[req.params.labId]; if (!e) return res.status(404).json({ error: 'Lab not found.' });
+    const user = (req as any).user; const e = engineOf(req.params.labId); if (!e) return res.status(404).json({ error: 'Lab not found.' });
     res.json(store.sessionsOf(user.id, e.labId).map(s => { const st = e.status(s.state); return { id: s.id, run: s.run, status: s.status, createdAt: s.createdAt, level: st.level, score: st.score.total, max: st.score.max, complete: st.complete }; }));
   });
 
@@ -163,7 +180,7 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     if (typeof type !== 'string' || type.length > 60) return res.status(400).json({ error: 'Invalid action.' });
     if (typeof requestId !== 'string' || !/^[\w-]{8,64}$/.test(requestId)) return res.status(400).json({ error: 'requestId is required.' });
     if (s.status !== 'active') return res.status(409).json({ error: 'This run is archived and read-only.' });
-    if (s.requests[requestId]) return res.json({ ...s.requests[requestId], replayed: true, ...snapshot(s) });
+    if (hasOwn(s.requests, requestId)) return res.json({ ...s.requests[requestId], replayed: true, ...snapshot(s) });
     const { state, result } = e.dispatch(s.state, { type, params });
     store.commit(s, state, requestId, result);
     res.json({ ...result, ...snapshot(s) });

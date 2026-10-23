@@ -8,6 +8,7 @@ import { findWorkflow } from '../engine/pipeline';
 import { revOf } from '../engine/shell';
 import { clearLabState, loadLabState, saveLabState, type Progress } from '../store';
 import { LABS } from '../content/labs';
+import { cartSourcesOf, prepareCartTests } from '../content/aeroshop';
 import { isUnlocked } from './Dashboard';
 import { Editor } from '../components/Editor';
 import { FileTree } from '../components/FileTree';
@@ -89,8 +90,11 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
   }, [def, finish, toast]);
 
   const execute = useCallback(
-    (cmd: string) => {
+    async (cmd: string) => {
       const st = stateRef.current;
+      // The unit tests run the learner's cart.js in a sandbox ahead of time; make sure every version this
+      // command could test (working tree, commits) has been evaluated before the synchronous engine runs.
+      await prepareCartTests(cartSourcesOf(st));
       const ctx: ShellCtx = { s: st, fs: st.files, installed: st.installed, pipeline: false, env: env.current, flags: st.flags, tests: def.tests, commit: st.head };
       const r = runLine(cmd, ctx);
       st.activity.push({ t: Date.now(), kind: /^git /.test(cmd) ? 'git' : 'cmd', text: `$ ${cmd}${r.code ? `  (exit ${r.code})` : ''}` });
@@ -110,12 +114,14 @@ export function LabPage({ def, mode, progress, update, go }: Props) {
 
   useEffect(() => {
     afterAction();
+    void prepareCartTests(cartSourcesOf(stateRef.current));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onEdit = (v: string) => {
     if (!active) return;
     s.files[active] = v;
+    if (active === 'src/lib/cart.js') void prepareCartTests([v]);
     setTick((t) => t + 1);
     window.clearTimeout(settleTimer.current);
     settleTimer.current = window.setTimeout(() => {

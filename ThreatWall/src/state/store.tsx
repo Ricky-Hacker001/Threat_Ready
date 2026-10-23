@@ -2,10 +2,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useReducer,
 import type { AuditEntry, FirewallConfig, LabControls, LabEvent, LabSession, Progress, RootState, LogEntry } from './types';
 import { STATE_VERSION, initialLab, initialPm, initialProgress, initialSession, initialState } from './baseline';
 import { uid } from '../lib/hash';
+import { migrateLegacyKey, nsKey } from '../lib/storage';
 import { evaluate, type FlowResult, type FlowSpec } from '../engine/traffic';
 import { applyEffects, addLogs } from '../engine/effects';
 
-const STORAGE_KEY = 'threatwall:lab-state';
+// Namespaced per signed-in ThreatReady account (see lib/storage.ts); resolved at boot in main.tsx.
+const LEGACY_STORAGE_KEY = 'threatwall:lab-state';
+const storageKey = () => nsKey(LEGACY_STORAGE_KEY);
 const MAX_EVENTS = 400;
 
 export type AuditInput = Omit<AuditEntry, 'id' | 'ts' | 'user'>;
@@ -70,7 +73,8 @@ function reducer(state: RootState, action: Action): RootState {
 
 function load(): RootState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    migrateLegacyKey(LEGACY_STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return initialState();
     const parsed = JSON.parse(raw) as RootState;
     if (!parsed || parsed.version !== STATE_VERSION || !parsed.config) return initialState();
@@ -113,7 +117,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
+      try { localStorage.setItem(storageKey(), JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
     }, 120);
     return () => clearTimeout(t);
   }, [state]);
@@ -127,7 +131,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const emit = useCallback((type: string, data: Record<string, unknown> = {}) => dispatch({ type: 'event', event: { type, data } }), []);
   const update = useCallback((fn: (s: RootState) => RootState) => dispatch({ type: 'update', fn }), []);
   const resetLab = useCallback(() => {
-    try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+    try { localStorage.removeItem(storageKey()); } catch { /* ignore */ }
     dispatch({ type: 'lab/reset' });
   }, []);
 

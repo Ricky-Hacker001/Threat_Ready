@@ -13,18 +13,41 @@ export interface ProxyOptions {
   clientIpHeader?: string;
 }
 
-const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
+const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
+/** Headers never copied from the browser's request: hop-by-hop, any Proxy-*, and the trusted client-IP header (set below). */
+const dropIncoming = (name: string, clientIpHeader?: string) => HOP_BY_HOP.has(name) || name.startsWith('proxy-') || name === clientIpHeader;
+
+/**
+ * True when the request path, once percent-decoded and dot-segment-normalised, could reach the
+ * monolith's internal API (`/internal/...`) or escape the /v1 prefix with `..`. Such requests are
+ * answered 404 here rather than forwarded.
+ */
+export function reachesInternal(originalUrl: string): boolean {
+  const raw = originalUrl.split(/[?#]/)[0];
+  let decoded = raw;
+  try { decoded = decodeURIComponent(raw); } catch { return true; }
+  // Decode twice: a double-encoded %252e%252e may be decoded again by the upstream.
+  try { decoded = decodeURIComponent(decoded); } catch { return true; }
+  const path = decoded.replace(/\\/g, '/').toLowerCase();
+  if (/(^|\/)\.\.?(\/|$)/.test(path)) return true;
+  return /(^|\/)internal(\/|$)/.test(path);
+}
 
 /** Express handler that streams a request to the monolith and the response back, without buffering (SSE-safe). */
 export function proxyToApi(opts: ProxyOptions) {
   const target = new URL(opts.target);
   const client = target.protocol === 'https:' ? https : http;
+  const ipHeader = opts.clientIpHeader?.toLowerCase();
   return (req: Request, res: Response) => {
+    if (reachesInternal(req.originalUrl)) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found.', retryable: false, request_id: 'req_gateway' } }); return; }
     const headers: http.OutgoingHttpHeaders = {};
-    for (const [k, v] of Object.entries(req.headers)) if (!HOP_BY_HOP.has(k) && v !== undefined) headers[k] = v;
+    // The cookie header goes through: the monolith resolves the ThreatReady session from it.
+    for (const [k, v] of Object.entries(req.headers)) if (!dropIncoming(k, ipHeader) && v !== undefined) headers[k] = v;
     headers['x-forwarded-host'] = req.headers.host ?? '';
     headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] ?? req.protocol;
-    if (opts.clientIpHeader && !headers[opts.clientIpHeader]) headers[opts.clientIpHeader] = req.ip ?? '';
+    // The visitor's IP is always written here from the connection (req.ip honours Express's
+    // `trust proxy` setting): a learner-supplied value in this header is never forwarded.
+    if (ipHeader) headers[ipHeader] = req.ip ?? '';
     const upstream = client.request(
       { protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, method: req.method, path: req.originalUrl, headers },
       (up) => {

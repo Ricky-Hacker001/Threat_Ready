@@ -74,7 +74,11 @@ export class EvaluationService {
     const selected = a.selectedOption as OptionId;
     const justification = a.justification;
     const owner = { userId: a.userId, orgId: a.orgId };
-    const metaFor = (stage: string): CallMeta => ({ feature: `reasoning.${stage}`, owner, sourceId: a.id, budget: 'finalize' });
+    // Stage 1 is checked against the learner's daily cap and the global breaker ('reasoning'); once an
+    // evaluation has started, stages 2 and 3 run as 'finalize' so a paid-for evaluation completes
+    // (still subject to the breaker's grace band). Together with REASONING_USER_DAILY_EVALUATIONS this
+    // bounds what one learner can spend (audit 2026-10-15 §3.5).
+    const metaFor = (stage: string, budget: CallMeta['budget']): CallMeta => ({ feature: `reasoning.${stage}`, owner, sourceId: a.id, budget });
     const started = Date.now();
     const notices: string[] = [];
     let degraded = false;
@@ -82,7 +86,7 @@ export class EvaluationService {
     let evaluator: EvaluatorOutput;
     let model: string;
     try {
-      const r = await this.llm.structured(metaFor('evaluator'), evaluatorRequest(domain, item, selected, justification), evaluatorSchema(item));
+      const r = await this.llm.structured(metaFor('evaluator', 'reasoning'), evaluatorRequest(domain, item, selected, justification), evaluatorSchema(item));
       evaluator = r.value;
       model = r.usage.model;
     } catch (err) {
@@ -92,7 +96,7 @@ export class EvaluationService {
 
     let challenger: ChallengerOutput | null = null;
     try {
-      challenger = (await this.llm.structured(metaFor('challenger'), challengerRequest(domain, item, selected, justification, evaluator), challengerSchema(item))).value;
+      challenger = (await this.llm.structured(metaFor('challenger', 'finalize'), challengerRequest(domain, item, selected, justification, evaluator), challengerSchema(item))).value;
     } catch (err) {
       degraded = true;
       notices.push('The adversarial review stage was unavailable, so simplified scoring was applied and this result is flagged for review.');
@@ -102,7 +106,7 @@ export class EvaluationService {
 
     let reconciler: ReconcilerOutput | null = null;
     try {
-      reconciler = (await this.llm.structured(metaFor('reconciler'), reconcilerRequest(domain, item, selected, justification, evaluator, challenger), reconcilerSchema(item))).value;
+      reconciler = (await this.llm.structured(metaFor('reconciler', 'finalize'), reconcilerRequest(domain, item, selected, justification, evaluator, challenger), reconcilerSchema(item))).value;
     } catch (err) {
       degraded = true;
       notices.push('The final reconciliation stage was unavailable; the score was computed from the earlier stages and this result is flagged for review.');

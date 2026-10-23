@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
 import { Store } from '../server/store';
-import { makeApp, auth, ORIGIN } from './helpers';
+import { makeApp, auth, ORIGIN, fakeIdentity } from './helpers';
+import { createApp } from '../server/app';
 
 let app: any, sid: string, n = 0;
 const rid = () => `req-${Date.now()}-${n++}`;
@@ -70,6 +71,41 @@ describe('API security', () => {
   it('rejects malformed action requests', async () => {
     expect((await request(app).post(`/api/sessions/${sid}/actions`).set(auth('Asha')).send({ type: 'browser.navigate' })).status).toBe(400);
     expect((await request(app).post(`/api/sessions/${sid}/actions`).set(auth('Asha')).set('Content-Type', 'application/json').send('{oops')).status).toBe(400);
+  });
+
+  it('terminal patterns that break the regex engine answer 200 with a grep/find error, never 500', async () => {
+    const t0 = performance.now();
+    const grep = await act('Asha', sid, 'terminal.exec', { line: `echo ${'a'.repeat(40)} | grep "(a+)+$"` });
+    expect(performance.now() - t0).toBeLessThan(50);
+    expect(grep.status).toBe(200); expect(grep.body.ok).toBe(true); expect(grep.body.result.output).toMatch(/^grep: invalid pattern/);
+    for (const line of ["find . -name '('", "find / -name '[a-'", "grep '[' notes.md", "grep '(a' notes.md"]) {
+      const r = await act('Asha', sid, 'terminal.exec', { line });
+      expect(r.status, line).toBe(200); expect(r.body.ok).toBe(true);
+    }
+    expect((await act('Asha', sid, 'terminal.exec', { line: "find . -name '*.txt'" })).body.result.output).toContain('engagement-brief.txt');
+  });
+
+  it('prototype names are neither replayed requests, labs nor findings', async () => {
+    for (const requestId of ['constructor', '__proto__', 'hasOwnProperty']) {
+      const r = await act('Asha', sid, 'engagement.acknowledge', {}, requestId);
+      expect(r.status).toBe(200); expect(r.body.replayed).toBeUndefined();
+    }
+    expect((await request(app).get('/api/labs/constructor').set(auth('Asha'))).status).toBe(404);
+    expect((await request(app).post('/api/labs/__proto__/sessions').set(auth('Asha'))).status).toBe(404);
+    const f = await act('Asha', sid, 'finding.report', { findingId: 'constructor', severity: 'High' });
+    expect(f.status).toBe(200); expect(f.body.code).toBe('VALIDATION_FAILED');
+  });
+
+  it('rate-limits per user with 429 + Retry-After in the API error shape', async () => {
+    const limited = createApp(new Store(null), undefined, { identity: fakeIdentity, appOrigin: ORIGIN, devLogin: false, ratePerMin: 2, rateIpPerMin: 1000 });
+    expect((await request(limited).get('/api/catalog').set(auth('Asha'))).status).toBe(200);
+    expect((await request(limited).get('/api/catalog').set(auth('Asha'))).status).toBe(200);
+    const r = await request(limited).get('/api/catalog').set(auth('Asha'));
+    expect(r.status).toBe(429); expect(Number(r.headers['retry-after'])).toBeGreaterThan(0); expect(r.body).toMatchObject({ code: 'RATE_LIMITED' });
+    expect((await request(limited).get('/api/catalog').set(auth('Bharat'))).status).toBe(200);
+    const byIp = createApp(new Store(null), undefined, { identity: fakeIdentity, appOrigin: ORIGIN, devLogin: false, ratePerMin: 1000, rateIpPerMin: 1 });
+    expect((await request(byIp).get('/api/catalog').set({ 'x-threatready-client-ip': '203.0.113.1' })).status).toBe(401);
+    expect((await request(byIp).get('/api/catalog').set({ 'x-threatready-client-ip': '203.0.113.1' })).status).toBe(429);
   });
 
   it('a completed run archives on reset and starts a fresh one', async () => {

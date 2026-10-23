@@ -12,5 +12,5 @@ export default defineConfig({
       "/api": { target: process.env.API_PROXY_TARGET ?? "http://localhost:3000", changeOrigin: false, xfwd: true },
     },
   },
-  build: { sourcemap: true, target: ["es2020", "chrome100", "edge100", "firefox100", "safari15"] }, // every browser from 2022 on
+  build: { sourcemap: false, target: ["es2020", "chrome100", "edge100", "firefox100", "safari15"] }, // every browser from 2022 on
 });

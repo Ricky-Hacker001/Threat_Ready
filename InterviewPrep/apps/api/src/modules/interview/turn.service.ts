@@ -116,7 +116,7 @@ export class TurnService {
     const started = Date.now();
     try {
       const meta: CallMeta = { feature: 'interview.turn_evaluation', owner: { userId: p.userId, orgId: p.orgId }, sourceId: session.id, budget: 'live_turn' };
-      evaluation = await this.evaluate(meta, { ...item, kind: rubricKindFor(item, turn.kind) }, config.difficulty, turn.question, req.answer);
+      evaluation = await this.evaluate(meta, { ...item, kind: rubricKindFor(item, turn.kind) }, config.difficulty, stripOpening(turn.question), req.answer);
       evaluationStatus = 'done';
     } catch (err) {
       if (err instanceof DomainError && err.code === 'LLM_BUDGET_EXCEEDED') budgetExhausted = true;
@@ -266,9 +266,10 @@ export class TurnService {
         directive: pending.directive,
         followUpFocus: pending.followUpFocus,
         missingConcepts: pending.missingConcepts,
-        window: turns.slice(-4).map((t) => ({ question: t.question, answer: t.answer, topic: t.planItemId })),
+        // The stored first question carries the spoken greeting with the learner's name; prompts get the question only.
+        window: turns.slice(-4).map((t) => ({ question: stripOpening(t.question), answer: t.answer, topic: t.planItemId })),
         summary: progress.runningSummary,
-        askedSoFar: turns.map((t) => t.question),
+        askedSoFar: turns.map((t) => stripOpening(t.question)),
         previousSection: plan.items.find((i) => i.id === turns.at(-1)?.planItemId)?.section,
       });
       const meta: CallMeta = { feature: 'interview.question', owner: { userId: p.userId, orgId: p.orgId }, sourceId: s.id, budget: 'live_turn' };
@@ -377,8 +378,11 @@ export function openingLine(name: string, durationMin: number, roleTitle: string
   return `Hi ${first}, I'm Alex, and I'll be interviewing you for the ${roleTitle} role today. Thanks for making the time. We have about ${durationMin} minutes: we'll ${agenda}, and leave a little time at the end. Feel free to think out loud. `;
 }
 
-/** The stored first question includes the spoken greeting; clarifications refer to the question itself. */
-const stripOpening = (q: string) => q.replace(/^Hi .*?Feel free to think out loud\.\s*/s, '');
+/**
+ * The stored first question includes the spoken greeting (with the learner's first name); every prompt
+ * gets the question itself, so the name never reaches the model outside the redaction path.
+ */
+export const stripOpening = (q: string) => q.replace(/^Hi .*?Feel free to think out loud\.\s*/s, '');
 
 export function cleanQuestion(raw: string): string {
   return raw

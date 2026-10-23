@@ -29,8 +29,11 @@ export class PlatformController {
     const cookie = req.headers.cookie;
     if (!cookie) throw new UnauthorizedException({ code: "UNAUTHENTICATED", message: "Sign in to continue" });
 
+    // No cookie cache: the apps cache this answer themselves (IDENTITY_CACHE_SECONDS), so a revoked
+    // session must not also survive here for the cookie-cache lifetime.
     const { headers, response } = await this.auth.api.getSession({
       headers: fromNodeHeaders({ cookie }),
+      query: { disableCookieCache: true },
       returnHeaders: true,
     });
     const setCookies = headers?.getSetCookie?.() ?? [];

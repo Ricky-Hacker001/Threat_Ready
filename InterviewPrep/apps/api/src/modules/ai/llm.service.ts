@@ -11,11 +11,19 @@ import { costUsd, estimateTokens } from './pricing.js';
 /**
  * Which tier-3 limits apply (ADD L12, LLD-18):
  *  - new_interview: global breaker, user-day cap, session cap. Parsing and planning.
- *  - live_turn: user-day cap and the session cap minus the final-scoring reserve. Breaker ignored,
- *    so live interviews finish when new ones are paused.
- *  - finalize: final scoring. Only the prompt ceiling applies, so a session always gets its report.
+ *  - live_turn: user-day cap and the session cap minus the final-scoring reserve, plus the global
+ *    breaker at 100% (the turn ends the interview gracefully on LLM_BUDGET_EXCEEDED).
+ *  - finalize: final scoring and the later stages of a reasoning evaluation. No user or session cap,
+ *    so a session that was allowed to start gets its report; the global breaker still applies with a
+ *    10% grace (BREAKER_GRACE) so work already in flight completes while nothing new starts.
+ *  - reasoning: the first stage of a reasoning evaluation and on-demand question generation for a
+ *    learner. User-day cap and the global breaker; no session cap (attempts are not sessions).
+ *  - pool: platform-owned question pool. Its own daily cap and the global breaker.
  */
-export type BudgetPolicy = 'new_interview' | 'live_turn' | 'finalize' | 'pool';
+export type BudgetPolicy = 'new_interview' | 'live_turn' | 'finalize' | 'reasoning' | 'pool';
+
+/** Finalize-class work may run until the global spend reaches this multiple of the daily cap. */
+const BREAKER_GRACE = 1.1;
 
 export interface CallMeta {
   feature: string;
@@ -127,7 +135,8 @@ export class LlmService {
       } else if (meta.budget !== 'finalize') {
         const spentToday = await this.sum(tx, sql`user_id = ${meta.owner.userId} AND created_at >= date_trunc('day', now())`);
         if (spentToday + estimate > this.cfg.AI_USER_DAILY_CAP_USD) throw new DomainError('LLM_BUDGET_EXCEEDED', { details: { scope: 'user_day' } });
-        if (meta.sourceId) {
+        // Reasoning attempts are not interview sessions: the user-day cap and the attempt quota bound them.
+        if (meta.sourceId && meta.budget !== 'reasoning') {
           const reserve = meta.budget === 'live_turn' || meta.budget === 'new_interview' ? this.cfg.AI_FINAL_SCORING_RESERVE_USD : 0;
           const spentSession = await this.sum(tx, sql`source_id = ${meta.sourceId}`);
           if (spentSession + estimate > this.cfg.AI_SESSION_CAP_USD - reserve) {
@@ -135,11 +144,17 @@ export class LlmService {
           }
         }
       }
-      if (meta.budget === 'new_interview' || meta.budget === 'pool') {
+      // The global breaker applies to every policy. New work (new_interview, pool, reasoning) stops at
+      // the cap with AI_SERVICE_PAUSED; live turns stop at the cap with LLM_BUDGET_EXCEEDED (the turn
+      // completes the interview); finalize-class work gets BREAKER_GRACE so sessions already in
+      // 'evaluating' or 'scoring' can finish, then it stops too (audit 2026-10-15 §3.5).
+      {
         const { rows } = await tx.sql.executeSql('SELECT ai_spend_today_usd() AS total');
         const global = Number((rows[0] as { total: string }).total);
-        if (global >= this.cfg.AI_GLOBAL_DAILY_CAP_USD) {
+        const limit = meta.budget === 'finalize' ? BREAKER_GRACE * this.cfg.AI_GLOBAL_DAILY_CAP_USD : this.cfg.AI_GLOBAL_DAILY_CAP_USD;
+        if (global >= limit) {
           emitMetric('AiBreakerOpen', 1, 'Count');
+          if (meta.budget === 'live_turn' || meta.budget === 'finalize') throw new DomainError('LLM_BUDGET_EXCEEDED', { details: { scope: 'global_day' } });
           throw new DomainError('AI_SERVICE_PAUSED');
         }
         if (global >= 0.8 * this.cfg.AI_GLOBAL_DAILY_CAP_USD) logger.warn({ global_spend_usd: global }, 'daily AI spend above 80% of the breaker');
@@ -163,11 +178,16 @@ export class LlmService {
     });
   }
 
+  /**
+   * Spend = settled cost, or the reservation while a call is in flight, or the real cost of a call
+   * that failed after the provider billed it (truncated, schema-invalid, timed out after tokens).
+   * Only a failure with no usage is free. Same rule as ai_spend_today_usd() (migration 0010).
+   */
   private async sum(tx: Tx, where: ReturnType<typeof sql>): Promise<number> {
     const [r] = await tx.db
       .select({ total: sql<string>`COALESCE(SUM(COALESCE(${llmCallLog.costUsd}, ${llmCallLog.estimatedCostUsd})), 0)` })
       .from(llmCallLog)
-      .where(sql`${where} AND status <> 'failed'`);
+      .where(sql`${where} AND (status <> 'failed' OR ${llmCallLog.costUsd} IS NOT NULL)`);
     return Number(r?.total ?? 0);
   }
 
@@ -201,10 +221,26 @@ export class LlmService {
   private async fail(id: number, meta: CallMeta, err: unknown, latencyMs: number): Promise<void> {
     const kind = err instanceof PortError ? err.kind : err instanceof DomainError ? err.code : 'unknown';
     emitMetric('LlmErrors', 1, 'Count', { Kind: kind });
-    // status=failed excludes the row from spend totals. Provider-side partial billing on a failed
-    // call is rare and small; the provider's own monthly cap remains the backstop (L12).
+    // A failed call the provider still billed (truncated at max_tokens, schema-invalid output) carries
+    // its usage on the error: record the real cost so every budget sum and admin total includes it.
+    // Only a failure with no usage (timeout before tokens, connection error) leaves cost null.
+    const usage = billedUsage(err);
+    const pricing = usage ? (this.cfg.pricing[usage.model] ?? Object.values(this.cfg.pricing)[0]) : undefined;
+    const cost = usage && pricing ? costUsd(pricing, usage) : null;
+    if (cost !== null) emitMetric('LlmBilledFailureMicroUsd', Math.round(cost * 1e6), 'None', { Feature: meta.feature });
     await this.ledger(meta.owner, (tx) =>
-      tx.db.update(llmCallLog).set({ status: 'failed', errorKind: kind, latencyMs, settledAt: sql`now()` }).where(eq(llmCallLog.id, id)),
+      tx.db
+        .update(llmCallLog)
+        .set({
+          status: 'failed',
+          errorKind: kind,
+          latencyMs,
+          settledAt: sql`now()`,
+          ...(usage && cost !== null
+            ? { model: usage.model, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheReadTokens: usage.cacheReadTokens, cacheWriteTokens: usage.cacheWriteTokens, costUsd: cost.toFixed(6) }
+            : {}),
+        })
+        .where(eq(llmCallLog.id, id)),
     ).catch((e: unknown) => logger.error({ err: { message: (e as Error).message } }, 'could not mark llm call failed'));
   }
 
@@ -213,4 +249,12 @@ export class LlmService {
     if (err instanceof PortError) return llmPortErrorToDomain(err);
     return err as Error;
   }
+}
+
+/** The provider usage an adapter attached to a failed call (see `withUsage` in the LLM port). */
+function billedUsage(err: unknown): LlmUsage | null {
+  const u = (err as { usage?: Partial<LlmUsage> } | null)?.usage;
+  if (!u || typeof u.model !== 'string' || typeof u.inputTokens !== 'number' || typeof u.outputTokens !== 'number') return null;
+  if (u.inputTokens + u.outputTokens <= 0) return null;
+  return { model: u.model, inputTokens: u.inputTokens, outputTokens: u.outputTokens, cacheReadTokens: u.cacheReadTokens ?? 0, cacheWriteTokens: u.cacheWriteTokens ?? 0 };
 }

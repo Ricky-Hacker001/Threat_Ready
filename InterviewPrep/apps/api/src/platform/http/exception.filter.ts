@@ -14,7 +14,8 @@ export class EnvelopeExceptionFilter implements ExceptionFilter {
     const res = host.switchToHttp().getResponse<Response>();
     const requestId = requestContext.getStore()?.requestId ?? 'req_unknown';
     const envelope = toEnvelope(exception, requestId);
-    const status = envelope.error.code === 'INTERNAL_ERROR' && exception instanceof HttpException ? exception.getStatus() : ERROR_CATALOGUE[envelope.error.code].http;
+    const bodyParser = bodyParserStatus(exception);
+    const status = bodyParser ?? (envelope.error.code === 'INTERNAL_ERROR' && exception instanceof HttpException ? exception.getStatus() : ERROR_CATALOGUE[envelope.error.code].http);
 
     if (status >= 500) {
       logger.error({ code: envelope.error.code, err: errInfo(exception) }, 'request failed');
@@ -31,7 +32,30 @@ export class EnvelopeExceptionFilter implements ExceptionFilter {
   }
 }
 
+/**
+ * express.json() rejections (malformed JSON, body over the 64 KB limit) arrive as plain errors with a
+ * body-parser `type`. They are client errors: 400 / 413 envelopes, never 500s or Sentry events.
+ */
+function bodyParserType(exception: unknown): string | null {
+  const e = exception as { type?: unknown; status?: unknown; statusCode?: unknown } | null;
+  const status = typeof e?.status === 'number' ? e.status : typeof e?.statusCode === 'number' ? e.statusCode : 0;
+  return typeof e?.type === 'string' && /^(entity|charset|encoding|parameters|request)\./.test(e.type) && status >= 400 && status < 500 ? e.type : null;
+}
+
+function bodyParserStatus(exception: unknown): number | null {
+  const type = bodyParserType(exception);
+  if (!type) return null;
+  return type === 'entity.too.large' ? 413 : 400;
+}
+
 export function toEnvelope(exception: unknown, requestId: string): ErrorEnvelope {
+  const parser = bodyParserType(exception);
+  if (parser === 'entity.too.large') {
+    return { error: { code: 'RESUME_TOO_LARGE', message: 'The request body is too large', request_id: requestId, retryable: false } };
+  }
+  if (parser) {
+    return { error: { code: 'VALIDATION_FAILED', message: 'The request body could not be read as JSON', request_id: requestId, retryable: false } };
+  }
   if (exception instanceof DomainError) {
     return { error: { code: exception.code, message: exception.message, request_id: requestId, retryable: exception.retryable, details: exception.details } };
   }

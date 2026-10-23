@@ -44,7 +44,8 @@ export default defineConfig({
   build: {
     // Cross-browser: Chrome/Edge/Firefox 100+, Safari 15+ (every browser from 2022 on).
     target: ['es2020', 'chrome100', 'edge100', 'firefox100', 'safari15'],
-    sourcemap: true,
+    // Source maps are never shipped: they expose the application source to anyone on the site.
+    sourcemap: false,
     rollupOptions: {
       output: {
         // The 3D stack loads only on the interview room route.

@@ -33,6 +33,10 @@ export interface ResolvedSession {
 
 const TIMEOUT_MS = 5_000;
 const CACHE_MAX = 5_000;
+/** A cookie onboard rejected is remembered this long, so a flood of junk cookies costs one lookup each per window. */
+const NEGATIVE_TTL_MS = 10_000;
+/** Concurrent identity lookups in flight; beyond this the request is told to retry (503). */
+const MAX_IN_FLIGHT = 50;
 
 /**
  * ADD §6 AuthPort, platform edition. Sign-in happens once, on onboard.threatready.io; this app
@@ -41,7 +45,12 @@ const CACHE_MAX = 5_000;
  * references users(id); onboard stays the authority for every field in it.
  */
 export class IdentityAdapter {
+  /** Insertion-ordered: a hit is re-inserted, so the first key is the least recently used. */
   private readonly cache = new Map<string, { at: number; value: ResolvedSession }>();
+  /** sha256(cookie) -> when onboard answered 401 for it. */
+  private readonly negative = new Map<string, number>();
+  /** One lookup per cookie at a time; concurrent requests with the same cookie share it. */
+  private readonly inFlight = new Map<string, Promise<ResolvedSession>>();
   /** Users whose mirror row and personal organisation are known to exist in this process. */
   private readonly provisioned = new Map<string, string>();
 
@@ -57,8 +66,29 @@ export class IdentityAdapter {
     const key = createHash('sha256').update(cookie).digest('base64url');
     const ttl = this.cfg.IDENTITY_CACHE_SECONDS * 1000;
     const hit = this.cache.get(key);
-    if (hit && Date.now() - hit.at < ttl) return { ...hit.value, setCookies: [] };
+    if (hit && Date.now() - hit.at < ttl) {
+      this.cache.delete(key);
+      this.cache.set(key, hit); // most recently used
+      return { ...hit.value, setCookies: [] };
+    }
+    const rejectedAt = this.negative.get(key);
+    if (rejectedAt !== undefined) {
+      if (Date.now() - rejectedAt < NEGATIVE_TTL_MS) return { principal: null, setCookies: [], image: null };
+      this.negative.delete(key);
+    }
 
+    const pending = this.inFlight.get(key);
+    if (pending) return pending.then((v) => ({ ...v, setCookies: [] }));
+    if (this.inFlight.size >= MAX_IN_FLIGHT) {
+      logger.warn({ in_flight: this.inFlight.size }, 'identity lookups saturated');
+      throw new DomainError('AUTH_PROVIDER_UNAVAILABLE');
+    }
+    const lookup = this.lookup(cookie, key, ttl).finally(() => this.inFlight.delete(key));
+    this.inFlight.set(key, lookup);
+    return lookup;
+  }
+
+  private async lookup(cookie: string, key: string, ttl: number): Promise<ResolvedSession> {
     let res: Response;
     try {
       res = await fetch(`${this.cfg.IDENTITY_URL.replace(/\/+$/, '')}/api/internal/identity/session`, {
@@ -73,6 +103,8 @@ export class IdentityAdapter {
 
     if (res.status === 401) {
       this.cache.delete(key);
+      if (this.negative.size >= CACHE_MAX) this.negative.delete(this.negative.keys().next().value!);
+      this.negative.set(key, Date.now());
       return { principal: null, setCookies, image: null };
     }
     if (!res.ok) {
@@ -104,7 +136,9 @@ export class IdentityAdapter {
       setCookies,
       image: user.image,
     };
-    if (this.cache.size >= CACHE_MAX) this.cache.clear();
+    this.negative.delete(key);
+    // Full: evict the least recently used entry instead of dropping every session at once.
+    if (this.cache.size >= CACHE_MAX) this.cache.delete(this.cache.keys().next().value!);
     if (ttl > 0) this.cache.set(key, { at: Date.now(), value });
     return value;
   }

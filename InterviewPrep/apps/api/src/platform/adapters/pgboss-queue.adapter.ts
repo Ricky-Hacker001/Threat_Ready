@@ -4,40 +4,65 @@ import type { SqlExecutor } from '../db/database.js';
 import { logger } from '../logging/logger.js';
 import { JOBS, type JobContext, type JobName, type QueuePort } from '../ports/queue.port.js';
 
-/** Retry policy per job (L13): five retries, 30 s to 30 min backoff, then the dead-letter queue. */
-const QUEUE_POLICY: Record<JobName, { retryLimit: number; expireInSeconds: number }> = {
-  [JOBS.documentExtract]: { retryLimit: 2, expireInSeconds: 120 },
-  // ADD LLD-3: parsing fails after two attempts.
-  [JOBS.interviewAnalyse]: { retryLimit: 1, expireInSeconds: 300 },
-  [JOBS.interviewFinalScoring]: { retryLimit: 5, expireInSeconds: 600 },
-  [JOBS.reportPdf]: { retryLimit: 5, expireInSeconds: 120 },
-  [JOBS.skillsRecalculate]: { retryLimit: 5, expireInSeconds: 120 },
-  [JOBS.emailSend]: { retryLimit: 5, expireInSeconds: 60 },
-  [JOBS.interviewSweep]: { retryLimit: 0, expireInSeconds: 120 },
-  // Attack Reasoning (L17b): generation may regenerate internally; the job retries cover provider outages.
-  [JOBS.reasoningGenerate]: { retryLimit: 3, expireInSeconds: 600 },
-  [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: 600 },
-  // A batch is generated in parallel; one retry covers a provider blip, the schedule covers the rest.
-  [JOBS.reasoningPoolRefill]: { retryLimit: 1, expireInSeconds: 1800 },
-  [JOBS.deadLetter]: { retryLimit: 3, expireInSeconds: 60 },
-};
+/** The LLM timing a job's expiry is derived from (config values; see queuePolicy). */
+export interface QueueTiming {
+  llmTimeoutMsLarge: number;
+  llmMaxRetries: number;
+  reasoningMaxGenerationTries: number;
+}
+
+/**
+ * Retry policy per job (L13): retries with 30 s to 30 min backoff, then the dead-letter queue.
+ * A job's expiry must exceed the worst-case LLM time of its handler, or pg-boss hands the job to a
+ * second worker while the first is still calling the model and the spend doubles. Worst case per
+ * LARGE call: LLM_TIMEOUT_MS_LARGE x (1 + LLM_MAX_RETRIES SDK retries) x 2 (LlmService retries an
+ * invalid structured output once); per job: that x the number of sequential calls, plus 60 s.
+ */
+export function queuePolicy(t: QueueTiming): Record<JobName, { retryLimit: number; expireInSeconds: number }> {
+  const perCallSec = Math.ceil((t.llmTimeoutMsLarge * (1 + t.llmMaxRetries) * 2) / 1000);
+  const forCalls = (n: number) => n * perCallSec + 60;
+  return {
+    [JOBS.documentExtract]: { retryLimit: 2, expireInSeconds: 120 },
+    // ADD LLD-3: parsing fails after two attempts. Two LARGE calls (resume and JD) run in parallel.
+    [JOBS.interviewAnalyse]: { retryLimit: 1, expireInSeconds: Math.max(300, forCalls(1)) },
+    // Final scoring: assessment batches in parallel, then the summary. Two retries: every retry re-runs
+    // every LARGE batch, so a persistent failure must not keep billing (audit 2026-10-15 §3.5).
+    [JOBS.interviewFinalScoring]: { retryLimit: 2, expireInSeconds: Math.max(600, forCalls(2)) },
+    [JOBS.reportPdf]: { retryLimit: 5, expireInSeconds: 120 },
+    [JOBS.skillsRecalculate]: { retryLimit: 5, expireInSeconds: 120 },
+    [JOBS.emailSend]: { retryLimit: 5, expireInSeconds: 60 },
+    [JOBS.interviewSweep]: { retryLimit: 0, expireInSeconds: 120 },
+    // Attack Reasoning (L17b): generation may regenerate internally (one call per try); the job retries cover provider outages.
+    [JOBS.reasoningGenerate]: { retryLimit: 3, expireInSeconds: Math.max(600, forCalls(t.reasoningMaxGenerationTries)) },
+    // Evaluation: three sequential LARGE stages.
+    [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: Math.max(600, forCalls(3)) },
+    // A batch is generated in parallel (each item up to the generation tries); one retry covers a provider blip, the schedule covers the rest.
+    [JOBS.reasoningPoolRefill]: { retryLimit: 1, expireInSeconds: Math.max(1800, forCalls(t.reasoningMaxGenerationTries)) },
+    [JOBS.deadLetter]: { retryLimit: 3, expireInSeconds: 60 },
+  };
+}
+
+/** Defaults matching the configuration defaults (LLM_TIMEOUT_MS_LARGE=120000, LLM_MAX_RETRIES=2, 3 generation tries). */
+const DEFAULT_TIMING: QueueTiming = { llmTimeoutMsLarge: 120_000, llmMaxRetries: 2, reasoningMaxGenerationTries: 3 };
 
 export class PgBossQueueAdapter implements QueuePort {
   private readonly boss: PgBoss;
+  private readonly policy: Record<JobName, { retryLimit: number; expireInSeconds: number }>;
   private started: Promise<void> | null = null;
 
-  constructor(connectionString: string, private readonly role: 'api' | 'worker') {
+  constructor(connectionString: string, private readonly role: 'api' | 'worker', timing: QueueTiming = DEFAULT_TIMING) {
     this.boss = new PgBoss({ connectionString, schema: 'pgboss', application_name: `threatready-${role}-queue`, max: 4 });
     this.boss.on('error', (err) => logger.error({ err: { message: err.message } }, 'pg-boss error'));
+    this.policy = queuePolicy(timing);
   }
 
   start(): Promise<void> {
     this.started ??= (async () => {
       await this.boss.start();
       // The dead-letter queue must exist before the queues that reference it.
-      const names = [JOBS.deadLetter, ...Object.keys(QUEUE_POLICY).filter((n) => n !== JOBS.deadLetter)] as JobName[];
+      const names = [JOBS.deadLetter, ...Object.keys(this.policy).filter((n) => n !== JOBS.deadLetter)] as JobName[];
       for (const name of names) {
-        const policy = QUEUE_POLICY[name];
+        const policy = this.policy[name];
         const existing = await this.boss.getQueue(name);
         const options = {
           retryLimit: policy.retryLimit,
@@ -48,6 +73,10 @@ export class PgBossQueueAdapter implements QueuePort {
           ...(name === JOBS.deadLetter ? {} : { deadLetter: JOBS.deadLetter }),
         };
         if (!existing) await this.boss.createQueue(name, options);
+        // Queues outlive deploys: bring the retry limit and expiry of an existing queue up to date.
+        else if (existing.retryLimit !== options.retryLimit || existing.expireInSeconds !== options.expireInSeconds) {
+          await this.boss.updateQueue(name, { retryLimit: options.retryLimit, expireInSeconds: options.expireInSeconds });
+        }
       }
     })().catch((err: unknown) => {
       this.started = null;

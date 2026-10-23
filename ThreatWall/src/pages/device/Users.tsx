@@ -7,6 +7,7 @@ import { useToast } from '../../components/Toast';
 import { Confirm, Dialog, Note, Row, Section, Tabs, Tick, Toggle } from '../../components/ui';
 import { hostById } from '../../engine/world';
 import { blankUser, deleteGroup, deleteUser, saveGroup, saveUser, saveUserSettings, toForm, validateGroup, validateUser, type UserForm } from '../../services/userService';
+import { hashPasswordSecure } from '../../lib/hash';
 
 type Tab = 'users' | 'groups';
 
@@ -60,7 +61,7 @@ export function LocalUsersPage() {
           </table>
         )}
       </div>
-      {edit && <UserDialog initial={edit.f} originalId={edit.originalId} onClose={() => setEdit(null)} onSave={(f) => { const r = saveUser(config, f, edit.originalId); commit(r.next, r.audit); toast(<>User <b>{f.name}</b> saved.</>); setEdit(null); }} />}
+      {edit && <UserDialog initial={edit.f} originalId={edit.originalId} onClose={() => setEdit(null)} onSave={async (f) => { const r = saveUser(config, f, edit.originalId, f.password ? await hashPasswordSecure(f.password) : ''); commit(r.next, r.audit); toast(<>User <b>{f.name}</b> saved.</>); setEdit(null); }} />}
       {gedit && <GroupDialog initial={gedit.g} original={gedit.original} onClose={() => setGedit(null)} onSave={(g, m) => { const r = saveGroup(config, g, gedit.original, m); commit(r.next, r.audit); toast(<>Group <b>{g.name}</b> saved.</>); setGedit(null); }} />}
       {del && <Confirm title="Delete" danger confirmLabel="Delete" message="Delete this entry?" onCancel={() => setDel(null)} onConfirm={() => {
         const r = del.kind === 'user' ? deleteUser(config, del.id) : deleteGroup(config, del.id); setDel(null);

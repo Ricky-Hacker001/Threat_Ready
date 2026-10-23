@@ -81,6 +81,8 @@ app.get('/api/cases/:id/logs', wrap((req, res) => {
   const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
   // The query is matched against what the analyst sees; it is stored in
   // canonical form so response objectives can check what was reviewed.
+  // Queries are bounded like their recorded copies: a longer one is an error, not a slow scan.
+  if (q.q !== undefined && String(q.q).length > 300) throw new HttpError(400, 'query_too_long', { message: 'Search queries are limited to 300 characters.' });
   if (q.q) recordSearch(c, A(c).in(String(q.q)));
   const r = streamFor(c).query({
     q: q.q, source: q.source, from: num(q.from), to: num(q.to),
@@ -159,19 +161,35 @@ app.get('/api/cases/:id/export', wrap((req, res) => {
 }));
 
 // Live stream: new log lines every second, plus a nudge whenever the case changes.
+// Each connection holds a timer and a response for as long as the tab is open, so a user gets at
+// most MAX_SSE_PER_USER at once and a closed case ends its stream rather than ticking for ever.
+const MAX_SSE_PER_USER = 3;
+const sseOpen = new Map(); // uid -> open connections
+export const openStreamsOf = (uid) => sseOpen.get(uid) || 0;
 app.get('/api/cases/:id/stream', wrap((req, res) => {
   const c = load(req);
+  const uid = req.user.uid;
+  if (openStreamsOf(uid) >= MAX_SSE_PER_USER) throw new HttpError(429, 'too_many_streams', { message: `At most ${MAX_SSE_PER_USER} live consoles can be open at once. Close another tab and retry.`, retryAfter: 5 });
   const stream = streamFor(c);
   const alias = A(c);
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
+  sseOpen.set(uid, openStreamsOf(uid) + 1);
   let seq = stream.seq;
   let rev = c.rev;
+  let done = false;
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const finish = () => {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
+    const n = openStreamsOf(uid) - 1;
+    if (n > 0) sseOpen.set(uid, n); else sseOpen.delete(uid);
+  };
   send('hello', { time: Date.now(), rev });
   const timer = setInterval(() => {
     try {
-      if (!store.get(c.id) && c.kind !== 'preview') { send('closed', {}); clearInterval(timer); res.end(); return; }
+      if (!store.get(c.id) && c.kind !== 'preview') { send('closed', {}); finish(); res.end(); return; }
       tick(c);
       const fresh = stream.since(seq);
       if (fresh.length) {
@@ -179,12 +197,13 @@ app.get('/api/cases/:id/stream', wrap((req, res) => {
         send('logs', alias.outDeep(fresh.map(publicEvent)));
       } else res.write(': keep-alive\n\n');
       if (c.rev !== rev) { rev = c.rev; send('case', { rev }); }
-      if (c.status === 'closed') { send('closed', {}); }
+      if (c.status === 'closed') { send('closed', {}); finish(); res.end(); }
     } catch (err) {
       console.error(err);
     }
   }, 1000);
-  req.on('close', () => clearInterval(timer));
+  req.on('close', finish);
+  res.on('close', finish);
 }));
 
 // ---------------------------------------------------------------------------
@@ -256,6 +275,7 @@ if (fs.existsSync(dist)) {
 app.use((err, req, res, next) => {
   if (err instanceof HttpError) {
     const code = /^[a-z_]+$/.test(err.message);
+    if (err.status === 429) res.set('Retry-After', String(err.extra?.retryAfter ?? 5));
     return res.status(err.status).json({ error: err.message, message: err.extra?.message ?? err.message, ...(err.extra || {}), ...(code ? {} : {}) });
   }
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'bad_request', message: 'Malformed JSON.' });

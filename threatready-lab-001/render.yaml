@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: threatready-aws-lab
-    runtime: node
-    plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm start

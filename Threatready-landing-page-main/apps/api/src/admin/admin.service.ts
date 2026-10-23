@@ -309,6 +309,22 @@ export class AdminService {
   }
 
   /**
+   * Append an admin_audit_log row for a read of personal data (export, user detail). Same shape as the
+   * role-change row; the table is append-only for the API role (migration 0005).
+   */
+  async audit(action: "users.export" | "user.view", actor: Principal, target: { id: string; email: string | null } | null, detail: Record<string, unknown>, ip: string | null): Promise<void> {
+    await this.db.insert(adminAuditLog).values({
+      action,
+      actorId: actor.userId,
+      actorEmail: actor.email,
+      targetId: target?.id ?? null,
+      targetEmail: target?.email ?? null,
+      detail,
+      ip,
+    });
+  }
+
+  /**
    * Promote a user to platform admin or remove it. The rules live in planRoleChange (pure); this
    * gathers the facts, applies the plan in one transaction with an audit row, and on demotion ends
    * every session of the user so cached admin rights stop immediately.

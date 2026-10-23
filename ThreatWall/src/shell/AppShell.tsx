@@ -10,6 +10,7 @@ import { Confirm, Dialog } from '../components/ui';
 import { PageFor } from '../pages/registry';
 import { Disconnected } from './Disconnected';
 import { ui } from '../state/ui';
+import { lastRouteKey } from '../brand/progress';
 
 export function AppShell({ lost }: { lost: string | null }) {
   const { config, session, state, patchSession, addAudit, resetLab, emit } = useStore();
@@ -23,7 +24,7 @@ export function AppShell({ lost }: { lost: string | null }) {
   // Tell the task engine where the learner is.
   useEffect(() => {
     ui.setRoute(path); emit('nav', { path });
-    try { localStorage.setItem('tw-last-route', path); } catch { /* storage unavailable */ }
+    try { localStorage.setItem(lastRouteKey(), path); } catch { /* storage unavailable */ }
   }, [path, emit]);
   const [seenAudit, setSeenAudit] = useState(state.audit[0]?.id ?? '');
 

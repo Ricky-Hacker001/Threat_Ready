@@ -10,13 +10,13 @@ export async function start(url = 'http://localhost:4173/') {
     cmd: async (c) => { await h.lab('pc'); await p.fill('[data-guide="pc-cmd"]', c); await p.press('[data-guide="pc-cmd"]', 'Enter'); await W(); },
     lab: async (tab) => { if (!(await p.$('.tw-lab.open'))) await p.click('[data-guide="labtools"]'); await p.click(`[data-guide="labtab:${tab}"]`); await W(150); },
     go: async (path) => { await p.evaluate((x) => { location.hash = '/' + x; }, path); await W(350); },
-    status: async () => p.evaluate(() => { const s = JSON.parse(localStorage.getItem('threatwall:lab-state')); return Object.fromEntries(Object.entries(s.progress.tasks).filter(([,v]) => v.status !== 'locked').map(([k, v]) => [k, v.status + ':' + v.step])); }),
+    status: async () => p.evaluate(() => { const s = JSON.parse(localStorage.getItem('threatwall:local:lab-state')); return Object.fromEntries(Object.entries(s.progress.tasks).filter(([,v]) => v.status !== 'locked').map(([k, v]) => [k, v.status + ':' + v.step])); }),
     cur: async () => p.evaluate(() => document.querySelector('.tw-step.cur .tw-step-title')?.textContent ?? '(none)'),
     fail: async () => p.evaluate(() => document.querySelector('.tw-fail')?.textContent ?? ''),
     gotIt: async () => { await p.click('button:has-text("Got it")'); await W(400); },
     sel: async (s, v) => { await p.selectOption(s, v); await W(80); },
     send: async (pre) => { await h.lab('traffic'); await p.selectOption('#lt-src', pre.from); await p.fill('#lt-dst', pre.to); await p.selectOption('#lt-svc', pre.svc ?? 'https'); if (pre.app !== undefined) await p.selectOption('#lt-app', pre.app); if (pre.payload) await p.selectOption('#lt-payload', pre.payload); await p.click('[data-guide="lt-send"]'); await W(400); return p.evaluate(() => document.querySelector('.tw-verdict')?.textContent); },
-    state: async () => p.evaluate(() => JSON.parse(localStorage.getItem('threatwall:lab-state'))),
+    state: async () => p.evaluate(() => JSON.parse(localStorage.getItem('threatwall:local:lab-state'))),
   };
   return h;
 }
@@ -50,7 +50,7 @@ import fs from 'node:fs';
 export async function dump(h, file) { fs.writeFileSync(file, JSON.stringify(await h.state())); }
 export async function load(h, file) {
   const st = fs.readFileSync(file, 'utf8');
-  await h.p.addInitScript((s) => { if (!sessionStorage.getItem('tw-loaded')) { localStorage.setItem('threatwall:lab-state', s); sessionStorage.setItem('tw-loaded', '1'); } }, st);
+  await h.p.addInitScript((s) => { if (!sessionStorage.getItem('tw-loaded')) { localStorage.setItem('threatwall:local:lab-state', s); sessionStorage.setItem('tw-loaded', '1'); } }, st);
   await h.p.goto(h.url); await h.W(600);
   await h.p.click('[data-guide="start-lab"]'); await h.W(400);
 }

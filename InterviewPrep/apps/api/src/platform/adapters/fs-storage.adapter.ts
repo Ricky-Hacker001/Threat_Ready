@@ -22,12 +22,17 @@ export class FilesystemStorageAdapter implements StoragePort {
     private readonly secret: string,
   ) {}
 
+  /**
+   * The signed policy travels in the URL's query string, not the multipart body, so the upload
+   * endpoint verifies the signature and expiry before it reads a single byte of the file.
+   */
   async putUrl(key: string, rule: UploadRule): Promise<SignedPost> {
     const policy: UploadPolicy = { key, contentType: rule.contentType, maxBytes: rule.maxBytes, exp: Date.now() + rule.ttlSec * 1000 };
     const encoded = Buffer.from(JSON.stringify(policy)).toString('base64url');
+    const query = new URLSearchParams({ policy: encoded, signature: this.sign(encoded), expires: String(policy.exp) });
     return {
-      url: `${this.apiBaseUrl}/v1/dev-storage/upload`,
-      fields: { key, 'Content-Type': rule.contentType, policy: encoded, signature: this.sign(encoded) },
+      url: `${this.apiBaseUrl}/v1/dev-storage/upload?${query}`,
+      fields: { key, 'Content-Type': rule.contentType },
       expiresAt: new Date(policy.exp),
     };
   }
@@ -38,11 +43,17 @@ export class FilesystemStorageAdapter implements StoragePort {
   }
 
   verify<T>(payload: string, signature: string): T {
+    if (typeof payload !== 'string' || typeof signature !== 'string' || payload.length > 4096 || signature.length > 128) throw new PortError('auth', 'bad signature', { retryable: false });
     const expected = Buffer.from(this.sign(payload));
     const got = Buffer.from(signature);
     if (expected.length !== got.length || !timingSafeEqual(expected, got)) throw new PortError('auth', 'bad signature', { retryable: false });
-    const value = JSON.parse(Buffer.from(payload, 'base64url').toString()) as T & { exp: number };
-    if (value.exp < Date.now()) throw new PortError('auth', 'expired', { retryable: false });
+    let value: T & { exp: number };
+    try {
+      value = JSON.parse(Buffer.from(payload, 'base64url').toString()) as T & { exp: number };
+    } catch {
+      throw new PortError('auth', 'bad signature', { retryable: false });
+    }
+    if (typeof value?.exp !== 'number' || value.exp < Date.now()) throw new PortError('auth', 'expired', { retryable: false });
     return value;
   }
 

@@ -1,6 +1,10 @@
 /**
- * Lab-only password hashing (FNV-1a). This is a simulator: nothing leaves the browser,
- * but we still avoid storing the learner's typed password in plain text in localStorage.
+ * Lab-only password hashing. This is a simulator: nothing leaves the browser, but we still avoid
+ * storing a typed password in plain text in localStorage.
+ *
+ * The administrator password is stored as SHA-256 (`sha256$<hex>`, Web Crypto). `hashPassword` is
+ * the original 32-bit FNV-1a: it still seeds the factory default and lab-internal values, and
+ * verifies hashes stored before the upgrade, which are re-hashed on the next successful login.
  */
 export function hashPassword(pw: string): string {
   let h = 0x811c9dc5;
@@ -10,6 +14,25 @@ export function hashPassword(pw: string): string {
     h = Math.imul(h, 0x01000193) >>> 0;
   }
   return h.toString(16).padStart(8, '0');
+}
+
+const SHA_PREFIX = 'sha256$';
+const subtle = (): SubtleCrypto | null => (typeof crypto !== 'undefined' && crypto.subtle ? crypto.subtle : null);
+
+/** SHA-256 of the password; falls back to the legacy digest where Web Crypto is unavailable (plain-http dev hosts). */
+export async function hashPasswordSecure(pw: string): Promise<string> {
+  const s = subtle();
+  if (!s) return hashPassword(pw);
+  const buf = await s.digest('SHA-256', new TextEncoder().encode(`threatwall:${pw}`));
+  return SHA_PREFIX + Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/** Compares against either hash format; `rehash` is set when a legacy hash matched and should be replaced. */
+export async function verifyPassword(pw: string, stored: string): Promise<{ ok: boolean; rehash?: string }> {
+  if (stored.startsWith(SHA_PREFIX)) return { ok: (await hashPasswordSecure(pw)) === stored };
+  if (hashPassword(pw) !== stored) return { ok: false };
+  const next = await hashPasswordSecure(pw);
+  return { ok: true, rehash: next.startsWith(SHA_PREFIX) ? next : undefined };
 }
 
 export function passwordProblems(pw: string, user: string): string[] {

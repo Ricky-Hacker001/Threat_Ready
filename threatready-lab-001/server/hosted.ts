@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { IdentityResolver, PlatformUser } from './identity';
+import type { RateLimiter } from './ratelimit';
 
 type Handler = (req: express.Request, res: express.Response, next: express.NextFunction) => void;
 
@@ -21,6 +22,8 @@ export interface HostedOptions {
   appOrigin: string;
   /** Public onboard origin, for the sign-in redirect. */
   onboardUrl: string;
+  /** Shared API rate limits (per IP before sign-in, per user after). Pages and assets are exempt. */
+  limiter?: RateLimiter;
 }
 
 const wantsJson = (req: express.Request) => req.method !== 'GET' || /\/api\//.test(req.originalUrl) || !(req.headers.accept ?? '').includes('text/html');
@@ -44,10 +47,17 @@ function spa(dir: string, allowEval: boolean): Handler {
   const index = path.join(dir, 'index.html');
   const router = express.Router();
   if (allowEval) {
-    // The lab runs the learner's own code in their browser (new Function), which a strict CSP forbids.
-    router.use((_req, res, next) => {
+    // The lab runs the learner's own code only inside its sandbox.html, framed with sandbox="allow-scripts"
+    // (an opaque origin: no cookies, storage or same-origin requests). Only that document may eval, and it
+    // is forced into a sandbox even when opened directly; the lab's pages may frame it and otherwise keep
+    // the strict gateway policy (no 'unsafe-eval' on the ThreatReady origin).
+    router.use((req, res, next) => {
       const csp = res.getHeader('Content-Security-Policy');
-      if (csp) res.setHeader('Content-Security-Policy', String(csp).replace("script-src 'self'", "script-src 'self' 'unsafe-eval'"));
+      if (csp) {
+        res.setHeader('Content-Security-Policy', req.path === '/sandbox.html'
+          ? "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src blob:; sandbox allow-scripts"
+          : String(csp).replace(/frame-src (?!'self')/, "frame-src 'self' "));
+      }
       next();
     });
   }
@@ -63,12 +73,18 @@ export function hostedLabs(labs: HostedLab[], opts: HostedOptions) {
   const router = express.Router();
   const onboard = opts.onboardUrl.replace(/\/+$/, '');
 
+  // API calls (not pages or assets) count against the shared rate limits.
+  const isApi = (req: express.Request) => req.method !== 'GET' || /\/api\//.test(req.originalUrl.split('?')[0]);
+
   // Platform sign-in for every page, asset and API call. Pages bounce to onboard and back.
   const gate: Handler = (req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) {
       res.status(403).json({ error: 'forbidden', message: 'Cross-origin request refused.' });
       return;
     }
+    const limited = !!opts.limiter && isApi(req);
+    const tooMany = (wait: number) => { res.status(429).set('Retry-After', String(wait)).set('Cache-Control', 'no-store').json({ error: 'rate_limited', message: `Too many requests. Try again in ${wait}s.` }); };
+    if (limited) { const wait = opts.limiter!.ipWait(req); if (wait) { tooMany(wait); return; } }
     opts.identity(req.headers).then((r) => {
       if (r.ok === false && r.reason === 'unavailable') {
         res.status(503).set('Retry-After', '5').json({ error: 'auth_unavailable', message: 'Sign-in is briefly unavailable. Try again in a moment.' });
@@ -86,6 +102,7 @@ export function hostedLabs(labs: HostedLab[], opts: HostedOptions) {
         else res.redirect(302, `${back}&mode=signup`);
         return;
       }
+      if (limited) { const wait = opts.limiter!.userWait(r.user.id); if (wait) { tooMany(wait); return; } }
       (req as any).platformUser = r.user;
       next();
     }, next);
@@ -135,6 +152,8 @@ export interface HostedLoadOptions {
   redTeamDataFile?: string;
   /** Folder with the Red Team lab's server modules (app, store). Default: its TypeScript sources. */
   redTeamServer?: string;
+  /** Onboard's internal token, so the Red Team lab's /internal/v1 summary (progress on the profile) is served. Default: INTERNAL_API_TOKEN. */
+  internalToken?: string;
 }
 
 export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Promise<HostedLab[]> {
@@ -162,8 +181,11 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
     const ext = opts.redTeamServer ? '.js' : '.ts';
     const { createApp } = await import(pathToFileURL(path.join(srv, `app${ext}`)).href);
     const { Store } = await import(pathToFileURL(path.join(srv, `store${ext}`)).href);
+    const internalToken = opts.internalToken ?? process.env.INTERNAL_API_TOKEN;
     const app = createApp(new Store(opts.redTeamDataFile ?? path.join(red, 'data', 'store.json')), path.join(red, 'dist'), {
       identity: opts.identity, appOrigin: opts.appOrigin, onboardUrl: opts.onboardUrl, devLogin: false,
+      // Same token onboard sends this app: its /internal/v1 router stays token-checked.
+      internalToken: internalToken && internalToken.length >= 32 ? internalToken : undefined,
     });
     const redIndex = path.join(red, 'dist', 'index.html');
     labs.push({ slug: 'redteam', handler: (req, res, next) => {

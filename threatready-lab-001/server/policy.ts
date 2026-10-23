@@ -17,12 +17,39 @@ export const arn = {
 };
 export const ANON = 'anonymous';
 
+/** Own-property lookup: learner-supplied names such as "constructor" must not resolve through the prototype. */
+export const own = <T>(m: Record<string, T> | undefined | null, k: unknown): T | undefined =>
+  (m && typeof k === 'string' && Object.prototype.hasOwnProperty.call(m, k) ? m[k] : undefined);
+
+// A regex-free `.`-equivalent: the old matcher used `.`/`.*`, which never cross a line terminator.
+const lineTerm = (c: string) => c === '\n' || c === '\r' || c === ' ' || c === ' ';
+/** Maximum wildcard pattern length / `*` count accepted by validatePolicy. */
+export const GLOB_MAX_LENGTH = 256;
+export const GLOB_MAX_STARS = 5;
+
+/**
+ * IAM-style wildcard match: `*` matches any run of characters, `?` exactly one; anchored at both ends;
+ * case-insensitive when `ci`. Two-pointer matcher with a single star backtrack point (O(n·m) worst
+ * case, no regex), so a pattern such as `arn:************X` can no longer freeze the event loop.
+ */
 export function glob(pattern: string, value: string, ci = false): boolean {
-  const re = '^' + pattern.split('*').map(s => s.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\?/g, '.')).join('.*') + '$';
-  return new RegExp(re, ci ? 'i' : '').test(value);
+  const p = ci ? pattern.toLowerCase() : pattern;
+  const v = ci ? value.toLowerCase() : value;
+  let pi = 0, vi = 0, star = -1, mark = 0;
+  while (vi < v.length) {
+    const pc = pi < p.length ? p[pi] : '';
+    if (pc === '*') { star = pi++; mark = vi; continue; }
+    if (pc !== '' && (pc === v[vi] || (pc === '?' && !lineTerm(v[vi])))) { pi++; vi++; continue; }
+    if (star !== -1 && !lineTerm(v[mark])) { pi = star + 1; vi = ++mark; continue; }
+    return false;
+  }
+  while (pi < p.length && p[pi] === '*') pi++;
+  return pi === p.length;
 }
 const arr = (x: any): any[] => (x === undefined ? [] : Array.isArray(x) ? x : [x]);
 export const statements = (doc: any): any[] => (doc ? arr(doc.Statement) : []);
+
+const tooWild = (p: string) => p.length > GLOB_MAX_LENGTH || p.split('*').length - 1 > GLOB_MAX_STARS;
 
 export function validatePolicy(doc: any, kind: 'identity' | 'resource' | 'scp'): string | null {
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return 'Policy must be a JSON object.';
@@ -36,9 +63,9 @@ export function validatePolicy(doc: any, kind: 'identity' | 'resource' | 'scp'):
     for (const k of Object.keys(s)) if (!['Sid', 'Effect', 'Action', 'Resource', 'Principal'].includes(k)) return `${at}: unsupported element "${k}" (the simulator supports Sid, Effect, Action, Resource, Principal).`;
     if (s.Effect !== 'Allow' && s.Effect !== 'Deny') return `${at}: "Effect" must be "Allow" or "Deny".`;
     const acts = arr(s.Action);
-    if (!acts.length || acts.some(a => typeof a !== 'string' || !/^(\*|[a-z0-9-]+:[A-Za-z0-9*?]+)$/.test(a))) return `${at}: "Action" must be "service:Action" strings (wildcards allowed).`;
+    if (!acts.length || acts.some(a => typeof a !== 'string' || !/^(\*|[a-z0-9-]+:[A-Za-z0-9*?]+)$/.test(a) || tooWild(a))) return `${at}: "Action" must be "service:Action" strings (wildcards allowed).`;
     const res = arr(s.Resource);
-    if (!res.length || res.some(r => typeof r !== 'string' || !(r === '*' || r.startsWith('arn:')))) return `${at}: "Resource" must be "*" or ARN strings.`;
+    if (!res.length || res.some(r => typeof r !== 'string' || !(r === '*' || r.startsWith('arn:')) || tooWild(r))) return `${at}: "Resource" must be "*" or ARN strings.`;
     if (kind === 'identity' || kind === 'scp') {
       if (s.Principal !== undefined) return `${at}: identity-based policies cannot contain "Principal".`;
     } else {
@@ -65,7 +92,7 @@ function matchPrincipal(s: any, principal: string): 'direct' | 'root' | null {
 export function identityPolicies(state: any, principal: string): any[] {
   const m = principal.match(/:(user|role)\/(.+)$/);
   if (!m) return [];
-  const ent = m[1] === 'user' ? state.iam.users[m[2]] : state.iam.roles[m[2]];
+  const ent = own<any>(m[1] === 'user' ? state.iam.users : state.iam.roles, m[2]);
   if (!ent) return [];
   return ent.policies.map((id: string) => state.iam.policies[id]).filter(Boolean);
 }
@@ -121,7 +148,7 @@ export function authorize(state: any, r: AuthReq): Decision {
   }
   if (principal !== ANON) {
     const m = principal.match(/:(user|role)\/(.+)$/);
-    if (!m || !(m[1] === 'user' ? state.iam.users[m[2]] : state.iam.roles[m[2]])) return no('Principal does not exist');
+    if (!m || !own(m[1] === 'user' ? state.iam.users : state.iam.roles, m[2])) return no('Principal does not exist');
     const scp = scpDeny(state, action, resource);
     if (scp) return no(`Explicit deny in service control policy "${scp}"`);
   }
@@ -132,7 +159,7 @@ export function authorize(state: any, r: AuthReq): Decision {
   if (resource.startsWith('arn:aws:s3:::')) {
     const [bucketName, ...rest] = resource.slice('arn:aws:s3:::'.length).split('/');
     const key = rest.join('/');
-    const b = state.s3.buckets[bucketName];
+    const b = own<any>(state.s3.buckets, bucketName);
     if (!b) return no('NoSuchBucket');
     const rd = resourceDecision(b.policy, principal, action, resource);
     if (rd.deny) return no('Explicit deny in bucket policy');
@@ -147,7 +174,7 @@ export function authorize(state: any, r: AuthReq): Decision {
     return no('Implicit deny: no identity or bucket policy allows this action');
   }
   if (resource.startsWith(`arn:aws:kms:`)) {
-    const k = state.kms.keys[resource.split('/').pop()!];
+    const k = own<any>(state.kms.keys, resource.split('/').pop()!);
     if (!k) return no('NotFoundException: key does not exist');
     if (k.state !== 'Enabled') return no('KMSInvalidStateException: key is not enabled');
     const rd = resourceDecision(k.policy, principal, action, resource);

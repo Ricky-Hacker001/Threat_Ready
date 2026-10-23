@@ -14,6 +14,7 @@ import { BEATS, STEPS, INTRO, CHECKS, beatIndex, buildCtx, publicBeat } from './
 import { DEMO_SCENARIO } from './autoplay.js';
 
 const MAX_AGE = 24 * 3600 * 1000;
+const MAX_OPEN_PER_USER = 3; // unfinished demo sessions kept per user; the oldest beyond that is dropped
 const recent = new Map(); // start/reset nonce -> case id, so a double click cannot create two sessions
 
 export const demoInfo = () => ({ ...INTRO, steps: STEPS.map((title, i) => ({ n: i + 1, title })) });
@@ -32,7 +33,12 @@ function sweep() {
   for (const [k, v] of recent) if (now - v.at > 60000) recent.delete(k);
 }
 
+const openDemosOf = (userId) => (userId ? store.all().filter((c) => c.kind === 'demo' && c.userId === userId && c.demo?.status !== 'completed').sort((a, b) => a.t0 - b.t0) : []);
+
 function fresh(analyst, userId) {
+  // A user keeps at most MAX_OPEN_PER_USER unfinished demos: each start would otherwise add a case and a live log stream.
+  const open = openDemosOf(userId);
+  for (const old of open.slice(0, Math.max(0, open.length - (MAX_OPEN_PER_USER - 1)))) removeCase(old);
   const c = createCase({ scenarioId: DEMO_SCENARIO, analyst, kind: 'demo', userId });
   c.demo = { status: 'active', cursor: BEATS[0].id, done: {}, skipped: {}, tries: {}, results: {}, startedAt: Date.now() };
   store.save();
@@ -53,6 +59,9 @@ export function startDemo({ analyst, resumeId, nonce, user } = {}) {
       return c;
     } catch { /* gone: fall through to a new session */ }
   }
+  // One active demo per user: a start without a resume id (another tab, a lost local record) continues it.
+  const active = openDemosOf(user?.uid).filter((c) => c.demo?.status === 'active').pop();
+  if (active) { if (key) recent.set(key, { id: active.id, at: Date.now() }); return active; }
   const c = fresh(user?.name || analyst, user?.uid);
   if (key) recent.set(key, { id: c.id, at: Date.now() });
   return c;

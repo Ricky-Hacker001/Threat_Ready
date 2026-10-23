@@ -2,7 +2,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CandidateProfile, InterviewConfig, JobProfile } from '@threatready/contracts';
 import { describe, expect, it } from 'vitest';
+import { DomainError, PortError } from '@threatready/shared';
 import { loadConfig } from '../../src/config/config.js';
+import { FilesystemStorageAdapter } from '../../src/platform/adapters/fs-storage.adapter.js';
+import { queuePolicy } from '../../src/platform/adapters/pgboss-queue.adapter.js';
+import { cursorBefore, cursorOf } from '../../src/platform/http/cursor.js';
+import { toEnvelope } from '../../src/platform/http/exception.filter.js';
+import { acquireStreamSlot } from '../../src/platform/http/sse.js';
+import { withUsage } from '../../src/platform/ports/llm.port.js';
+import { JOBS } from '../../src/platform/ports/queue.port.js';
+import { poolBucket } from '../../src/modules/reasoning/generation.service.js';
 import { CRITERIA, loadInterviewContent, type RubricDef } from '../../src/platform/content/content.service.js';
 import { clampDeep, toOutputSchema, untrusted } from '../../src/modules/ai/json-schema.js';
 import { quoteIsIn } from '../../src/modules/ai/prompts/common.js';
@@ -16,7 +25,7 @@ import { emptyProgress, type InterviewPlan } from '../../src/modules/interview/p
 import { applyCorrections, buildPlan, questionBudget } from '../../src/modules/interview/planner.js';
 import { recommend } from '../../src/modules/interview/recommendation.js';
 import { elapsedMs, remainingSec, startClock, stopClock } from '../../src/modules/interview/timing.js';
-import { verifyTurnQuotes } from '../../src/modules/interview/turn.service.js';
+import { stripOpening, verifyTurnQuotes } from '../../src/modules/interview/turn.service.js';
 import { computeScores, scoreTurn, SCORING_VERSION } from '../../src/modules/scoring/scoring.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -358,5 +367,83 @@ describe('configuration', () => {
   it('prices calls from usage', () => {
     expect(costUsd(MODEL_PRICING['claude-haiku-4-5']!, { inputTokens: 1_000_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })).toBe(1);
     expect(costUsd(MODEL_PRICING['claude-sonnet-5-5']!, { inputTokens: 18_000, outputTokens: 4_000, cacheReadTokens: 0, cacheWriteTokens: 0 })).toBeCloseTo(0.076, 6);
+  });
+  it('takes the storage signing secret from STORAGE_SIGNING_SECRET, falling back to BETTER_AUTH_SECRET', () => {
+    const { BETTER_AUTH_SECRET: _legacy, ...noLegacy } = base;
+    expect(loadConfig({ ...noLegacy, STORAGE_SIGNING_SECRET: 'k'.repeat(64) }).STORAGE_SIGNING_SECRET).toBe('k'.repeat(64));
+    expect(loadConfig(base).STORAGE_SIGNING_SECRET).toBeUndefined();
+    expect(() => loadConfig(noLegacy)).toThrow(/STORAGE_SIGNING_SECRET/);
+    expect(() => loadConfig({ ...noLegacy, STORAGE_SIGNING_SECRET: 'short' })).toThrow(/STORAGE_SIGNING_SECRET/);
+    expect(loadConfig(base).REASONING_USER_DAILY_EVALUATIONS).toBe(20);
+  });
+});
+
+describe('security fixes 2026-10-23', () => {
+  it('derives job expiry from the LLM timeout and retries, above the worst case', () => {
+    const p = queuePolicy({ llmTimeoutMsLarge: 120_000, llmMaxRetries: 2, reasoningMaxGenerationTries: 3 });
+    const perCall = 120 * 3 * 2;
+    expect(p[JOBS.reasoningEvaluate].expireInSeconds).toBe(perCall * 3 + 60);
+    expect(p[JOBS.reasoningGenerate].expireInSeconds).toBe(perCall * 3 + 60);
+    expect(p[JOBS.interviewFinalScoring]).toEqual({ retryLimit: 2, expireInSeconds: perCall * 2 + 60 });
+    expect(p[JOBS.interviewFinalScoring].expireInSeconds).toBeGreaterThan(120 * 3 * 2);
+  });
+  it('maps expert to the advanced pool bucket and keeps the other levels', () => {
+    expect(poolBucket('expert')).toBe('advanced');
+    expect(poolBucket('beginner')).toBe('beginner');
+    expect(poolBucket('advanced')).toBe('advanced');
+  });
+  it('rejects malformed cursors as validation errors', () => {
+    const at = new Date('2026-10-12T10:00:00.000Z');
+    expect(cursorBefore(cursorOf(at))?.getTime()).toBe(at.getTime());
+    expect(cursorBefore(undefined)).toBeNull();
+    for (const bad of ['garbage', Buffer.from('not a date').toString('base64url'), 'x'.repeat(65), '%%%'] as const) {
+      expect(() => cursorBefore(bad)).toThrow(DomainError);
+      try {
+        cursorBefore(bad);
+      } catch (e) {
+        expect((e as DomainError).code).toBe('VALIDATION_FAILED');
+      }
+    }
+  });
+  it('maps body-parser errors to client-error envelopes', () => {
+    const tooLarge = Object.assign(new Error('request entity too large'), { type: 'entity.too.large', status: 413, statusCode: 413 });
+    const badJson = Object.assign(new SyntaxError('Unexpected token'), { type: 'entity.parse.failed', status: 400, statusCode: 400 });
+    expect(toEnvelope(tooLarge, 'req_1').error.code).toBe('RESUME_TOO_LARGE');
+    expect(toEnvelope(badJson, 'req_1').error.code).toBe('VALIDATION_FAILED');
+    expect(toEnvelope(new Error('boom'), 'req_1').error.code).toBe('INTERNAL_ERROR');
+  });
+  it('signs upload policies into the query string and refuses bad or expired ones', async () => {
+    const fs = new FilesystemStorageAdapter('/tmp/x', 'http://api', 'k'.repeat(40));
+    const signed = await fs.putUrl('quarantine/a/b', { contentType: 'application/pdf', maxBytes: 5_000_000, ttlSec: 300 });
+    const url = new URL(signed.url);
+    expect(url.pathname).toBe('/v1/dev-storage/upload');
+    expect(signed.fields).toEqual({ key: 'quarantine/a/b', 'Content-Type': 'application/pdf' });
+    const policy = fs.verify<{ key: string }>(url.searchParams.get('policy')!, url.searchParams.get('signature')!);
+    expect(policy.key).toBe('quarantine/a/b');
+    expect(() => fs.verify(url.searchParams.get('policy')!, 'x'.repeat(43))).toThrow(PortError);
+    const expired = Buffer.from(JSON.stringify({ key: 'k', exp: Date.now() - 1 })).toString('base64url');
+    const other = new FilesystemStorageAdapter('/tmp/x', 'http://api', 'k'.repeat(40));
+    const sig = new URL((await other.putUrl('k', { contentType: 'a', maxBytes: 1, ttlSec: -1 })).url).searchParams;
+    expect(() => fs.verify(sig.get('policy')!, sig.get('signature')!)).toThrow(/expired/);
+    expect(() => fs.verify(expired, 'bad')).toThrow(PortError);
+  });
+  it('caps concurrent event streams per user', () => {
+    const releases = [acquireStreamSlot('u1', 2), acquireStreamSlot('u1', 2)];
+    expect(() => acquireStreamSlot('u1', 2)).toThrow(DomainError);
+    releases[0]!();
+    const third = acquireStreamSlot('u1', 2);
+    third();
+    releases[1]!();
+    releases[1]!(); // idempotent
+    expect(acquireStreamSlot('u1', 2)).toBeTypeOf('function');
+  });
+  it('attaches billed usage to a failed call and strips the greeting from prompt inputs', () => {
+    const usage = { model: 'm', inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    const err = withUsage(new PortError('invalid_output', 'truncated', { retryable: true }), usage);
+    expect(err).toBeInstanceOf(PortError);
+    expect(err.usage).toEqual(usage);
+    const stored = "Hi Priya, I'm Alex, and I'll be interviewing you for the SOC Analyst role today. Thanks for making the time. We have about 20 minutes: we'll start with your background, then go through some technical questions, and leave a little time at the end. Feel free to think out loud. Tell me about your background.";
+    expect(stripOpening(stored)).toBe('Tell me about your background.');
+    expect(stripOpening('What is IAM?')).toBe('What is IAM?');
   });
 });

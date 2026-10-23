@@ -30,10 +30,20 @@ const EnvSchema = z
     ALLOWED_APP_ORIGINS: z.string().default(''),
     API_BASE_URL: z.url(),
     /**
-     * Signs local-storage download links (STORAGE_DRIVER=fs). Sign-in no longer happens here:
-     * the name is kept so existing .env files keep working.
+     * Signs local-storage upload and download links (STORAGE_DRIVER=fs). Preferred over
+     * BETTER_AUTH_SECRET so the storage HMAC key is never the platform's auth secret.
      */
-    BETTER_AUTH_SECRET: z.string().min(32),
+    STORAGE_SIGNING_SECRET: z.string().min(32).optional(),
+    /**
+     * Legacy fallback for STORAGE_SIGNING_SECRET. Sign-in no longer happens here: the name is kept
+     * so existing .env files keep working. Optional once STORAGE_SIGNING_SECRET is set.
+     */
+    BETTER_AUTH_SECRET: z.string().min(32).optional(),
+    /**
+     * Header carrying the visitor's IP when a trusted gateway sets it (e.g. x-threatready-client-ip).
+     * Unset: Express's req.ip (trust proxy 1). Used for IP-keyed limits on public routes.
+     */
+    CLIENT_IP_HEADER: z.string().min(1).max(64).optional(),
 
     /**
      * Identity provider (onboard.threatready.io). The browser's session cookie is forwarded to
@@ -78,6 +88,10 @@ const EnvSchema = z
 
     /** Attack Reasoning: open (unfinished) attempts a user may hold, generation retries, similarity threshold. */
     REASONING_MAX_OPEN_ATTEMPTS: z.coerce.number().int().positive().default(3),
+    /** Answers a learner may submit for evaluation per UTC day (each evaluation is up to three LARGE calls). */
+    REASONING_USER_DAILY_EVALUATIONS: z.coerce.number().int().positive().default(20),
+    /** Pool refills one learner may trigger per UTC day (via create or prefetch); the schedule refills the rest. */
+    REASONING_USER_DAILY_REFILLS: z.coerce.number().int().positive().default(60),
     REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
     /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
@@ -117,6 +131,9 @@ const EnvSchema = z
       if (!env.ONBOARD_URL.startsWith('https://')) ctx.addIssue({ code: 'custom', path: ['ONBOARD_URL'], message: 'must be https in production' });
     }
     if (env.STORAGE_DRIVER === 's3' && !env.S3_BUCKET) ctx.addIssue({ code: 'custom', path: ['S3_BUCKET'], message: 'required for s3 storage' });
+    if (env.STORAGE_DRIVER === 'fs' && !env.STORAGE_SIGNING_SECRET && !env.BETTER_AUTH_SECRET) {
+      ctx.addIssue({ code: 'custom', path: ['STORAGE_SIGNING_SECRET'], message: 'required for fs storage (or the legacy BETTER_AUTH_SECRET)' });
+    }
     if (env.LLM_DRIVER === 'anthropic' && !env.ANTHROPIC_API_KEY) ctx.addIssue({ code: 'custom', path: ['ANTHROPIC_API_KEY'], message: 'required for the anthropic driver' });
     if (env.EMAIL_DRIVER === 'ses' && !env.SES_FROM_ADDRESS) ctx.addIssue({ code: 'custom', path: ['SES_FROM_ADDRESS'], message: 'required for SES' });
   });

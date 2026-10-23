@@ -129,8 +129,13 @@
     var controller = 'AbortController' in window ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, 60000) : null;
 
+    // Only the scenario question and the typed/dictated answer (capped at MAX_CHARS) leave the page:
+    // no cookies, no referrer.
     fetch(API, {
       method: 'POST',
+      mode: 'cors',
+      credentials: 'omit',
+      referrerPolicy: 'no-referrer',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: scenario.question, answer: answer.slice(0, MAX_CHARS) }),
       signal: controller ? controller.signal : undefined

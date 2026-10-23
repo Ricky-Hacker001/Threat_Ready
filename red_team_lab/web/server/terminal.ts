@@ -171,21 +171,104 @@ function headTail(ts: TermState, args: string[], stdin: string, head: boolean): 
   return (head ? lines.slice(0, n) : lines.slice(Math.max(0, lines.length - n - 1))).join('\n');
 }
 function wcCmd(text: string): string { const lines = text ? text.split('\n').length - 1 : 0; const words = text.split(/\s+/).filter(Boolean).length; return `  ${lines}  ${words}  ${text.length}\n`; }
+// Learner-typed patterns are compiled and run in this process (the same one that serves every lab),
+// so anything that lets V8's backtracking regex engine go super-linear is refused up front, the way
+// real grep refuses a malformed expression. Measured on 1000-character lines: one `.*` costs ~4 ms a
+// line, two cost ~0.5 s a line, `(a+)+$` or a run of `a?` is exponential. Hence: no quantified groups,
+// no backreferences or lookarounds, one unbounded quantifier at most (two variable-width ones counting
+// `?`), and a cap on the text scanned.
+export const GREP_MAX_PATTERN = 128;
+export const GREP_MAX_LINES = 2000;
+export const GREP_MAX_CHARS = 16 * 1024;
+const LINE_MAX = 1000;
+const MAX_VARIABLE_QUANTIFIERS = 2;
+const MAX_UNBOUNDED_QUANTIFIERS = 1;
+
+/** Structural check of a regex source: null when safe, else why not. Exported for tests. */
+export function regexHazard(pattern: string): string | null {
+  if (pattern.length > GREP_MAX_PATTERN) return 'pattern too long';
+  let variable = 0, unbounded = 0;
+  let prev = '';            // what the previous token was: 'atom' | 'group-close' | 'class' | 'quant' | ''
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\') {
+      const n = pattern[i + 1] ?? '';
+      if (/[1-9]/.test(n) || n === 'k') return 'backreferences are not supported';
+      i++; prev = 'atom'; continue;
+    }
+    if (c === '[') {                                   // character class: skip to its closing bracket
+      let j = i + 1; if (pattern[j] === '^') j++; if (pattern[j] === ']') j++;
+      for (; j < pattern.length && pattern[j] !== ']'; j++) if (pattern[j] === '\\') j++;
+      i = j; prev = 'class'; continue;
+    }
+    if (c === '(') {
+      if (pattern.startsWith('(?=', i) || pattern.startsWith('(?!', i) || pattern.startsWith('(?<=', i) || pattern.startsWith('(?<!', i)) return 'lookarounds are not supported';
+      if (pattern.startsWith('(?:', i)) i += 2;                                                        // non-capturing group
+      else if (pattern.startsWith('(?<', i)) { const close = pattern.indexOf('>', i); if (close === -1) return 'invalid group'; i = close; } // named group
+      prev = ''; continue;
+    }
+    if (c === ')') { prev = 'group-close'; continue; }
+    let quant: string | null = null;
+    if (c === '*' || c === '+' || c === '?') quant = c;
+    else if (c === '{') { const m = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i)); if (m) { quant = m[0]; i += m[0].length - 1; if (m[2] === undefined) quant = 'fixed'; } }
+    if (quant) {
+      if (prev === 'quant') { if (c === '?' && quant === '?') { continue; } return 'a quantifier cannot follow a quantifier'; } // `*?` / `+?` / `??` are lazy forms
+      if (prev === 'group-close') return 'quantified groups are not supported';
+      if (prev === '' && !(c === '{' )) return 'nothing to repeat';
+      if (quant !== 'fixed') variable++;
+      if (quant !== 'fixed' && quant !== '?') unbounded++;
+      if (variable > MAX_VARIABLE_QUANTIFIERS) return `at most ${MAX_VARIABLE_QUANTIFIERS} variable-width quantifiers (*, +, ?, {n,m})`;
+      if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) return `at most ${MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifier (*, +, {n,})`;
+      prev = 'quant'; continue;
+    }
+    prev = 'atom';
+  }
+  return null;
+}
+/** The compiled pattern, or null when it is too long, structurally unsafe, or not valid regex syntax. */
+export function safeRegex(pattern: string, flags = ''): RegExp | null {
+  if (regexHazard(pattern) !== null) return null;
+  try { return new RegExp(pattern, flags); } catch { return null; }
+}
+/** Shell glob match (`*` any run, `?` one character, everything else literal), anchored, linear two-pointer scan: no regex. */
+export function globMatch(glob: string, name: string): boolean {
+  let gi = 0, ni = 0, star = -1, mark = 0;
+  while (ni < name.length) {
+    const g = gi < glob.length ? glob[gi] : '';
+    if (g === '*') { star = gi++; mark = ni; continue; }
+    if (g !== '' && (g === '?' || g === name[ni])) { gi++; ni++; continue; }
+    if (star !== -1) { gi = star + 1; ni = ++mark; continue; }
+    return false;
+  }
+  while (gi < glob.length && glob[gi] === '*') gi++;
+  return gi === glob.length;
+}
+/** The lines grep scans: at most GREP_MAX_LINES / GREP_MAX_CHARS, each matched on its first LINE_MAX characters. */
+function scanLines(text: string): string[] {
+  const out: string[] = []; let chars = 0;
+  for (const l of text.split('\n')) { if (out.length >= GREP_MAX_LINES || chars >= GREP_MAX_CHARS) break; out.push(l); chars += Math.min(l.length, LINE_MAX) + 1; }
+  return out;
+}
+
 function grepCmd(ts: TermState, args: string[], stdin: string): string {
   const ignore = flag(args, '-i'); const inv = flag(args, '-v');
   const rest = args.filter(a => !a.startsWith('-'));
   const pattern = rest[0] || '';
   const files = rest.slice(1);
   const text = files.length ? readFiles(ts, files) : stdin;
-  let re: RegExp; try { re = new RegExp(pattern, ignore ? 'i' : ''); } catch { return `grep: invalid pattern\n`; }
-  return text.split('\n').filter(l => re.test(l) !== inv && l !== '').join('\n') + '\n';
+  const hazard = regexHazard(pattern);
+  if (hazard) return `grep: invalid pattern (${hazard})\n`;
+  const re = safeRegex(pattern, ignore ? 'i' : '');
+  if (!re) return `grep: invalid pattern\n`;
+  return scanLines(text).filter(l => re.test(l.length > LINE_MAX ? l.slice(0, LINE_MAX) : l) !== inv && l !== '').join('\n') + '\n';
 }
 function findCmd(ts: TermState, args: string[]): string {
   const base = resolve(ts, args.find(a => !a.startsWith('-')) || '.');
   const name = opt(args, '-name');
+  if (name !== undefined && name.length > GREP_MAX_PATTERN) return `find: -name pattern too long\n`;
   const prefix = base === '/' ? '/' : base + '/';
   return Object.keys(ts.fs).filter(k => (k === base || k.startsWith(prefix)) && ts.fs[k] !== null)
-    .filter(k => !name || new RegExp('^' + name.replace(/[.]/g, '\\.').replace(/\*/g, '.*') + '$').test(k.split('/').pop()!))
+    .filter(k => !name || globMatch(name, k.split('/').pop()!))
     .join('\n') + '\n';
 }
 

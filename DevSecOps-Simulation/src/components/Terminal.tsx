@@ -9,7 +9,7 @@ export interface TerminalHandle {
 }
 
 interface Props {
-  execute: (cmd: string) => { out: string[]; code: number };
+  execute: (cmd: string) => Promise<{ out: string[]; code: number }> | { out: string[]; code: number };
   files: string[];
   initial: string[];
 }
@@ -24,7 +24,7 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
   const box = useRef<HTMLDivElement>(null);
   const inp = useRef<HTMLInputElement>(null);
 
-  const run = (cmd: string) => {
+  const run = async (cmd: string) => {
     const c = cmd.trim();
     const echo = `\x1b[32m${PROMPT}\x1b[0m ${cmd}`;
     if (!c) {
@@ -33,7 +33,7 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
     }
     setHist((h) => [...h.filter((x) => x !== c), c]);
     setHi(-1);
-    const r = execute(c);
+    const r = await execute(c);
     if (r.out.includes('\x1bc')) {
       setLines([]);
       return;
@@ -43,7 +43,7 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
 
   useImperativeHandle(ref, () => ({
     run: (cmd) => {
-      run(cmd);
+      void run(cmd);
       inp.current?.focus();
     },
     insert: (cmd) => {
@@ -89,7 +89,7 @@ export const Terminal = forwardRef<TerminalHandle, Props>(function Terminal({ ex
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
-              run(input);
+              void run(input);
               setInput('');
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();

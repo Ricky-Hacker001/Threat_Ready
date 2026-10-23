@@ -48,8 +48,11 @@ async function bootstrap() {
   app.setGlobalPrefix("api");
   app.enableShutdownHooks();
 
-  await app.listen(config.PORT);
-  Logger.log(`API listening on :${config.PORT}`, "Bootstrap");
+  // HOST=127.0.0.1 behind the single-origin gateway (deploy/start.mjs); every interface otherwise (Docker, local).
+  const host = process.env.HOST?.trim();
+  if (host) await app.listen(config.PORT, host);
+  else await app.listen(config.PORT);
+  Logger.log(`API listening on ${host ?? ""}:${config.PORT}`, "Bootstrap");
 
   const pool = app.get<pg.Pool>(PG_POOL);
   const shutdown = async () => {

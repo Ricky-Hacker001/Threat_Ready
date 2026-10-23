@@ -303,18 +303,62 @@ describe('attack reasoning: cloud security end to end', () => {
     expect((await learner.post(`/v1/reasoning/attempts/${a.id}/retry`).set('Origin', ORIGIN)).status).toBe(409);
   });
 
-  it('stops generation when the question pool budget is exhausted, with a state the learner can retry later', async () => {
+  it('charges on-demand generation to the learner and stops it at their daily cap, with a state the learner can retry later', async () => {
     const created = await learner.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'beginner' });
     expect(created.body.state).toBe('generating');
+    // A question generated for one learner is billed to that learner, never to the platform pool account
+    // (a pool-owned $50 day must not stop it, and the learner cannot drain the pool budget).
     await t.pool.query(`INSERT INTO llm_call_log (org_id, user_id, feature, tier, model, prompt_version, status, estimated_cost_usd, cost_usd) VALUES ($1, $2, 'reasoning.generate', 'LARGE', 'claude-sonnet-5-5', 'test', 'settled', 50, 50)`, [POOL_ORG_ID, POOL_USER_ID]);
+    // Billed failures count: a truncated call that carried usage is part of the learner's spend.
+    await t.pool.query(
+      `INSERT INTO llm_call_log (org_id, user_id, feature, tier, model, prompt_version, status, error_kind, estimated_cost_usd, cost_usd)
+       VALUES ((SELECT org_id FROM memberships WHERE user_id = $1 LIMIT 1), $1, 'reasoning.evaluator', 'LARGE', 'claude-sonnet-5-5', 'test', 'failed', 'invalid_output', 0.5, 5)`,
+      [learnerId],
+    );
     await drainJobs(t, { only: ['reasoning.generate'] });
     const got = await learner.get(`/v1/reasoning/attempts/${created.body.id}`);
     expect(got.body.state).toBe('generation_failed');
     expect(got.body.failure.code).toBe('LLM_BUDGET_EXCEEDED');
-    await t.pool.query(`DELETE FROM llm_call_log WHERE user_id = $1 AND prompt_version = 'test'`, [POOL_USER_ID]);
+    await t.pool.query(`DELETE FROM llm_call_log WHERE user_id = $1 AND prompt_version = 'test'`, [learnerId]);
     expect((await learner.post(`/v1/reasoning/attempts/${created.body.id}/retry`).set('Origin', ORIGIN)).status).toBe(202);
     await drainJobs(t, { only: ['reasoning.generate'] });
     expect((await learner.get(`/v1/reasoning/attempts/${created.body.id}`)).body.state).toBe('ready');
+    const { rows: owners } = await t.pool.query(`SELECT DISTINCT user_id FROM llm_call_log WHERE feature = 'reasoning.generate' AND source_id = $1`, [created.body.id]);
+    expect(owners.map((o) => o.user_id)).toEqual([learnerId]);
+    await t.pool.query(`DELETE FROM llm_call_log WHERE user_id = $1 AND prompt_version = 'test'`, [POOL_USER_ID]);
+  });
+
+  it('caps evaluations per learner per day, and serves the expert difficulty from the advanced bucket', async () => {
+    const t3 = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', REASONING_USER_DAILY_EVALUATIONS: '1' });
+    try {
+      const l = await signUp(t3, 'Quota Learner');
+      // A pool question if one is unseen, else generated on demand: either way a ready attempt.
+      const ready = async () => {
+        const created = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security' });
+        expect(created.status).toBe(202);
+        if (created.body.state === 'generating') await drainJobs(t3, { only: ['reasoning.generate'] });
+        const got = await l.get(`/v1/reasoning/attempts/${created.body.id}`);
+        expect(got.body.state).toBe('ready');
+        return got.body as ReasoningAttemptView;
+      };
+      const first = await ready();
+      const ok = await l.post(`/v1/reasoning/attempts/${first.id}/submit`).set('Origin', ORIGIN).send({ selectedOption: 'B', justification: STRONG('x', 'y'), clientSubmissionId: randomUUID() });
+      expect(ok.status).toBe(202);
+      const second = await ready();
+      const over = await l.post(`/v1/reasoning/attempts/${second.id}/submit`).set('Origin', ORIGIN).send({ selectedOption: 'B', justification: STRONG('x', 'y'), clientSubmissionId: randomUUID() });
+      expect(over.status).toBe(429);
+      expect(over.body.error.code).toBe('LLM_BUDGET_EXCEEDED');
+      expect((await l.get(`/v1/reasoning/attempts/${second.id}`)).body.state).toBe('ready');
+      // 'expert' is accepted by the contract and served from the advanced bucket.
+      const expert = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'expert' });
+      expect(expert.status).toBe(202);
+      expect(expert.body.difficulty).toBe('expert');
+      await drainJobs(t3, { only: ['reasoning.generate'] });
+      const { rows } = await t3.pool.query(`SELECT i.difficulty FROM reasoning_attempts a JOIN reasoning_items i ON i.id = a.item_id WHERE a.id = $1`, [expert.body.id]);
+      expect(rows[0]?.difficulty).toBe('advanced');
+    } finally {
+      await t3.close();
+    }
   });
 
 
@@ -352,8 +396,8 @@ describe('attack reasoning: cloud security end to end', () => {
       const byLevel = Object.fromEntries(buckets.map((b) => [b.difficulty, b.n]));
       expect(byLevel.beginner).toBeGreaterThanOrEqual(3);
       expect(byLevel.advanced).toBeGreaterThanOrEqual(3);
-      // Pool generation is owned by the platform account in the AI ledger, not by a learner.
-      const { rows: owners } = await t4.pool.query(`SELECT DISTINCT user_id FROM llm_call_log WHERE feature = 'reasoning.generate' AND created_at > now() - interval '1 minute'`);
+      // Pool generation (no source attempt) is owned by the platform account in the AI ledger, not by a learner.
+      const { rows: owners } = await t4.pool.query(`SELECT DISTINCT user_id FROM llm_call_log WHERE feature = 'reasoning.generate' AND source_id IS NULL AND created_at > now() - interval '1 minute'`);
       expect(owners.map((o) => o.user_id)).toEqual([POOL_USER_ID]);
 
       const a = await signUp(t4, 'Pool Learner A');
@@ -375,7 +419,8 @@ describe('attack reasoning: cloud security end to end', () => {
       }
       expect(t4.llm.calls.filter((c) => c.name === 'reasoning_item')).toHaveLength(0);
       // Recorded as served: the learner is never given these again, even after skipping.
-      const { rows: served } = await t4.pool.query(`SELECT item_id FROM reasoning_served WHERE attempt_id IS NOT NULL AND item_id = ANY($1::uuid[])`, [seen]);
+      const aId = (await a.get('/v1/me')).body.id as string;
+      const { rows: served } = await t4.pool.query(`SELECT item_id FROM reasoning_served WHERE attempt_id IS NOT NULL AND user_id = $2 AND item_id = ANY($1::uuid[])`, [seen, aId]);
       expect(served).toHaveLength(3);
       // Another learner can be served the same questions, in their own random order.
       const bSeen = new Set<string>();
@@ -391,8 +436,13 @@ describe('attack reasoning: cloud security end to end', () => {
       const freshView = await a.get(`/v1/reasoning/attempts/${fresh.body.id}`);
       expect(freshView.body.state).toBe('ready');
       expect(seen).not.toContain(freshView.body.item.id);
-      // ...and the background refill restocked the bucket for them.
-      expect((await a.post('/v1/reasoning/attempts/prefetch').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' })).body.available).toBeGreaterThanOrEqual(2);
+      // ...billed to them, and the bucket is not grown past REASONING_POOL_TARGET on a learner's behalf:
+      // one learner cycling through buckets cannot make the platform generate without bound.
+      const { rows: freshOwner } = await t4.pool.query(`SELECT DISTINCT user_id FROM llm_call_log WHERE feature = 'reasoning.generate' AND source_id = $1`, [fresh.body.id]);
+      expect(freshOwner.map((o) => o.user_id)).toEqual([aId]);
+      const { rows: advanced } = await t4.pool.query(`SELECT count(*)::int AS n FROM reasoning_items WHERE pool AND domain = 'cloud_security' AND difficulty = 'advanced'`);
+      expect(advanced[0].n).toBeLessThanOrEqual(4); // target 3 plus the one generated on demand (which joins the pool for everyone else)
+      expect((await b.post('/v1/reasoning/attempts/prefetch').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'advanced' })).body.available).toBeGreaterThanOrEqual(1);
       // The level chosen is the level served: beginner questions are smaller and come from their own bucket.
       const easy = await a.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'cloud_security', difficulty: 'beginner' });
       expect(easy.body).toMatchObject({ state: 'ready', difficulty: 'beginner' });

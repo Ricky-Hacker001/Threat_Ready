@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import http from 'node:http';
 import { Store } from '../server/store';
-import { fx, DOCS, auth, makeApp, ORIGIN, INTERNAL_TOKEN } from './helpers';
+import { fx, DOCS, auth, makeApp, ORIGIN, INTERNAL_TOKEN, fakeIdentity } from './helpers';
+import { createApp } from '../server/app';
+import { onboardIdentity } from '../server/identity';
 
 let app: any, tokA: string, tokB: string, sid: string, n = 0;
 const rid = () => `req-${Date.now()}-${n++}`;
@@ -45,6 +47,39 @@ describe('API security', () => {
   it('rejects malformed requests', async () => {
     expect((await request(app).post(`/api/sessions/${sid}/actions`).set(auth(tokA)).send({ type: 'inspect' })).status).toBe(400);
     expect((await request(app).post(`/api/sessions/${sid}/actions`).set(auth(tokA)).set('Content-Type', 'application/json').send('{oops')).status).toBe(400);
+  });
+  it('prototype names are neither replayed requests nor labs', async () => {
+    for (const requestId of ['constructor', '__proto__', 'hasOwnProperty', 'toString']) {
+      const r = await act(tokA, sid, 'incident.acknowledge', {}, requestId);
+      expect(r.status).toBe(200); expect(r.body.replayed).toBeUndefined(); expect(r.body.ok).toBe(true);
+    }
+    expect((await request(app).get('/api/labs/constructor').set(auth(tokA))).status).toBe(404);
+    expect((await request(app).post('/api/labs/__proto__/sessions').set(auth(tokA))).status).toBe(404);
+    const r = await act(tokA, sid, 'iam.simulate', { principal: 'arn:aws:iam::123456789012:user/constructor', action: 's3:GetObject', resource: '*' });
+    expect(r.status).toBe(200); expect(r.body.ok).toBe(false);
+  });
+  it('rate-limits per user and per IP with 429 + Retry-After in the API error shape', async () => {
+    const limited = createApp(new Store(null), undefined, { identity: fakeIdentity, internalToken: INTERNAL_TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', ratePerMin: 2, rateIpPerMin: 1000 });
+    expect((await request(limited).get('/api/labs').set(auth(tokA))).status).toBe(200);
+    expect((await request(limited).get('/api/labs').set(auth(tokA))).status).toBe(200);
+    const r = await request(limited).get('/api/labs').set(auth(tokA));
+    expect(r.status).toBe(429); expect(Number(r.headers['retry-after'])).toBeGreaterThan(0); expect(r.body).toMatchObject({ code: 'RATE_LIMITED' });
+    expect((await request(limited).get('/api/labs').set(auth(tokB))).status).toBe(200);
+    const byIp = createApp(new Store(null), undefined, { identity: fakeIdentity, internalToken: INTERNAL_TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', ratePerMin: 1000, rateIpPerMin: 1 });
+    expect((await request(byIp).get('/api/labs').set({ 'x-threatready-client-ip': '203.0.113.1' })).status).toBe(401);
+    expect((await request(byIp).get('/api/labs').set({ 'x-threatready-client-ip': '203.0.113.1' })).status).toBe(429);
+    expect((await request(byIp).get('/api/labs').set({ 'x-threatready-client-ip': '203.0.113.2' })).status).toBe(401);
+  });
+  it('hosted labs share the limiter: API calls count, pages and assets do not', async () => {
+    const hits: string[] = [];
+    const hosted = createApp(new Store(null), undefined, { identity: fakeIdentity, internalToken: INTERNAL_TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', ratePerMin: 2, rateIpPerMin: 1000,
+      hosted: [{ slug: 'soc', handler: (req, res) => { hits.push(req.url); res.json({ ok: true }); } }] });
+    for (let i = 0; i < 5; i++) expect((await request(hosted).get('/soc/assets/app.js').set(auth(tokA))).status).toBe(200);
+    expect((await request(hosted).get('/soc/api/cases').set(auth(tokA))).status).toBe(200);
+    expect((await request(hosted).get('/soc/api/cases').set(auth(tokA))).status).toBe(200);
+    const r = await request(hosted).get('/soc/api/cases').set(auth(tokA));
+    expect(r.status).toBe(429); expect(r.body).toMatchObject({ error: 'rate_limited' }); expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
+    expect(hits.filter(u => u.startsWith('/api/'))).toHaveLength(2);
   });
 });
 
@@ -114,5 +149,43 @@ describe('platform: identity from onboard, catalog, internal API', () => {
       const r = await request(app).get('/internal/v1/ai-usage?from=2026-01-01T00:00:00Z&to=2027-01-01T00:00:00Z').set(bearer);
       expect(r.body).toEqual({ app: 'labs', users: [], byModel: [], byFeature: [] });
     });
+  });
+});
+
+describe('onboard identity resolver', () => {
+  const startOnboard = () => new Promise<{ url: string; calls: string[]; release: () => void; close: () => void }>((resolve) => {
+    const calls: string[] = []; let pending: (() => void)[] = [];
+    const server = http.createServer((req, res) => {
+      const cookie = String(req.headers.cookie || '');
+      calls.push(cookie);
+      const answer = () => {
+        if (cookie.includes('good')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ user: { id: 'u_good', name: 'Good', isTrial: false } })); }
+        else { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{}'); }
+      };
+      if (cookie.includes('slow')) pending.push(answer); else answer();
+    });
+    server.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${(server.address() as any).port}`, calls, release: () => { for (const p of pending) p(); pending = []; }, close: () => server.close() }));
+  });
+  it('caches negative answers for a while, coalesces identical lookups and caps in-flight lookups', async () => {
+    const onboard = await startOnboard();
+    try {
+      const identity = onboardIdentity({ identityUrl: onboard.url, internalToken: INTERNAL_TOKEN, maxInFlight: 5 });
+      // A bad cookie hits onboard once, then is answered from the negative cache.
+      for (let i = 0; i < 5; i++) expect((await identity({ cookie: 'tr.session_token=bad' })).ok).toBe(false);
+      expect(onboard.calls.filter(c => c.includes('bad'))).toHaveLength(1);
+      // A good cookie is cached positively.
+      for (let i = 0; i < 3; i++) expect((await identity({ cookie: 'tr.session_token=good' })).ok).toBe(true);
+      expect(onboard.calls.filter(c => c.includes('good'))).toHaveLength(1);
+      // Concurrent lookups for one cookie share a single request; beyond the in-flight cap callers get "unavailable" instead of queueing.
+      const same = Promise.all(Array.from({ length: 4 }, () => identity({ cookie: 'tr.session_token=slow-a' })));
+      const others = Promise.all(Array.from({ length: 6 }, (_, i) => identity({ cookie: `tr.session_token=slow-${i}` })));
+      await new Promise(r => setTimeout(r, 50));
+      onboard.release();
+      expect((await same).every(r => r.ok === false && r.reason === 'signed-out')).toBe(true);
+      const o = await others;
+      expect(o.filter(r => r.ok === false && r.reason === 'unavailable').length).toBeGreaterThanOrEqual(1);
+      expect(onboard.calls.filter(c => c.includes('slow-a'))).toHaveLength(1);
+      expect(onboard.calls.filter(c => c.includes('slow')).length).toBeLessThanOrEqual(5);
+    } finally { onboard.close(); }
   });
 });

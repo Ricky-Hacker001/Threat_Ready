@@ -51,6 +51,15 @@ export interface StructuredSchema<T> {
 
 export type LlmChunk = { type: 'text'; text: string } | { type: 'done'; usage: LlmUsage };
 
+/**
+ * Attaches the provider's usage to an error for a call the provider billed but the adapter must
+ * reject (truncated at max_tokens, output that fails the schema, refusal after tokens). LlmService
+ * records that cost against every budget; a failure without usage costs nothing.
+ */
+export function withUsage<E extends Error>(err: E, usage: LlmUsage): E & { usage: LlmUsage } {
+  return Object.assign(err, { usage });
+}
+
 export interface LlmPort {
   generate(req: LlmRequest): Promise<LlmText>;
   generateStructured<T>(req: LlmRequest, schema: StructuredSchema<T>): Promise<LlmObject<T>>;

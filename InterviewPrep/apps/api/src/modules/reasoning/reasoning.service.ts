@@ -16,19 +16,27 @@ import {
 } from '@threatready/contracts';
 import { llmCallLog, reasoningAttempts, reasoningEvaluations, reasoningItems, reasoningServed } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, count, desc, eq, inArray, isNotNull, like, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNotNull, like, lt, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { Database, type Tx } from '../../platform/db/database.js';
+import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
+import { CACHE_PORT, type CachePort } from '../../platform/ports/cache.port.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
 import { attemptView, loadEvaluation, loadItem, loadOwnedAttempt, publicOf, transition, type AttemptRow } from './attempt.repo.js';
 import { catalogue, getDomain, isAvailable } from './domains/index.js';
 import { logger } from '../../platform/logging/logger.js';
 import type { GeneratedItem } from './item.types.js';
 import type { StoredFeedback } from './evaluation.service.js';
+import { poolBucket } from './generation.service.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
 
 const OPEN_STATES = ['generating', 'ready', 'evaluating'] as const;
+const startOfUtcDay = () => {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+};
 const STATE_LABEL: Record<string, string> = {
   generating: 'Generating scenario',
   ready: 'Ready to answer',
@@ -48,6 +56,7 @@ export class ReasoningService {
   constructor(
     @Inject(Database) private readonly db: Database,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    @Inject(CACHE_PORT) private readonly cache: CachePort,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
@@ -60,6 +69,8 @@ export class ReasoningService {
   async create(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
     const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
+    // The attempt keeps the requested difficulty (the contract value); the pool is read by bucket.
+    const bucket = poolBucket(difficulty);
     const view = await this.db.user(p, async (tx) => {
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
       await this.makeRoom(tx, p);
@@ -70,7 +81,7 @@ export class ReasoningService {
           and(
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
-            eq(reasoningItems.difficulty, difficulty),
+            eq(reasoningItems.difficulty, bucket),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         )
@@ -90,7 +101,7 @@ export class ReasoningService {
       await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a!.id }, { key: a!.id }, tx);
       return attemptView(a!, null, null);
     });
-    await this.requestRefill(p.userId, req.domain, difficulty);
+    await this.requestRefill(p.userId, req.domain, bucket);
     return view;
   }
 
@@ -98,6 +109,7 @@ export class ReasoningService {
   async poolStatus(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningPoolStatus> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
     const difficulty = req.difficulty ?? getDomain(req.domain)!.difficulty;
+    const bucket = poolBucket(difficulty);
     const available = await this.db.user(p, async (tx) => {
       const [{ n } = { n: 0 }] = await tx.db
         .select({ n: count() })
@@ -106,24 +118,55 @@ export class ReasoningService {
           and(
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
-            eq(reasoningItems.difficulty, difficulty),
+            eq(reasoningItems.difficulty, bucket),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         );
       return n;
     });
-    const refilling = this.cfg.REASONING_POOL_ENABLED && available < this.cfg.REASONING_POOL_MIN_AVAILABLE;
-    if (refilling) await this.requestRefill(p.userId, req.domain, difficulty);
+    let refilling = this.cfg.REASONING_POOL_ENABLED && available < this.cfg.REASONING_POOL_MIN_AVAILABLE;
+    if (refilling) refilling = await this.requestRefill(p.userId, req.domain, bucket);
     return { domain: req.domain, difficulty, available, refilling };
   }
 
-  /** Background refill of one bucket. Deduplicated per bucket per minute; never fails the caller. */
-  private async requestRefill(userId: string, domain: string, difficulty: string): Promise<void> {
-    if (!this.cfg.REASONING_POOL_ENABLED) return;
+  /**
+   * Background refill of one bucket. Deduplicated per bucket per minute and capped per learner per
+   * day (REASONING_USER_DAILY_REFILLS), so cycling through domains and difficulties cannot make the
+   * platform generate without bound; the schedule refills the rest. Never fails the caller.
+   */
+  private async requestRefill(userId: string, domain: string, difficulty: string): Promise<boolean> {
+    if (!this.cfg.REASONING_POOL_ENABLED) return false;
     const minute = Math.floor(Date.now() / 60_000);
-    await this.queue
-      .enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain, difficulty, userId }, { key: `${domain}:${difficulty}:${userId}:${minute}` })
-      .catch((err: unknown) => logger.warn({ err: { message: (err as Error).message } }, 'reasoning pool refill not queued'));
+    const key = `${domain}:${difficulty}:${userId}:${minute}`;
+    if ((await this.cache.get<boolean>(`reasoning:refill:${key}`)) !== null) return true; // already asked this minute
+    const today = await this.cache.incr(`rl:${userId}:reasoning_refill`, 86_400);
+    if (today > this.cfg.REASONING_USER_DAILY_REFILLS) {
+      if (today === this.cfg.REASONING_USER_DAILY_REFILLS + 1) logger.warn({ user_id: userId }, 'reasoning pool refill cap reached for today');
+      return false;
+    }
+    await this.cache.set(`reasoning:refill:${key}`, true, 60);
+    return this.queue
+      .enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain, difficulty, userId }, { key })
+      .then(() => true)
+      .catch((err: unknown) => {
+        logger.warn({ err: { message: (err as Error).message } }, 'reasoning pool refill not queued');
+        return false;
+      });
+  }
+
+  /**
+   * Answers submitted for evaluation today (UTC); each one costs up to three LARGE calls. A retry of
+   * an already-submitted answer passes `own = 1` because that answer is itself in the count.
+   */
+  private async assertEvaluationQuota(tx: Tx, p: Principal, own = 0): Promise<void> {
+    const dayStart = startOfUtcDay();
+    const [{ n } = { n: 0 }] = await tx.db
+      .select({ n: count() })
+      .from(reasoningAttempts)
+      .where(and(eq(reasoningAttempts.userId, p.userId), isNotNull(reasoningAttempts.submittedAt), gte(reasoningAttempts.submittedAt, dayStart)));
+    if (n - own >= this.cfg.REASONING_USER_DAILY_EVALUATIONS) {
+      throw new DomainError('LLM_BUDGET_EXCEEDED', { message: 'You have reached today’s evaluation limit; try again tomorrow', details: { scope: 'reasoning_day' } });
+    }
   }
 
   /**
@@ -184,6 +227,7 @@ export class ReasoningService {
       if (justification.length < REASONING_LIMITS.justificationMinChars) throw new DomainError('REASONING_JUSTIFICATION_REQUIRED');
       const item = await loadItem(tx, a.itemId);
       if (!item || !publicOf(item).options.some((o) => o.id === req.selectedOption)) throw new DomainError('VALIDATION_FAILED', { details: [{ path: 'selectedOption', message: 'not one of the options' }] });
+      await this.assertEvaluationQuota(tx, p);
       await transition(tx, a, ['ready'], {
         state: 'evaluating',
         selectedOption: req.selectedOption,
@@ -204,6 +248,8 @@ export class ReasoningService {
         const next = await transition(tx, a, ['generation_failed'], { state: 'generating', failureCode: null, failureStage: null, generationTries: 0 });
         await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a.id }, { key: `${a.id}:retry:${next.version}` }, tx);
       } else if (a.state === 'evaluation_failed') {
+        // A retry re-runs up to three LARGE calls: the same daily quota applies as to a submission.
+        await this.assertEvaluationQuota(tx, p, a.submittedAt && a.submittedAt >= startOfUtcDay() ? 1 : 0);
         const next = await transition(tx, a, ['evaluation_failed'], { state: 'evaluating', failureCode: null, failureStage: null });
         await this.queue.enqueue(JOBS.reasoningEvaluate, { kind: 'reasoning_evaluate', attemptId: a.id }, { key: `${a.id}:retry:${next.version}` }, tx);
       } else throw new DomainError('REASONING_INVALID_STATE');
@@ -245,10 +291,10 @@ export class ReasoningService {
 
   async list(p: Principal, cursor: string | undefined, limit = 20): Promise<ReasoningAttemptList> {
     return this.db.user(p, async (tx) => {
-      const before = cursor ? new Date(Buffer.from(cursor, 'base64url').toString()) : null;
+      const before = cursorBefore(cursor);
       const rows = await this.summaryRows(tx, p.userId, before, limit + 1);
       const last = rows[limit - 1];
-      return { items: rows.slice(0, limit), nextCursor: rows.length > limit && last ? Buffer.from(last.createdAt).toString('base64url') : null };
+      return { items: rows.slice(0, limit), nextCursor: rows.length > limit && last ? cursorOf(last.createdAt) : null };
     });
   }
 

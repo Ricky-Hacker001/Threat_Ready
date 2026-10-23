@@ -21,7 +21,7 @@ if (internalToken.length < 32) { console.error('INTERNAL_API_TOKEN must be at le
 const appOrigin = new URL(env('APP_ORIGIN', 'http://localhost:5175')).origin;
 const onboardUrl = new URL(env('ONBOARD_URL', 'http://localhost:5173')).origin;
 const identity = onboardIdentity({ identityUrl: env('IDENTITY_URL', 'http://localhost:3000'), internalToken, cacheSeconds: Number(process.env.IDENTITY_CACHE_SECONDS ?? 30) });
-const hosted = await loadHostedLabs(path.resolve(root, '..'), { catalogUrl: `${appOrigin}/labs/`, identity, appOrigin, onboardUrl });
+const hosted = await loadHostedLabs(path.resolve(root, '..'), { catalogUrl: `${appOrigin}/labs/`, identity, appOrigin, onboardUrl, internalToken });
 const labs = createApp(new Store(process.env.DATA_FILE || path.join(root, 'data', 'store.json')), path.join(root, 'dist'), {
   identity,
   internalToken,

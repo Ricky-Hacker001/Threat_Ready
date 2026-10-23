@@ -79,5 +79,10 @@ export const store = {
 
 export const flushAll = () => FILES.forEach((f) => f.flushNow());
 
-process.on('SIGINT', () => { flushAll(); process.exit(0); });
-process.on('SIGTERM', () => { flushAll(); process.exit(0); });
+// Standalone only: when this module is mounted inside another server (SOC_SIM_NO_LISTEN=1, see
+// threatready-lab-001/server/hosted.ts) the host owns the process lifecycle and must not be exited
+// from here; it flushes through flushAll() or the debounced writer.
+if (process.env.SOC_SIM_NO_LISTEN !== '1') {
+  process.on('SIGINT', () => { flushAll(); process.exit(0); });
+  process.on('SIGTERM', () => { flushAll(); process.exit(0); });
+}

@@ -11,6 +11,8 @@ const role = (process.argv[2] ?? 'api') as 'api' | 'worker' | 'all' | 'migrate';
 process.env.APP_ROLE = role;
 
 const cfg = loadConfig();
+// Behind the gateway the API binds loopback only (HOST=127.0.0.1); every interface otherwise.
+const HOST = process.env.HOST ?? '0.0.0.0';
 const { createApiApp, createWorker, initSentry, logger } = await import('./bootstrap.js');
 initSentry(cfg);
 
@@ -37,8 +39,8 @@ if (role === 'worker') {
   process.env.APP_ROLE = 'api';
   const app = await createApiApp(cfg);
   app.enableShutdownHooks();
-  await app.listen(cfg.PORT);
-  logger.info({ port: cfg.PORT }, 'api listening (worker in-process)');
+  await app.listen(cfg.PORT, HOST);
+  logger.info({ port: cfg.PORT, host: HOST }, 'api listening (worker in-process)');
   process.env.APP_ROLE = 'worker';
   const ctx = await createWorker(cfg);
   process.env.APP_ROLE = 'api';
@@ -54,6 +56,6 @@ if (role === 'worker') {
 } else {
   const app = await createApiApp(cfg);
   app.enableShutdownHooks();
-  await app.listen(cfg.PORT);
-  logger.info({ port: cfg.PORT }, 'api listening');
+  await app.listen(cfg.PORT, HOST);
+  logger.info({ port: cfg.PORT, host: HOST }, 'api listening');
 }

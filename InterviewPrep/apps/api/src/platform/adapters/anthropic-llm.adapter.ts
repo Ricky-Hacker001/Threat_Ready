@@ -12,6 +12,7 @@ import type {
   LlmUsage,
   StructuredSchema,
 } from '../ports/llm.port.js';
+import { withUsage } from '../ports/llm.port.js';
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
@@ -56,13 +57,14 @@ export class AnthropicLlmAdapter implements LlmPort {
     try {
       raw = JSON.parse(textOf(msg));
     } catch (cause) {
-      throw new PortError('invalid_output', `${schema.name}: response was not JSON`, { retryable: true, cause });
+      // The provider billed this response: the usage travels with the error so the ledger charges it.
+      throw withUsage(new PortError('invalid_output', `${schema.name}: response was not JSON`, { retryable: true, cause }), usage);
     }
     const prepared = schema.prepare ? schema.prepare(raw) : raw;
     const parsed = schema.zod.safeParse(prepared);
     if (!parsed.success) {
       const paths = parsed.error.issues.slice(0, 5).map((i) => i.path.join('.')).join(', ');
-      throw new PortError('invalid_output', `${schema.name}: schema validation failed at ${paths}`, { retryable: true });
+      throw withUsage(new PortError('invalid_output', `${schema.name}: schema validation failed at ${paths}`, { retryable: true }), usage);
     }
     return { value: parsed.data, usage };
   }
@@ -83,7 +85,7 @@ export class AnthropicLlmAdapter implements LlmPort {
         }
       }
       const final = await stream.finalMessage();
-      if (final.stop_reason === 'refusal') throw new PortError('refusal', 'stream stopped with refusal', { retryable: false });
+      if (final.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'stream stopped with refusal', { retryable: false }), usageOf(final));
       yield { type: 'done', usage: usageOf(final) };
     } catch (err) {
       throw toPortError(err);
@@ -96,7 +98,7 @@ export class AnthropicLlmAdapter implements LlmPort {
     if (first.stop_reason !== 'refusal') return checkStop(first);
     const fallback = req.tier === 'LARGE' ? this.cfg.LLM_REFUSAL_FALLBACK_MODEL : undefined;
     logger.warn({ tier: req.tier, model, category: first.stop_details?.category ?? null, fallback: fallback ?? null }, 'llm refusal');
-    if (!fallback) throw new PortError('refusal', 'model declined the request', { retryable: false });
+    if (!fallback) throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(first));
     return checkStop(await this.create(this.params(req, fallback, format), req));
   }
 
@@ -132,11 +134,12 @@ export class AnthropicLlmAdapter implements LlmPort {
   }
 }
 
+/** A truncated or refused message was still billed in full: its usage goes with the error (billed failures, audit §3.5). */
 function checkStop(msg: Anthropic.Message): Anthropic.Message {
   if (msg.stop_reason === 'max_tokens') {
-    throw new PortError('invalid_output', 'response truncated at max_tokens', { retryable: true });
+    throw withUsage(new PortError('invalid_output', 'response truncated at max_tokens', { retryable: true }), usageOf(msg));
   }
-  if (msg.stop_reason === 'refusal') throw new PortError('refusal', 'model declined the request', { retryable: false });
+  if (msg.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(msg));
   return msg;
 }
 

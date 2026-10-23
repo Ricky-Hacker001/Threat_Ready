@@ -6,6 +6,27 @@ import { reach } from '../server/sim';
 describe('policy evaluation', () => {
   const s = E.createInitialState();
   it('matches wildcards', () => { expect(glob('s3:Get*', 's3:getobject', true)).toBe(true); expect(glob('arn:aws:s3:::a/*', 'arn:aws:s3:::b/x')).toBe(false); });
+  it('matches ? and * exactly like the former regex matcher', () => {
+    const legacy = (pattern: string, value: string, ci = false) => new RegExp('^' + pattern.split('*').map(x => x.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\?/g, '.')).join('.*') + '$', ci ? 'i' : '').test(value);
+    const cases: [string, string, boolean][] = [['s3:Get?bject', 's3:GetObject', false], ['s3:Get?bject', 's3:getobject', true], ['s3:Get?', 's3:GetObject', false], ['*', '', false], ['a*b*c', 'abc', false], ['a*b*c', 'axxbyyc', false], ['a*b*c', 'axxbyy', false],
+      ['arn:aws:s3:::b/*', 'arn:aws:s3:::b/', false], ['arn:aws:s3:::b/*', 'arn:aws:s3:::b', false], ['arn:aws:s3:::b/**', 'arn:aws:s3:::b/x/y', false], ['a.b', 'axb', false], ['a(b)', 'a(b)', false], ['?', '\n', false], ['*', 'a\nb', false], ['', '', false], ['', 'x', false]];
+    for (const [p, v, ci] of cases) expect(glob(p, v, ci), `${p} vs ${JSON.stringify(v)}`).toBe(legacy(p, v, ci));
+  });
+  it('a pathological wildcard pattern is matched in linear time', () => {
+    const pattern = 'arn:' + '*'.repeat(12) + 'X', resource = 'arn:' + 'a'.repeat(196);
+    const t0 = performance.now(); const r = glob(pattern, resource); const ms = performance.now() - t0;
+    expect(r).toBe(false); expect(ms).toBeLessThan(50);
+    expect(glob('arn:' + '*'.repeat(12) + 'X', 'arn:' + 'a'.repeat(195) + 'X')).toBe(true);
+    const wild = { Version: '2012-10-17', Statement: [{ Effect: 'Allow', Action: 's3:GetObject', Resource: pattern }] };
+    expect(validatePolicy(wild, 'identity')).toMatch(/Resource/);
+    expect(validatePolicy({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Action: 's3:Get' + '*'.repeat(6), Resource: '*' }] }, 'identity')).toMatch(/Action/);
+    expect(validatePolicy({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Action: 's3:GetObject', Resource: 'arn:aws:s3:::' + 'b'.repeat(260) }] }, 'identity')).toMatch(/Resource/);
+  });
+  it('prototype names are not principals, buckets or keys', () => {
+    expect(authorize(s, { principal: arn.user('constructor'), action: 's3:GetObject', resource: '*' }).reason).toBe('Principal does not exist');
+    expect(authorize(s, { principal: SVC, action: 's3:GetObject', resource: 'arn:aws:s3:::constructor/x' }).reason).toBe('NoSuchBucket');
+    expect(authorize(s, { principal: SVC, action: 'kms:Decrypt', resource: arn.key('__proto__') }).reason).toMatch(/NotFoundException/);
+  });
   it('wildcard identity policy allows everything', () => expect(authorize(s, { principal: SVC, action: 'iam:CreateUser', resource: '*' }).allowed).toBe(true));
   it('explicit deny beats allow', () => expect(authorize(s, { principal: arn.role('ThreatReady-SecurityAnalyst'), action: 'ec2:TerminateInstances', resource: '*' }).allowed).toBe(false));
   it('anonymous read follows bucket policy, ACL and Block Public Access', () => {

@@ -26,6 +26,8 @@ const clone = <T>(x: T): T => structuredClone(x);
 const bad = (msg: string): never => { throw new LabError('VALIDATION_FAILED', msg); };
 const str = (v: any, name: string, max = 2000): string => { if (typeof v !== 'string' || v.length > max) bad(`Invalid value for "${name}".`); return v; };
 const oneOf = <T>(v: any, opts: readonly T[], name: string): T => { if (!opts.includes(v)) bad(`"${name}" must be one of: ${opts.join(', ')}.`); return v; };
+/** Own-property lookup for learner-supplied ids: "constructor" or "__proto__" must read as not found, never as Object.prototype. */
+const lookup = <T>(map: Record<string, T>, key: unknown): T | undefined => (typeof key === 'string' && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined);
 
 export const simTime = (s: any) => new Date(new Date(s.clock.start).getTime() + s.clock.minutes * 60000).toISOString();
 const timeline = (s: any, kind: 'story' | 'good' | 'warn' | 'bad' | 'info', text: string) => { s.sim.timeline.push({ at: simTime(s), kind, text }); if (s.sim.timeline.length > 200) s.sim.timeline.shift(); };
@@ -135,10 +137,10 @@ const H: Record<string, Handler> = {
     return { message: `terminal: ${r.requests} request(s)`, result: { output: r.out, cwd: ts.cwd, requests: r.requests } };
   } },
 
-  'inspect': { kind: 'meta', run: ({ s, p }) => { const key = str(p.key, 'key', 200); if (!s.sim.inspected[key] && Object.keys(s.sim.inspected).length < 500) s.sim.inspected[key] = simTime(s); if (/source|view-source|headers/i.test(key)) s.sim.recon.sourceSeen = true; return { message: 'noted' }; } },
+  'inspect': { kind: 'meta', run: ({ s, p }) => { const key = str(p.key, 'key', 200); if (!lookup(s.sim.inspected, key) && key !== '__proto__' && Object.keys(s.sim.inspected).length < 500) s.sim.inspected[key] = simTime(s); if (/source|view-source|headers/i.test(key)) s.sim.recon.sourceSeen = true; return { message: 'noted' }; } },
 
   'finding.report': { kind: 'meta', run: ({ s, p }) => {
-    const f = FINDING[str(p.findingId, 'findingId', 40)]; if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
+    const f = lookup(FINDING, str(p.findingId, 'findingId', 40)); if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
     const fsr = s.sim.findings[f.id];
     if (!fsr.confirmed) { s.sim.wrongReports++; throw new LabError('LAB_ACTION_UNSUPPORTED', 'Demonstrate (confirm) this vulnerability with the tools before documenting it.'); }
     const severity = oneOf(p.severity, SEVERITIES, 'severity');
@@ -150,7 +152,7 @@ const H: Record<string, Handler> = {
   } },
 
   'finding.remediate': { kind: 'change', run: ({ s, p }) => {
-    const f = FINDING[str(p.findingId, 'findingId', 40)]; if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
+    const f = lookup(FINDING, str(p.findingId, 'findingId', 40)); if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
     const opt = f.options.find(o => o.id === p.optionId); if (!opt) throw new LabError('VALIDATION_FAILED', 'Unknown remediation option.');
     const fsr = s.sim.findings[f.id];
     if (!opt.correct) { s.sim.wrongFixes++; timeline(s, 'warn', `Remediation attempt on ${f.id} did not address the root cause.`); throw new LabError('LAB_ACTION_UNSUPPORTED', 'That change does not fix the root cause. Re-read the evidence and choose again.'); }
@@ -162,7 +164,7 @@ const H: Record<string, Handler> = {
   } },
 
   'finding.retest': { kind: 'test', run: ({ s, p }) => {
-    const f = FINDING[str(p.findingId, 'findingId', 40)]; if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
+    const f = lookup(FINDING, str(p.findingId, 'findingId', 40)); if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
     const fsr = s.sim.findings[f.id];
     if (!fsr.confirmed || !fsr.proof) throw new LabError('LAB_ACTION_UNSUPPORTED', 'Confirm this finding first — there is no proof request to re-test.');
     if (!s.target.fixes[f.klass]) throw new LabError('LAB_ACTION_UNSUPPORTED', 'Apply the remediation before re-testing.');
@@ -189,7 +191,7 @@ const H: Record<string, Handler> = {
   } },
 
   'hint.request': { kind: 'meta', run: ({ s, p }) => {
-    const o = OBJECTIVE[str(p.objectiveId, 'objectiveId', 40)]; if (!o) throw new LabError('VALIDATION_FAILED', 'Unknown objective.');
+    const o = lookup(OBJECTIVE, str(p.objectiveId, 'objectiveId', 40)); if (!o) throw new LabError('VALIDATION_FAILED', 'Unknown objective.');
     if (o.level > s.level) throw new LabError('LAB_ACTION_UNSUPPORTED', 'That objective is not unlocked yet.');
     const n = s.sim.hints[o.id] || 0;
     if (n >= o.hints.length) return { message: 'No further hints for this objective.' };
@@ -204,7 +206,7 @@ const H: Record<string, Handler> = {
     if (summary.trim().length < 80) bad('The executive summary must be at least 80 characters.');
     // Optional per-finding severity selections (also settable at report time).
     if (p.severities && typeof p.severities === 'object') {
-      for (const [id, sev] of Object.entries(p.severities)) { const fsr = s.sim.findings[id]; if (fsr && fsr.reported) fsr.reportedSeverity = oneOf(sev, SEVERITIES, 'severity'); }
+      for (const [id, sev] of Object.entries(p.severities)) { const fsr = lookup<any>(s.sim.findings, id); if (fsr && fsr.reported) fsr.reportedSeverity = oneOf(sev, SEVERITIES, 'severity'); }
     }
     const input = { summary };
     s.sim.report = { input, score: scoreReport(s, input), at: simTime(s) };

@@ -74,11 +74,13 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 - Labs: `APP_ORIGIN=https://labs.threatready.io`, `ONBOARD_URL`, `IDENTITY_URL`, same token. Web build: `VITE_ONBOARD_URL`.
 - Attack Reasoning: `APP_ORIGIN=https://ar.threatready.io`, `ONBOARD_URL`, `IDENTITY_URL`, same token, `REASONING_API_URL` = the InterviewPrep API in-VPC. Web build: `VITE_ONBOARD_URL`. Onboard: `REASONING_STATUS=live`, `REASONING_INTERNAL_URL`. InterviewPrep: `ALLOWED_APP_ORIGINS=https://ar.threatready.io`.
 - Cloudflare: route `/api/*` (onboard, labs, ar) and `/v1/*` (interviewprep) to their services; **do not route `/internal/*`**.
+- CAPTCHA: set **both** `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare Turnstile) before launch. Without them sign-up, sign-in and OTP requests rely on rate limits alone; the launcher logs a warning at start.
+- Internal routes (`/api/internal/*`, `/labs/internal/*`, `/ar/internal/*`, and `/internal/` under any lab) are protected by `INTERNAL_API_TOKEN` **and** the gateway's caller check (loopback peer, no edge headers). Behind a proxy every peer is loopback, so the token is the real control: keep it long, random and out of every other app's environment.
 - CSP `connect-src` stays `'self'` everywhere: the browser only ever talks to its own app's origin.
 
 ## Known follow-ups
 
-- Identity is cached for `IDENTITY_CACHE_SECONDS` (30 s) per app, on top of Better Auth's 5-minute cookie cache, so a revoked session can keep working for up to about 5½ minutes.
+- Identity is cached for `IDENTITY_CACHE_SECONDS` (30 s) per app, on top of Better Auth's 60-second cookie cache, so a revoked session can keep working for up to about 1½ minutes outside onboard (the internal identity endpoint and the admin console bypass the cookie cache).
 - InterviewPrep's old local accounts (from before this change) keep their data, but their ids don't match onboard users, so that usage appears in admin totals and not under any onboard user.
 - InterviewPrep still lists `better-auth` in its `package.json` files although nothing imports it, and its `sessions`, `accounts` and `verifications` tables are no longer written. Remove both in a cleanup.
 - Labs still store progress in a JSON file (`data/store.json`). Moving it to PostgreSQL is the next step for multi-instance deploys.

@@ -1,5 +1,5 @@
 // Server-authoritative lab engine for TR-CLOUD-001. The browser never decides state, findings or objectives.
-import { ACC, arn, authorize, ANON, validatePolicy, validCidr, isPublicPolicy, statements } from './policy';
+import { ACC, arn, authorize, ANON, validatePolicy, validCidr, isPublicPolicy, statements, own } from './policy';
 import * as fx from './fixture';
 import { reach, s3Access, lambdaRun, health, internetExposure, currentValue, SOURCES } from './sim';
 import { FINDINGS, FINDING, OBJECTIVES, OBJECTIVE, ALERTS, TRIAGE_OPTIONS, REPORT_FORM, scoreReport, CHAPTERS, ATTACKER_STEPS, contained, goodAlarm } from './scenario';
@@ -71,7 +71,7 @@ const principalArg = (s: any, v: any, allowAnon = false) => {
   str(v, 'principal', 120);
   if (allowAnon && v === ANON) return v;
   const m = v.match(/^arn:aws:iam::123456789012:(user|role)\/([\w+=,.@-]+)$/);
-  if (!m || !(m[1] === 'user' ? s.iam.users[m[2]] : s.iam.roles[m[2]])) bad('Unknown principal.');
+  if (!m || !own(m[1] === 'user' ? s.iam.users : s.iam.roles, m[2])) bad('Unknown principal.');
   return v as string;
 };
 const parseDoc = (d: any) => { if (typeof d === 'string') { if (d.length > 8000) bad('Document too large.'); try { return JSON.parse(d); } catch (e: any) { throw new LabError('MalformedPolicyDocument', `Syntax error: ${e.message}`); } } return d; };
@@ -82,7 +82,7 @@ const denied = (action: string, res: (p: any) => string): Handler => ({ kind: 'c
 
 const H: Record<string, Handler> = {
   'incident.acknowledge': { kind: 'meta', run: ({ s }) => { if (s.incident.acknowledged) return { message: 'Ticket already acknowledged.' }; s.incident.acknowledged = true; s.incident.status = 'Investigating'; timeline(s, 'info', 'Ticket INC-2041 acknowledged by the analyst.'); return { message: 'INC-2041 acknowledged. You are the assigned analyst.' }; } },
-  'inspect': { kind: 'inspect', run: ({ s, p }) => { const k = str(p.key, 'key', 160, /^[\w./$\[\]#:@ -]+$/); if (!s.sim.inspected[k] && Object.keys(s.sim.inspected).length < 400) s.sim.inspected[k] = simTime(s); return { message: 'ok' }; } },
+  'inspect': { kind: 'inspect', run: ({ s, p }) => { const k = str(p.key, 'key', 160, /^[\w./$\[\]#:@ -]+$/); if (!own(s.sim.inspected, k) && k !== '__proto__' && Object.keys(s.sim.inspected).length < 400) s.sim.inspected[k] = simTime(s); return { message: 'ok' }; } },
   'finding.report': { kind: 'meta', run: ({ s, p }) => {
     const f = get(FINDING, p.findingId, 'Finding'); const resource = str(p.resource, 'resource', 160);
     const fs = s.sim.findings[f.id];

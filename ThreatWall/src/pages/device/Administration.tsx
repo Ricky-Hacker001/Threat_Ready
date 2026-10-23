@@ -142,17 +142,17 @@ function PasswordDialog({ onClose, onDone }: { onClose: () => void; onDone: () =
   return (
     <Dialog title="Change Administrator Password" onClose={onClose} size="sm" footer={<>
       <button className="tw-btn" onClick={onClose}>Cancel</button>
-      <button className="tw-btn tw-btn-primary" onClick={() => {
-        const r = changePassword(config, cur, nw, cf);
+      <button className="tw-btn tw-btn-primary" onClick={async () => {
+        const r = await changePassword(config, cur, nw, cf);
         if (r.error) { setErr(r.error); return; }
         commit(r.result!.next, r.result!.audit);
         onDone();
       }}>Change</button>
     </>}>
       <div className="tw-form" style={{ gridTemplateColumns: '150px 1fr', paddingTop: 14 }}>
-        <Row label="Current Password" htmlFor="pw-cur"><input id="pw-cur" type="password" className="tw-input wide" value={cur} onChange={(e) => setCur(e.target.value)} /></Row>
-        <Row label="New Password" htmlFor="pw-new"><input id="pw-new" type="password" className="tw-input wide" value={nw} onChange={(e) => setNw(e.target.value)} /></Row>
-        <Row label="Confirm Password" htmlFor="pw-cf"><input id="pw-cf" type="password" className="tw-input wide" value={cf} onChange={(e) => setCf(e.target.value)} /></Row>
+        <Row label="Current Password" htmlFor="pw-cur"><input id="pw-cur" type="password" autoComplete="off" name="fw-admin-current-passphrase" className="tw-input wide" value={cur} onChange={(e) => setCur(e.target.value)} /></Row>
+        <Row label="New Password" htmlFor="pw-new"><input id="pw-new" type="password" autoComplete="new-password" className="tw-input wide" value={nw} onChange={(e) => setNw(e.target.value)} /></Row>
+        <Row label="Confirm Password" htmlFor="pw-cf"><input id="pw-cf" type="password" autoComplete="new-password" className="tw-input wide" value={cf} onChange={(e) => setCf(e.target.value)} /></Row>
       </div>
       {err ? <Note kind="bad">{err}</Note> : null}
     </Dialog>

@@ -28,11 +28,32 @@ function tokenize(q) {
 
 const unquote = (s) => (s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s);
 
+// The former regex (`^a.*b.*c$`) backtracked exponentially on patterns such as `********#`; the
+// old `.*` never crossed a line terminator, and neither does `*` here.
+const lineTerm = (c) => c === '\n' || c === '\r' || c === '\u2028' || c === '\u2029';
+/** Anchored wildcard match in linear time: `*` matches any run of characters within a line; everything else is literal. */
+export function globMatch(pattern, value) {
+  let pi = 0;
+  let vi = 0;
+  let star = -1;
+  let mark = 0;
+  while (vi < value.length) {
+    const pc = pi < pattern.length ? pattern[pi] : '';
+    if (pc === '*') { star = pi++; mark = vi; continue; }
+    if (pc !== '' && pc === value[vi]) { pi++; vi++; continue; }
+    if (star !== -1 && !lineTerm(value[mark])) { pi = star + 1; vi = ++mark; continue; }
+    return false;
+  }
+  while (pi < pattern.length && pattern[pi] === '*') pi++;
+  return pi === pattern.length;
+}
+
 function matcher(value) {
   const v = unquote(value).toLowerCase();
   if (v.includes('*')) {
-    const re = new RegExp(`^${v.split('*').map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
-    return (x) => re.test(x);
+    // Runs of `*` mean the same as one; collapsing them keeps the scan short.
+    const p = v.replace(/\*{2,}/g, '*');
+    return (x) => globMatch(p, x);
   }
   return (x) => x === v;
 }
@@ -65,7 +86,9 @@ export function parseQuery(q) {
 // so analysts search with the names they can see.
 function test(term, ev) {
   if (term.kind === 'text') return (ev._lca ?? ev._lc).includes(term.text);
-  const raw = (ev._fa ?? ev.fields)[term.field];
+  const fields = ev._fa ?? ev.fields;
+  if (!Object.prototype.hasOwnProperty.call(fields, term.field)) return false;
+  const raw = fields[term.field];
   if (raw === undefined) return false;
   if (term.kind === 'cmp') {
     const n = Number(raw);

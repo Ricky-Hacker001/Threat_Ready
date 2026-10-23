@@ -4,9 +4,10 @@ import { DomainError } from '@threatready/shared';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
+import { AUTH_ADAPTER, type IdentityAdapter } from '../../platform/auth/identity.adapter.js';
 import { Public, Route } from '../../platform/http/route.decorator.js';
 import type { AuthedRequest } from '../../platform/http/route.guard.js';
-import { SseStream } from '../../platform/http/sse.js';
+import { acquireStreamSlot, SSE_IDENTITY_RECHECK_MS, SseStream } from '../../platform/http/sse.js';
 import { assertInternalCaller } from '../platform/internal.controller.js';
 import { PlatformService } from '../platform/platform.service.js';
 import { ReasoningService } from './reasoning.service.js';
@@ -15,7 +16,10 @@ const STABLE = new Set(['ready', 'evaluated', 'generation_failed', 'evaluation_f
 
 @Controller('v1/reasoning')
 export class ReasoningController {
-  constructor(@Inject(ReasoningService) private readonly reasoning: ReasoningService) {}
+  constructor(
+    @Inject(ReasoningService) private readonly reasoning: ReasoningService,
+    @Inject(AUTH_ADAPTER) private readonly auth: IdentityAdapter,
+  ) {}
 
   @Get('domains')
   @Route('listReasoningDomains')
@@ -68,21 +72,34 @@ export class ReasoningController {
   @Route('streamReasoningEvents')
   async events(@Req() req: AuthedRequest, @Param('id') id: string, @Res() res: Response) {
     let state = await this.reasoning.stateOf(req.principal, id);
-    const sse = new SseStream(res);
-    sse.open();
-    let last = '';
-    const deadline = Date.now() + 5 * 60_000;
-    while (!sse.isClosed && Date.now() < deadline) {
-      const sig = `${state.state}:${state.version}`;
-      if (sig !== last) {
-        last = sig;
-        sse.send({ type: 'state', state: state.state, version: state.version });
-        if (STABLE.has(state.state)) break;
+    // At most a few streams per user, and the stream ends when the session is signed out or revoked.
+    const release = acquireStreamSlot(req.principal.userId);
+    res.on('close', release);
+    try {
+      const sse = new SseStream(res);
+      sse.open();
+      let last = '';
+      const deadline = Date.now() + 5 * 60_000;
+      let nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+      while (!sse.isClosed && Date.now() < deadline) {
+        const sig = `${state.state}:${state.version}`;
+        if (sig !== last) {
+          last = sig;
+          sse.send({ type: 'state', state: state.state, version: state.version });
+          if (STABLE.has(state.state)) break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        if (Date.now() >= nextIdentityCheck) {
+          nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+          const still = await this.auth.resolve(req.headers).catch(() => null);
+          if (still?.principal?.userId !== req.principal.userId) break;
+        }
+        state = await this.reasoning.stateOf(req.principal, id).catch(() => state);
       }
-      await new Promise((r) => setTimeout(r, 2000));
-      state = await this.reasoning.stateOf(req.principal, id).catch(() => state);
+      sse.end();
+    } finally {
+      release();
     }
-    sse.end();
   }
 
   @Post('attempts/:id/submit')

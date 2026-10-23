@@ -11,9 +11,10 @@ import type {
 import { TERMINAL_STATES } from '@threatready/contracts';
 import type { Response } from 'express';
 import { APP_CONFIG, type AppConfig } from '../config/config.js';
+import { AUTH_ADAPTER, type IdentityAdapter } from '../platform/auth/identity.adapter.js';
 import type { AuthedRequest } from '../platform/http/route.guard.js';
 import { Public, Route } from '../platform/http/route.decorator.js';
-import { SseStream } from '../platform/http/sse.js';
+import { acquireStreamSlot, SSE_IDENTITY_RECHECK_MS, SseStream } from '../platform/http/sse.js';
 import { AssetsService } from './assets/assets.service.js';
 import { DocumentsService } from './documents/documents.service.js';
 import { InterviewService } from './interview/interview.service.js';
@@ -72,6 +73,7 @@ export class InterviewsController {
     @Inject(InterviewService) private readonly interviews: InterviewService,
     @Inject(TurnService) private readonly turns: TurnService,
     @Inject(ReportsService) private readonly reports: ReportsService,
+    @Inject(AUTH_ADAPTER) private readonly auth: IdentityAdapter,
   ) {}
 
   @Post()
@@ -99,23 +101,36 @@ export class InterviewsController {
   @Route('streamInterviewEvents')
   async events(@Req() req: AuthedRequest, @Param('id') id: string, @Res() res: Response) {
     const first = await this.interviews.stateOf(req.principal, id);
-    const sse = new SseStream(res);
-    sse.open();
-    let last = '';
-    const deadline = Date.now() + 5 * 60_000;
-    const stable = new Set<string>([...TERMINAL_STATES, 'profiled', 'planned', 'awaiting_answer', 'paused']);
-    let state = first;
-    while (!sse.isClosed && Date.now() < deadline) {
-      const sig = `${state.state}:${state.version}`;
-      if (sig !== last) {
-        last = sig;
-        sse.send({ type: 'state', state: state.state, version: state.version });
-        if (stable.has(state.state)) break;
+    // At most a few streams per user, and the stream ends when the session is signed out or revoked.
+    const release = acquireStreamSlot(req.principal.userId);
+    res.on('close', release);
+    try {
+      const sse = new SseStream(res);
+      sse.open();
+      let last = '';
+      const deadline = Date.now() + 5 * 60_000;
+      let nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+      const stable = new Set<string>([...TERMINAL_STATES, 'profiled', 'planned', 'awaiting_answer', 'paused']);
+      let state = first;
+      while (!sse.isClosed && Date.now() < deadline) {
+        const sig = `${state.state}:${state.version}`;
+        if (sig !== last) {
+          last = sig;
+          sse.send({ type: 'state', state: state.state, version: state.version });
+          if (stable.has(state.state)) break;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        if (Date.now() >= nextIdentityCheck) {
+          nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+          const still = await this.auth.resolve(req.headers).catch(() => null);
+          if (still?.principal?.userId !== req.principal.userId) break;
+        }
+        state = await this.interviews.stateOf(req.principal, id).catch(() => state);
       }
-      await new Promise((r) => setTimeout(r, 2000));
-      state = await this.interviews.stateOf(req.principal, id).catch(() => state);
+      sse.end();
+    } finally {
+      release();
     }
-    sse.end();
   }
 
   @Get(':id/briefing')

@@ -30,6 +30,7 @@ export async function start() {
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 }
+export const baseUrl = () => base;
 export async function stop() {
   await new Promise((resolve) => server.close(resolve));
 }
