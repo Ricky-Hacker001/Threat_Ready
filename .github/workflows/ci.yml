@@ -33,6 +33,11 @@ jobs:
       INTERNAL_API_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       EMAIL_DRIVER: log
       RATE_LIMIT_MULTIPLIER: "10"
+      # The e2e suite stands in for the production gateway: each test client sends its own address in
+      # X-Forwarded-For. Without a trusted header every request is one client (the per-IP limits).
+      CLIENT_IP_HEADER: x-forwarded-for
+      # Runs the guest-session suite too (production keeps guests off by default).
+      TRIAL_ENABLED: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
