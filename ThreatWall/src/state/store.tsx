@@ -4,7 +4,7 @@ import { STATE_VERSION, initialLab, initialPm, initialProgress, initialSession, 
 import { uid } from '../lib/hash';
 import { evaluate, type FlowResult, type FlowSpec } from '../engine/traffic';
 import { applyEffects, addLogs } from '../engine/effects';
-import { backupKey, labStateKey } from './storageKeys';
+import { backupKey, labStateKey, labStorage } from './storageKeys';
 
 const MAX_EVENTS = 400;
 
@@ -75,7 +75,7 @@ function load(): RootState {
   loadNotice = null;
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(labStateKey());
+    raw = labStorage().getItem(labStateKey());
     if (!raw) return initialState();
     const parsed = JSON.parse(raw) as RootState;
     if (!parsed || parsed.version !== STATE_VERSION || !parsed.config) {
@@ -102,7 +102,7 @@ function load(): RootState {
 
 /** Keep the unreadable save instead of silently overwriting it. */
 function keepBackup(raw: string) {
-  try { localStorage.setItem(backupKey(), raw); } catch { /* storage full or unavailable */ }
+  try { labStorage().setItem(backupKey(), raw); } catch { /* storage full or unavailable */ }
 }
 
 export interface StoreValue {
@@ -136,7 +136,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      try { localStorage.setItem(labStateKey(), JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
+      try { labStorage().setItem(labStateKey(), JSON.stringify(state)); } catch { /* storage unavailable: run in memory */ }
     }, 120);
     return () => clearTimeout(t);
   }, [state]);
@@ -150,7 +150,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const emit = useCallback((type: string, data: Record<string, unknown> = {}) => dispatch({ type: 'event', event: { type, data } }), []);
   const update = useCallback((fn: (s: RootState) => RootState) => dispatch({ type: 'update', fn }), []);
   const resetLab = useCallback(() => {
-    try { localStorage.removeItem(labStateKey()); } catch { /* ignore */ }
+    try { labStorage().removeItem(labStateKey()); } catch { /* ignore */ }
     dispatch({ type: 'lab/reset' });
   }, []);
 

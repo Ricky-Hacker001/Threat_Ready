@@ -3,6 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { createApp } from '../server/app';
+import { createStandaloneServer } from '../server/standalone';
 import type { IdentityResolver } from '../server/identity';
 import { SCENARIOS } from '../server/scenarios';
 
@@ -118,6 +119,18 @@ describe('gateway to the reasoning engine (the monolith)', () => {
     const last = engine.calls.at(-1)!;
     expect(last.headers['x-forwarded-host']).toBeDefined();
   });
+  it('forwards the engine path, not the mount path, when this app is mounted under a prefix (/ar on the gateway)', async () => {
+    await setup();
+    const express = (await import('express')).default;
+    const outer = express().use('/ar', gw);
+    const r = await request(outer).get('/ar/v1/reasoning/domains?x=1').set(as('asha'));
+    expect(r.status).toBe(200);
+    expect(r.body.echo).toMatchObject({ method: 'GET', url: '/v1/reasoning/domains?x=1' });
+    const n = engine.calls.length;
+    expect((await request(outer).get('/ar/v1/../internal/v1/reasoning/ai-usage').set(as('asha'))).status).toBe(404);
+    expect((await request(outer).get('/ar/v1/%2e%2e/internal/x').set(as('asha'))).status).toBe(404);
+    expect(engine.calls.length).toBe(n);
+  });
   it('refuses a state change from another origin before it reaches the engine', async () => {
     const app = await setup();
     const n = engine.calls.length;
@@ -126,15 +139,23 @@ describe('gateway to the reasoning engine (the monolith)', () => {
   });
   it('never forwards a learner-supplied client-IP header, strips hop-by-hop and Proxy-* headers, keeps the cookie', async () => {
     const engine2 = await startEngineStub();
-    const app = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine2.url, clientIpHeader: 'x-threatready-client-ip' } });
+    const opts = { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine2.url, clientIpHeader: 'x-threatready-client-ip' } };
+    // Standing alone (ar.threatready.io), a client-sent client-IP header is dropped and the connection's address is forwarded.
+    const standalone = createStandaloneServer(undefined, opts);
     try {
-      const r = await request(app).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': '203.0.113.9', 'proxy-authorization': 'Basic x', te: 'trailers', 'keep-alive': 'timeout=5' });
+      const r = await request(standalone).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': '203.0.113.9', 'proxy-authorization': 'Basic x', te: 'trailers', 'keep-alive': 'timeout=5' });
       expect(r.status).toBe(200);
       const h = engine2.calls.at(-1)!.headers;
       expect(h['x-threatready-client-ip']).toBeDefined();
       expect(h['x-threatready-client-ip']).not.toBe('203.0.113.9');
       expect(h['proxy-authorization']).toBeUndefined(); expect(h.te).toBeUndefined(); expect(h['keep-alive']).toBeUndefined();
       expect(h.cookie).toBe('tr.session_token=asha');
+      // Behind the ThreatReady gateway, the header was stamped by the gateway: that value is forwarded, and junk never is.
+      const gatewayed = createApp(undefined, opts);
+      await request(gatewayed).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': '198.51.100.4' });
+      expect(engine2.calls.at(-1)!.headers['x-threatready-client-ip']).toBe('198.51.100.4');
+      await request(gatewayed).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': 'not-an-ip' });
+      expect(engine2.calls.at(-1)!.headers['x-threatready-client-ip']).not.toBe('not-an-ip');
     } finally { engine2.close(); }
   });
   it('cannot reach the engine\'s internal API through the /v1 proxy', async () => {

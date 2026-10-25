@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, Query, Req } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import type { AppAiUsage, AppSummary } from '@threatready/contracts';
 import { DomainError } from '@threatready/shared';
 import type { Request } from 'express';
@@ -45,6 +45,16 @@ export class InternalController {
     this.assertCaller(req);
     if (!userId || userId.length > 100) throw new DomainError('VALIDATION_FAILED');
     return this.platform.summary(userId);
+  }
+
+  /** Called by onboard when an account is deleted: removes the learner's InterviewPrep data (see PlatformService.erase). */
+  @Post('users/:userId/erase')
+  @Public()
+  @HttpCode(200)
+  erase(@Req() req: Request, @Param('userId') userId: string) {
+    this.assertCaller(req);
+    if (!userId || userId.length > 100) throw new DomainError('VALIDATION_FAILED');
+    return this.platform.erase(userId);
   }
 
   @Get('ai-usage')

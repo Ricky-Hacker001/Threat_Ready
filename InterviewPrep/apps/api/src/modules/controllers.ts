@@ -6,6 +6,7 @@ import type {
   CreateUploadRequest,
   PlanInterviewRequest,
   SubmitAnswerRequest,
+  TabHiddenRequest,
   UpdateDocumentTextRequest,
 } from '@threatready/contracts';
 import { TERMINAL_STATES } from '@threatready/contracts';
@@ -14,9 +15,9 @@ import { APP_CONFIG, type AppConfig } from '../config/config.js';
 import { AUTH_ADAPTER, type IdentityAdapter } from '../platform/auth/identity.adapter.js';
 import type { AuthedRequest } from '../platform/http/route.guard.js';
 import { Public, Route } from '../platform/http/route.decorator.js';
-import { acquireStreamSlot, SSE_IDENTITY_RECHECK_MS, SseStream } from '../platform/http/sse.js';
+import { acquireStreamSlot, SSE_TIMING, SseStream } from '../platform/http/sse.js';
 import { AssetsService } from './assets/assets.service.js';
-import { DocumentsService } from './documents/documents.service.js';
+import { DocumentsService, FILE_RETENTION_DAYS } from './documents/documents.service.js';
 import { InterviewService } from './interview/interview.service.js';
 import { TurnService } from './interview/turn.service.js';
 import { ReportsService } from './reports/reports.service.js';
@@ -31,6 +32,12 @@ export class DocumentsController {
   @Route('createUpload')
   create(@Req() req: AuthedRequest, @Body() body: CreateUploadRequest) {
     return this.docs.createUpload(req.principal, body);
+  }
+
+  @Get()
+  @Route('listDocuments')
+  list(@Req() req: AuthedRequest) {
+    return this.docs.list(req.principal);
   }
 
   @Post('text')
@@ -109,19 +116,22 @@ export class InterviewsController {
       sse.open();
       let last = '';
       const deadline = Date.now() + 5 * 60_000;
-      let nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+      let nextIdentityCheck = Date.now() + SSE_TIMING.identityRecheckMs;
       const stable = new Set<string>([...TERMINAL_STATES, 'profiled', 'planned', 'awaiting_answer', 'paused']);
       let state = first;
+      let pollMs = SSE_TIMING.firstPollMs;
       while (!sse.isClosed && Date.now() < deadline) {
         const sig = `${state.state}:${state.version}`;
         if (sig !== last) {
           last = sig;
+          pollMs = SSE_TIMING.firstPollMs; // a change: the next one is likely soon
           sse.send({ type: 'state', state: state.state, version: state.version });
           if (stable.has(state.state)) break;
         }
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, pollMs));
+        pollMs = Math.min(SSE_TIMING.maxPollMs, Math.round(pollMs * 1.5));
         if (Date.now() >= nextIdentityCheck) {
-          nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+          nextIdentityCheck = Date.now() + SSE_TIMING.identityRecheckMs;
           const still = await this.auth.resolve(req.headers).catch(() => null);
           if (still?.principal?.userId !== req.principal.userId) break;
         }
@@ -182,6 +192,14 @@ export class InterviewsController {
   @Route('resumeInterview')
   resume(@Req() req: AuthedRequest, @Param('id') id: string) {
     return this.interviews.resume(req.principal, id);
+  }
+
+  /** The client reports a hidden tab when the interview becomes visible again; counted in the report only. */
+  @Post(':id/tab-hidden')
+  @HttpCode(204)
+  @Route('recordTabHidden')
+  async tabHidden(@Req() req: AuthedRequest, @Param('id') id: string, @Body() body: TabHiddenRequest) {
+    await this.interviews.recordTabHidden(req.principal, id, body.hiddenMs);
   }
 
   @Post(':id/end')
@@ -245,7 +263,9 @@ export class MeController {
   @Get('platform')
   @Route('getPlatform')
   async platform() {
-    if (platformCache && Date.now() - platformCache.at < 300_000) return { apps: platformCache.apps };
+    // The consent notice's facts come from configuration, never from copy (audit 2026-10-23 TR-13).
+    const dataHandling = { storageLocation: this.cfg.INTERVIEW_DATA_STORAGE_LOCATION ?? null, fileRetentionDays: FILE_RETENTION_DAYS };
+    if (platformCache && Date.now() - platformCache.at < 300_000) return { apps: platformCache.apps, dataHandling };
     try {
       const res = await fetch(`${this.cfg.IDENTITY_URL.replace(/\/+$/, '')}/api/public/config`, { signal: AbortSignal.timeout(3000) });
       const body = (await res.json()) as { apps?: unknown[] };
@@ -254,7 +274,7 @@ export class MeController {
       // onboard unreachable: keep the last good list, or none (the header then shows Home only)
       platformCache = { at: Date.now() - 240_000, apps: platformCache?.apps ?? [] };
     }
-    return { apps: platformCache.apps };
+    return { apps: platformCache.apps, dataHandling };
   }
 
   /** The signed-in user. Identity comes from onboard.threatready.io; there is no local sign-in. */
@@ -272,8 +292,8 @@ export class AssetsController {
 
   @Get('interviewer-model')
   @Route('getInterviewerModel')
-  async interviewerModel(@Res() res: Response) {
-    const a = await this.assets.interviewerModel();
+  async interviewerModel(@Req() req: AuthedRequest, @Res() res: Response) {
+    const a = await this.assets.interviewerModel(req.principal);
     res.set({
       'Content-Type': 'application/octet-stream',
       'Cache-Control': 'private, no-store',

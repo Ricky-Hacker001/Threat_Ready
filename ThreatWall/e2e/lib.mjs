@@ -1,5 +1,7 @@
 /** Playwright helpers for the ThreatWall end-to-end walkthrough. */
 import { chromium } from 'playwright';
+/** The lab-state key of a standalone build (src/state/storageKeys.ts; checked by its unit test). TW_LAB_KEY overrides it. */
+export const LAB_KEY = process.env.TW_LAB_KEY ?? 'threatwall:lab-state';
 export async function start(url = 'http://localhost:4173/') {
   const b = await chromium.launch();
   const p = await b.newPage({ viewport: { width: 1600, height: 900 } });
@@ -10,13 +12,13 @@ export async function start(url = 'http://localhost:4173/') {
     cmd: async (c) => { await h.lab('pc'); await p.fill('[data-guide="pc-cmd"]', c); await p.press('[data-guide="pc-cmd"]', 'Enter'); await W(); },
     lab: async (tab) => { if (!(await p.$('.tw-lab.open'))) await p.click('[data-guide="labtools"]'); await p.click(`[data-guide="labtab:${tab}"]`); await W(150); },
     go: async (path) => { await p.evaluate((x) => { location.hash = '/' + x; }, path); await W(350); },
-    status: async () => p.evaluate(() => { const s = JSON.parse(localStorage.getItem('threatwall:local:lab-state')); return Object.fromEntries(Object.entries(s.progress.tasks).filter(([,v]) => v.status !== 'locked').map(([k, v]) => [k, v.status + ':' + v.step])); }),
+    status: async () => p.evaluate((k) => { const s = JSON.parse(localStorage.getItem(k)); return Object.fromEntries(Object.entries(s.progress.tasks).filter(([,v]) => v.status !== 'locked').map(([k, v]) => [k, v.status + ':' + v.step])); }, LAB_KEY),
     cur: async () => p.evaluate(() => document.querySelector('.tw-step.cur .tw-step-title')?.textContent ?? '(none)'),
     fail: async () => p.evaluate(() => document.querySelector('.tw-fail')?.textContent ?? ''),
     gotIt: async () => { await p.click('button:has-text("Got it")'); await W(400); },
     sel: async (s, v) => { await p.selectOption(s, v); await W(80); },
     send: async (pre) => { await h.lab('traffic'); await p.selectOption('#lt-src', pre.from); await p.fill('#lt-dst', pre.to); await p.selectOption('#lt-svc', pre.svc ?? 'https'); if (pre.app !== undefined) await p.selectOption('#lt-app', pre.app); if (pre.payload) await p.selectOption('#lt-payload', pre.payload); await p.click('[data-guide="lt-send"]'); await W(400); return p.evaluate(() => document.querySelector('.tw-verdict')?.textContent); },
-    state: async () => p.evaluate(() => JSON.parse(localStorage.getItem('threatwall:local:lab-state'))),
+    state: async () => p.evaluate((k) => JSON.parse(localStorage.getItem(k)), LAB_KEY),
   };
   return h;
 }
@@ -24,6 +26,9 @@ export async function level0(h) {
   const { p, W, cmd } = h;
   await p.goto(h.url); await W();
   await p.click('[data-guide="start-lab"]'); await W();
+  // Fail fast with the keys present if the app's storage key and this harness drift apart again (BIZ-05).
+  const keys = await p.evaluate((k) => (localStorage.getItem(k) === null ? Object.keys(localStorage) : null), LAB_KEY);
+  if (keys) throw new Error(`The lab did not save under ${LAB_KEY}; localStorage has: ${keys.join(', ') || '(nothing)'}`);
   await h.lab('pc'); await p.click('[data-guide="pc-cable"]'); await W(500);
   await cmd('ipconfig'); await cmd('ping 192.168.168.168'); await W(500);
   await p.fill('[data-guide="url"]', 'https://192.168.168.168'); await p.press('[data-guide="url"]', 'Enter'); await W();
@@ -50,7 +55,7 @@ import fs from 'node:fs';
 export async function dump(h, file) { fs.writeFileSync(file, JSON.stringify(await h.state())); }
 export async function load(h, file) {
   const st = fs.readFileSync(file, 'utf8');
-  await h.p.addInitScript((s) => { if (!sessionStorage.getItem('tw-loaded')) { localStorage.setItem('threatwall:local:lab-state', s); sessionStorage.setItem('tw-loaded', '1'); } }, st);
+  await h.p.addInitScript(([k, s]) => { if (!sessionStorage.getItem('tw-loaded')) { localStorage.setItem(k, s); sessionStorage.setItem('tw-loaded', '1'); } }, [LAB_KEY, st]);
   await h.p.goto(h.url); await h.W(600);
   await h.p.click('[data-guide="start-lab"]'); await h.W(400);
 }

@@ -92,7 +92,9 @@ export function finaliseScore(
     reportFraction = (pathAcc + fwAcc + completeness) / 3;
   }
 
-  const failedAfterSecond = Math.max(0, state.retests - 2 - (retest.overall ? 1 : 0));
+  // Re-tests from discarded attempts at this scenario count too (BIZ-08): discarding does not reset the allowance.
+  const carried = state.carriedRetests ?? 0;
+  const failedAfterSecond = Math.max(0, state.retests + carried - 2 - (retest.overall ? 1 : 0));
 
   const points = scoreAttempt({
     level,
@@ -106,6 +108,7 @@ export function finaliseScore(
     hintsUsed: state.hintsUsed,
     wrongLayerApplied: state.wrongLayerApplied,
     failedRetestsAfterSecond: failedAfterSecond,
+    carriedRetests: carried,
   });
 
   // A learner may finish with a failed re-test ("Finish anyway"); that attempt is recorded as not

@@ -1,6 +1,6 @@
 import { Controller, Get, HttpCode, NotFoundException, Param, Post } from "@nestjs/common";
 import { featureKeySchema, type FeatureKey, type FeatureState, type LaunchResponse, type Me } from "@threatready/contracts";
-import { CurrentPrincipal, RequirePermission, type Principal } from "../authz/authz.js";
+import { CurrentPrincipal, FreshSession, RequirePermission, type Principal } from "../authz/authz.js";
 import { FeaturesService } from "./features.service.js";
 
 function parseKey(raw: string): FeatureKey {
@@ -13,8 +13,10 @@ function parseKey(raw: string): FeatureKey {
 export class FeaturesController {
   constructor(private readonly features: FeaturesService) {}
 
+  /** Fresh session: the SPA asks once per page load, and must learn of a revoked or deleted session at once. */
   @Get("me")
   @RequirePermission("me:read")
+  @FreshSession()
   async me(@CurrentPrincipal() p: Principal): Promise<Me> {
     return {
       user: { id: p.userId, username: p.username, email: p.email, isTrial: p.isTrial, isAdmin: p.isAdmin },

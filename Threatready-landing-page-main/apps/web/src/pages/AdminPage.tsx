@@ -6,6 +6,7 @@ import { APP_LABEL } from "../components/Overview";
 import { Button, Notice } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
+import { messageFor } from "../lib/errors";
 import { fmtAgo, fmtCompact, fmtDate, fmtInt, fmtUsd } from "../lib/format";
 import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
 
@@ -108,7 +109,11 @@ export function AdminGate({ children }: { children: ReactNode }) {
 }
 
 const errorText = (err: unknown) =>
-  err instanceof ApiError ? err.message : "Couldn't load the admin data. Refresh to try again.";
+  err instanceof ApiError
+    ? err.status === 429
+      ? messageFor(err)
+      : err.message
+    : "Couldn't load the admin data. Refresh to try again.";
 
 /**
  * Platform admin console: users across every app, with each user's AI tokens

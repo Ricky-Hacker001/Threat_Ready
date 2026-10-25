@@ -1,4 +1,5 @@
-import type { DocumentView } from '@threatready/contracts';
+import { useQuery } from '@tanstack/react-query';
+import type { DocumentView, PlatformApps } from '@threatready/contracts';
 import { ArrowLeft, ArrowRight, ClipboardPaste, FileUp, Lock, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -9,6 +10,30 @@ import { Stepper } from '../components/Stepper';
 
 type Patch = { step?: 1 | 2; resume?: string | null; jd?: string | null };
 const usable = (d: DocumentView | null) => (d?.status === 'extracted' ? d : null);
+
+/**
+ * The consent notice's facts from the deployment (GET /v1/platform `dataHandling`): where documents are
+ * stored (null: not configured, so the copy names no place rather than guessing one) and how many days an
+ * uploaded file is kept. An API that predates them gets the neutral wording and the 30-day default.
+ */
+const dataHandling = (p: PlatformApps | undefined) => {
+  const location = p?.dataHandling?.storageLocation?.trim();
+  const days = p?.dataHandling?.fileRetentionDays;
+  return { location: location || null, retentionDays: typeof days === 'number' && days > 0 ? days : 30 };
+};
+
+/** How documents are kept and removed: only what the product actually does. */
+function DataUseStorage({ location, retentionDays, canListDocuments }: { location: string | null; retentionDays: number; canListDocuments: boolean }) {
+  return (
+    <>
+      {location ? `Your documents are stored in ${location}. ` : ''}
+      The original files are kept in private storage and deleted automatically after {retentionDays} days. The redacted text, and the profile built from it, stay with your account for your interviews and reports.{' '}
+      {canListDocuments
+        ? 'You can delete your documents at any time from your interview history; deleting one removes its file and its extracted text.'
+        : 'You can delete a document on this page with Delete or Replace; that removes its file and its text.'}
+    </>
+  );
+}
 
 /**
  * Screen B, steps 1 and 2. Step 3 (confirm and configure) runs on the session once analysis finishes.
@@ -25,6 +50,9 @@ export default function CreateInterviewPage() {
   const [busy, setBusy] = useState(false);
   const [consent, setConsent] = useState(false);
   const navigate = useNavigate();
+  const platform = useQuery({ queryKey: ['platform'], queryFn: api.platform, staleTime: 300_000 });
+  // Only promise deletion "at any time" when the history page can list documents (newer API).
+  const documents = useQuery({ queryKey: ['documents'], queryFn: api.listDocuments, retry: false, staleTime: 60_000 });
   const step: 1 | 2 = params.get('step') === '2' && (resume || restoring) ? 2 : 1;
   usePageTitle(step === 1 ? 'New interview: resume' : 'New interview: job description');
 
@@ -113,7 +141,7 @@ export default function CreateInterviewPage() {
             <>
               <DocumentStep kind="resume" document={resume} onChange={onResume} />
               <div className="row between wrap">
-                <span className="hint row tight"><Lock className="icon sm" aria-hidden /> Your original file stays in private storage and is deleted 30 days after analysis.</span>
+                <span className="hint row tight"><Lock className="icon sm" aria-hidden /> The original file is kept in private storage and deleted automatically after {dataHandling(platform.data).retentionDays} days, or as soon as you delete it.</span>
                 <button className="btn primary" type="button" disabled={resume?.status !== 'extracted'} onClick={() => goTo(2)}>
                   Continue <ArrowRight className="icon sm arrow" aria-hidden />
                 </button>
@@ -138,14 +166,14 @@ export default function CreateInterviewPage() {
                     <span className="icon-tile info"><Lock className="icon" aria-hidden /></span>
                     <div>
                       <strong style={{ fontSize: 14.5 }}>How your data is used</strong>
-                      <p className="muted" style={{ fontSize: 13 }}>Required before we analyse your documents.</p>
+                      <p className="subtle" style={{ fontSize: 13 }}>Required before we analyse your documents.</p>
                     </div>
                   </div>
                   <ul className="subtle" style={{ margin: 0, paddingLeft: 18, fontSize: 13.5, display: 'grid', gap: 4 }}>
                     <li>The redacted text of your resume and this job description is sent once to our AI provider, Anthropic (United States), to extract your profile and the role’s requirements.</li>
                     <li>During the interview, your answers are sent to the same provider to choose follow-up questions and to score your report. That covers typed answers and spoken answers, which your browser turns into text first (on this device, or through your browser’s own speech service); ThreatReady and the provider receive only the text.</li>
-                    <li>The provider does not use this data for training and deletes it within 30 days. Contact details are removed before anything is sent.</li>
-                    <li>Your files stay in private storage in India (Mumbai) and are deleted 30 days after analysis. You can delete documents at any time.</li>
+                    <li>The provider does not use this data for training and deletes it within 30 days. The email addresses, phone numbers and ID numbers we detect are removed before anything is sent; check each document’s extracted text and use Correct text for anything we missed.</li>
+                    <li><DataUseStorage {...dataHandling(platform.data)} canListDocuments={documents.isSuccess && Array.isArray(documents.data?.items)} /></li>
                   </ul>
                   <label className="check">
                     <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />

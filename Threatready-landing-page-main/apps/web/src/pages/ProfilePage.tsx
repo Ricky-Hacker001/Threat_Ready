@@ -114,7 +114,9 @@ export function ProfilePage() {
         </div>
         {overviewError ? (
           <Notice tone="error">
-            Couldn't load your progress just now. Your progress is safe; it's saved in each app.{" "}
+            Couldn't load your progress just now. Nothing is lost: interviews, Attack Reasoning and the server-scored labs
+            are saved to your account, and the DevSecOps Lab, ThreatReady Firewall and AI Security Lab keep their progress
+            in this browser.{" "}
             <button type="button" className="link-btn" onClick={loadOverview}>
               Try again
             </button>

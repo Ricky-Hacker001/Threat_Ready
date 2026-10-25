@@ -172,6 +172,15 @@ const TABS = [
 function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: any; snap: any; act: ToolProps['act']; logout: () => void; reset: () => void }) {
   const toast = useToast();
   const [tab, setTab] = useState('browser');
+  // On phones the tool tabs scroll inside their own row (UI-2): keep the selected tab in view when it
+  // is opened from elsewhere (guide steps, "Send to Repeater"). Only that row scrolls, never the page.
+  useEffect(() => {
+    const el = document.getElementById(`tab-${tab}`); const list = el?.parentElement;
+    if (!el || !list || list.scrollWidth <= list.clientWidth) return;
+    const a = list.getBoundingClientRect(), b = el.getBoundingClientRect();
+    if (b.left < a.left) list.scrollLeft -= a.left - b.left;
+    else if (b.right > a.right) list.scrollLeft += b.right - a.right;
+  }, [tab]);
   const [repeater, setRepeater] = useState<any>(null);
   const [showBrief, setShowBrief] = useState(!snap.status.acknowledged);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -253,7 +262,9 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
       <main className="wl-center">
         <GuidanceBanner guidance={status.guidance} gotoTab={gotoTab} complete={status.complete} doStep={doStep} runCmd={runCmd} copyText={copyText} goUrl={goUrl} level={status.level} />
         <div className="wl-tabs">
-          <button className="wl-tab railtoggle" onClick={() => setRail('left')} aria-label="Open Objectives and hints"><Deco>☰</Deco> Mission {objDone > 0 && <span className="count">{objDone}</span>}</button>
+          {/* The accessible name starts with the visible label (and count), the rest is screen-reader text,
+              so "Mission 3" is also what voice-control users say (WCAG 2.5.3, UI-7). */}
+          <button className="wl-tab railtoggle" onClick={() => setRail('left')}><Deco>☰</Deco> Mission{objDone > 0 && <> <span className="count">{objDone}</span><span className="tr-sr"> done</span></>}<span className="tr-sr">, objectives and hints</span></button>
           <div className="wl-tablist" role="tablist" aria-label="Tools" onKeyDown={onTabKey}>
           {TABS.map(t => <button key={t.id} id={`tab-${t.id}`} role="tab" aria-selected={tab === t.id} aria-controls={`panel-${t.id}`} tabIndex={tab === t.id ? 0 : -1} className={`wl-tab ${tab === t.id ? 'active' : ''}${pointTab === t.id && tab !== t.id ? ' point' : ''}`} onClick={() => setTab(t.id)}>
             {t.label}
@@ -262,7 +273,7 @@ function Workspace({ user, def, snap, act, logout, reset }: { user: any; def: an
             {t.id === 'findings' && status.posture.confirmed > 0 && <span className="count">{status.posture.confirmed}</span>}
           </button>)}
           </div>
-          <button className="wl-tab railtoggle rt-right" onClick={() => setRail('right')} aria-label="Open Evidence, findings and story">Activity {status.evidence.length > 0 && <span className="count">{status.evidence.length}</span>}</button>
+          <button className="wl-tab railtoggle rt-right" onClick={() => setRail('right')}>Activity{status.evidence.length > 0 && <> <span className="count">{status.evidence.length}</span><span className="tr-sr"> saved</span></>}<span className="tr-sr">, evidence, findings and story</span></button>
         </div>
         <div className="wl-toolwrap">
           <div role="tabpanel" id="panel-browser" aria-labelledby="tab-browser" hidden={tab !== 'browser'}><BrowserTool {...toolProps} /></div>
@@ -391,17 +402,17 @@ function MissionRail({ status, act }: { status: any; act: ToolProps['act'] }) {
     </div>
     {[1, 2, 3, 4].map(lvl => <div key={lvl} className="railsec">
       <div className="lvlhead">Level {lvl}: {LEVEL_NAMES[lvl - 1]} {lvl > status.level && <span className="lk"><Deco>🔒</Deco> <span className="tr-sr">locked</span></span>}</div>
-      {(byLevel[lvl] || []).map(o => <Objective key={o.id} o={o} act={act} />)}
+      {(byLevel[lvl] || []).map(o => <Objective key={o.id} o={o} act={act} complete={status.complete} />)}
     </div>)}
   </div>;
 }
 
-function Objective({ o, act }: { o: any; act: ToolProps['act'] }) {
+function Objective({ o, act, complete }: { o: any; act: ToolProps['act']; complete?: boolean }) {
   // Completion is shown by a check mark and label, not colour alone (A11Y-15).
   return <div className={`obj ${o.done ? 'done' : ''} ${o.locked ? 'locked' : ''}`}>
     <div className="obh"><span className="tick" aria-hidden="true">{o.done ? '✓' : ''}</span><span className="ot">{o.title}</span><span className="pts">{o.done ? 'Done · ' : ''}{o.awarded ?? 0}/{o.points}</span></div>
     {o.hints.map((h: string, i: number) => <div key={i} className="hintbox"><Deco>💡</Deco> {h}</div>)}
-    {!o.locked && !o.done && o.hintsRemaining > 0 && <button className="wl-btn sm" style={{ marginTop: 6 }} onClick={() => act('hint.request', { objectiveId: o.id })}>Reveal hint ({o.hintsRemaining} left · −25%)</button>}
+    {!o.locked && !o.done && !complete && o.hintsRemaining > 0 && <button className="wl-btn sm" style={{ marginTop: 6 }} onClick={() => act('hint.request', { objectiveId: o.id })}>Reveal hint ({o.hintsRemaining} left · −25%)</button>}
   </div>;
 }
 
@@ -420,7 +431,7 @@ function ContextRail({ status, view, act, def, gotoTab, defaultGuideOpen }: { st
     </div>
     <div className="railsec">
       <h2>Evidence locker ({status.evidence.length})</h2>
-      {status.evidence.length ? status.evidence.map((e: any) => <div key={e.id} className="small row" style={{ padding: '3px 0' }}><span className="code2 mono">{e.id}</span> <span className="mono">{e.method} {e.path.slice(0, 22)}</span> <span className="grow" /><span className="muted">{e.status}</span><button className="wl-btn sm" onClick={() => act('evidence.remove', { historyId: e.id })} aria-label={`Remove evidence ${e.id} from the locker`}><Deco>✕</Deco></button></div>) : <div className="muted small">Save requests from the Proxy, Browser or Repeater as evidence for your report.</div>}
+      {status.evidence.length ? status.evidence.map((e: any) => <div key={e.id} className="small row" style={{ padding: '3px 0' }}><span className="code2 mono">{e.id}</span> <span className="mono">{e.method} {e.path.slice(0, 22)}</span> <span className="grow" /><span className="muted">{e.status}</span>{!status.complete && <button className="wl-btn sm" onClick={() => act('evidence.remove', { historyId: e.id })} aria-label={`Remove evidence ${e.id} from the locker`}><Deco>✕</Deco></button>}</div>) : <div className="muted small">Save requests from the Proxy, Browser or Repeater as evidence for your report.</div>}
     </div>
     <div className="railsec">
       <h2>Findings</h2>

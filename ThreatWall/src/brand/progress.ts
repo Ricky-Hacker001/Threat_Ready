@@ -2,7 +2,7 @@ import type { Progress } from '../state/types';
 import { TASKS } from '../tasks';
 import type { TaskDef } from '../tasks/types';
 import { DEFAULT_ROUTE, routeFor } from '../shell/nav';
-import { lastRouteKey } from '../state/storageKeys';
+import { labStorage, lastRouteKey } from '../state/storageKeys';
 
 export type LevelState = 'locked' | 'open' | 'in-progress' | 'complete';
 
@@ -31,13 +31,13 @@ export function nextTask(p: Progress): TaskDef | null {
 /** Where "Continue" returns to: the last appliance page the learner had open. */
 export function lastRoute(): string {
   try {
-    const r = localStorage.getItem(lastRouteKey());
+    const r = labStorage().getItem(lastRouteKey());
     if (r && routeFor(r)) return r;
   } catch { /* storage unavailable */ }
   return DEFAULT_ROUTE;
 }
 
 export function rememberRoute(path: string): void {
-  try { localStorage.setItem(lastRouteKey(), path); } catch { /* storage unavailable */ }
+  try { labStorage().setItem(lastRouteKey(), path); } catch { /* storage unavailable */ }
 }
 

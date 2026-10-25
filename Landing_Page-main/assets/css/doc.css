@@ -66,7 +66,9 @@
 .lbody a{color:var(--accent-text);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
 .lbody code{font-family:var(--mono);font-size:.875em;background:var(--surface);border:1px solid var(--border);padding:1px 5px;border-radius:4px;color:var(--text)}
 .lbody hr{border:0;border-top:1px solid var(--border);margin:var(--s6) 0}
-.lbody table{width:100%;border-collapse:collapse;margin:var(--s3) 0 var(--s5);font-size:14px;line-height:1.55;display:block;overflow-x:auto}
+.lbody table{width:100%;border-collapse:collapse;margin:var(--s3) 0 var(--s5);font-size:14px;line-height:1.55;display:block}
+/* Wide tables scroll inside a focusable region (tabindex=0, role=region, aria-label) so keyboard users can reach every column. */
+.lbody .tscroll{overflow-x:auto}
 .lbody th,.lbody td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
 .lbody thead th{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);font-weight:600;background:var(--surface)}
 .lbody td{color:var(--text-2)}

@@ -303,8 +303,9 @@ export function ArchitectureDiagram({ diagram }: { diagram: DiagramData }) {
             edgeTypes={edgeTypes}
             fitView
             fitViewOptions={{ padding: 0.08 }}
-            // Low enough that a wide graph still fits a phone-width canvas; the text list below carries the details.
-            minZoom={0.1}
+            // Low enough that a wide graph still fits a phone-width canvas (about 290px since the canvas no
+            // longer widens the page); the text list below carries the details, and zoom controls are there.
+            minZoom={0.05}
             maxZoom={1.8}
             nodesDraggable={false}
             nodesConnectable={false}

@@ -77,3 +77,30 @@ export const makeApp = (store: Store, staticDir?: string, appOrigin = ORIGIN) =>
   createApp(store, staticDir, { identity: fakeIdentity, internalToken: INTERNAL_TOKEN, appOrigin, onboardUrl: 'http://localhost:5173' });
 /** Headers for a signed-in browser request from the labs origin. */
 export const auth = (name: string) => ({ Cookie: `tr.session_token=${encodeURIComponent(name)}`, Origin: ORIGIN });
+
+/* ---------------- A stand-in onboard over HTTP (for the real resolver) ---------------- */
+import http from 'node:http';
+/** A cookie onboard could accept: Better Auth's `tr.session_token=<token>.<44-character signature>`. */
+export const sessionCookie = (token: string) => `tr.session_token=${encodeURIComponent(`${token}.${'A'.repeat(43)}=`)}`;
+/**
+ * Onboard's identity endpoint: a token starting "good" or "learner" is that user (id u_<token>), anything
+ * else is signed out. Tokens starting "slow" are answered only on release(). `calls` holds every cookie seen.
+ * `latencyMs` delays every other answer; `active` / `peak` count lookups being answered at once.
+ */
+export const startOnboard = (opts: { latencyMs?: number } = {}) => new Promise<{ url: string; calls: string[]; release: () => void; close: () => void; active: () => number; peak: () => number }>((resolve) => {
+  const calls: string[] = []; let pending: (() => void)[] = []; let active = 0; let peak = 0;
+  const server = http.createServer((req, res) => {
+    const cookie = String(req.headers.cookie || '');
+    calls.push(cookie);
+    active++; peak = Math.max(peak, active);
+    const token = decodeURIComponent(/tr\.session_token=([^;]+)/.exec(cookie)?.[1] ?? '').split('.')[0];
+    const answer = () => {
+      active--;
+      if (/^(good|learner)/.test(token)) { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ user: { id: token === 'good' ? 'u_good' : `u_${token}`, name: token, isTrial: false } })); }
+      else { res.writeHead(401, { 'content-type': 'application/json' }); res.end('{}'); }
+    };
+    const later = () => (opts.latencyMs ? setTimeout(answer, opts.latencyMs) : answer());
+    if (token.startsWith('slow')) pending.push(answer); else later();
+  });
+  server.listen(0, '127.0.0.1', () => resolve({ url: `http://127.0.0.1:${(server.address() as any).port}`, calls, active: () => active, peak: () => peak, release: () => { const p = pending; pending = []; for (const f of p) f(); }, close: () => { server.closeAllConnections?.(); server.close(); } }));
+});

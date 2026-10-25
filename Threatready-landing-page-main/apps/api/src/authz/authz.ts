@@ -56,7 +56,7 @@ export const Public = () => SetMetadata(IS_PUBLIC, true);
 /** Every non-public route declares exactly one permission or it fails closed. */
 export const RequirePermission = (permission: Permission) => SetMetadata(REQUIRED_PERMISSION, permission);
 
-/** Bypass the 5-minute session cookie cache so revocation applies immediately. */
+/** Bypass the session cookie cache (one minute) so revocation applies immediately. */
 export const FreshSession = () => SetMetadata(FRESH_SESSION, true);
 
 export const CurrentPrincipal = createParamDecorator((_: unknown, ctx: ExecutionContext): Principal => {

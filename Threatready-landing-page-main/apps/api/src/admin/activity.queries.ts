@@ -3,10 +3,14 @@ import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { Db } from "../db/db.js";
 import { activityDays, userLocations } from "../db/schema.js";
 
-/** The UTC days a range covers (activity is stored per UTC day). */
+/**
+ * The first and last UTC day of the range [from, to) (activity is stored per UTC day); a `to` at
+ * midnight ends with the day before. parseRange widens the console's range to whole UTC days, so
+ * these are exactly the days its AI usage covers too.
+ */
 export const dayBounds = (range: { from: Date; to: Date }) => ({
   from: range.from.toISOString().slice(0, 10),
-  to: range.to.toISOString().slice(0, 10),
+  to: new Date(range.to.getTime() - 1).toISOString().slice(0, 10),
 });
 
 const inRange = (col: typeof activityDays.day | typeof userLocations.day, range: { from: Date; to: Date }) => {

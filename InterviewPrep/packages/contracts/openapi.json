@@ -15,7 +15,7 @@
       "session": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "better-auth.session_token"
+        "name": "tr.session_token"
       }
     },
     "schemas": {
@@ -209,6 +209,9 @@
               },
               "request_id": {
                 "type": "string"
+              },
+              "retry_after_sec": {
+                "type": "integer"
               }
             },
             "required": [
@@ -361,11 +364,43 @@
                   "integer",
                   "null"
                 ]
+              },
+              "retriesLeft": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
               "status",
               "overallScore"
+            ]
+          },
+          "integrity": {
+            "type": "object",
+            "properties": {
+              "pauseCount": {
+                "type": "integer"
+              },
+              "pausedSec": {
+                "type": "integer"
+              },
+              "maxPauses": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "tabHiddenCount": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "pauseCount",
+              "pausedSec",
+              "maxPauses",
+              "tabHiddenCount"
             ]
           },
           "failure": {
@@ -641,6 +676,9 @@
                 "at"
               ]
             }
+          },
+          "questionHidden": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -655,6 +693,40 @@
           "answeredAt",
           "practiceFeedback",
           "clarifications"
+        ]
+      },
+      "ReasoningStateEvent": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "state"
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReasoningAttemptState"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "state",
+          "version"
+        ]
+      },
+      "ReasoningAttemptState": {
+        "type": "string",
+        "enum": [
+          "generating",
+          "ready",
+          "evaluating",
+          "evaluated",
+          "generation_failed",
+          "evaluation_failed",
+          "abandoned"
         ]
       },
       "CreateUploadResponse": {
@@ -829,6 +901,82 @@
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ]
       },
+      "DocumentList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "DocumentSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DocumentStatus"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "upload",
+              "pasted"
+            ]
+          },
+          "contentType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sizeBytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "pageCount": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "fileDeleted": {
+            "type": "boolean"
+          },
+          "inUse": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "source",
+          "contentType",
+          "sizeBytes",
+          "pageCount",
+          "fileDeleted",
+          "inUse",
+          "createdAt"
+        ]
+      },
       "CreateTextDocumentRequest": {
         "type": "object",
         "properties": {
@@ -854,7 +1002,7 @@
         "properties": {
           "text": {
             "type": "string",
-            "minLength": 50,
+            "minLength": 200,
             "maxLength": 30000
           }
         },
@@ -1583,6 +1731,16 @@
           "message"
         ]
       },
+      "TabHiddenRequest": {
+        "type": "object",
+        "properties": {
+          "hiddenMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 86400000
+          }
+        }
+      },
       "EndInterviewRequest": {
         "type": "object",
         "properties": {
@@ -1842,6 +2000,25 @@
             "items": {
               "type": "string"
             }
+          },
+          "integrity": {
+            "type": "object",
+            "properties": {
+              "pauseCount": {
+                "type": "integer"
+              },
+              "pausedSec": {
+                "type": "integer"
+              },
+              "tabHiddenCount": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "pauseCount",
+              "pausedSec",
+              "tabHiddenCount"
+            ]
           },
           "pdf": {
             "type": "object",
@@ -2249,6 +2426,63 @@
           "lastEvidenceAt"
         ]
       },
+      "PlatformApps": {
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "interview",
+                    "labs",
+                    "reasoning"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "title",
+                "url",
+                "status"
+              ]
+            }
+          },
+          "dataHandling": {
+            "type": "object",
+            "properties": {
+              "storageLocation": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "fileRetentionDays": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "storageLocation",
+              "fileRetentionDays"
+            ]
+          }
+        },
+        "required": [
+          "apps"
+        ]
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -2277,6 +2511,1218 @@
           "email",
           "image",
           "isAdmin"
+        ]
+      },
+      "ReasoningDomainView": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "track": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "focus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "techniques": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Technique"
+            }
+          },
+          "weights": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "correctness": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "integer"
+              },
+              "architecture": {
+                "type": "integer"
+              },
+              "risk": {
+                "type": "integer"
+              }
+            }
+          },
+          "stats": {
+            "$ref": "#/components/schemas/ReasoningDomainStats"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "description",
+          "track",
+          "available",
+          "difficulty",
+          "focus",
+          "techniques",
+          "weights",
+          "stats"
+        ]
+      },
+      "ReasoningDomainKey": {
+        "type": "string",
+        "enum": [
+          "cloud_security",
+          "identity_access",
+          "application_security",
+          "network_security",
+          "security_operations",
+          "incident_response",
+          "devsecops_supply_chain",
+          "container_kubernetes",
+          "data_security",
+          "threat_intelligence",
+          "endpoint_security",
+          "zero_trust",
+          "api_security",
+          "ai_llm_security",
+          "grc_risk"
+        ]
+      },
+      "ReasoningDifficulty": {
+        "type": [
+          "string",
+          "null"
+        ],
+        "enum": [
+          "beginner",
+          "intermediate",
+          "advanced",
+          "expert",
+          null
+        ]
+      },
+      "Technique": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "ReasoningDomainStats": {
+        "type": "object",
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "evaluated": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "averageScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bestScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "lastAttemptAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "attempts",
+          "evaluated",
+          "skipped",
+          "averageScore",
+          "bestScore",
+          "lastAttemptAt"
+        ]
+      },
+      "ReasoningAttemptView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReasoningAttemptState"
+          },
+          "prefetched": {
+            "type": "boolean"
+          },
+          "item": {
+            "$ref": "#/components/schemas/ReasoningItemPublic"
+          },
+          "answer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "selectedOption": {
+                "$ref": "#/components/schemas/OptionId"
+              },
+              "justification": {
+                "type": "string"
+              },
+              "submittedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "answerSeconds": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "selectedOption",
+              "justification",
+              "submittedAt",
+              "answerSeconds"
+            ]
+          },
+          "result": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "totalScore": {
+                "type": "integer"
+              },
+              "correct": {
+                "type": "boolean"
+              },
+              "confidence": {
+                "type": "string",
+                "enum": [
+                  "high",
+                  "medium",
+                  "low"
+                ]
+              }
+            },
+            "required": [
+              "totalScore",
+              "correct",
+              "confidence"
+            ]
+          },
+          "failure": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "stage": {
+                "type": "string",
+                "enum": [
+                  "generation",
+                  "evaluation"
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "stage"
+            ]
+          },
+          "skipCounts": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "difficulty",
+          "state",
+          "prefetched",
+          "item",
+          "answer",
+          "result",
+          "failure",
+          "skipCounts",
+          "expiresAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ReasoningItemPublic": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "title": {
+            "type": "string"
+          },
+          "scenario": {
+            "type": "string"
+          },
+          "attackNarrative": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReasoningOption"
+            }
+          },
+          "diagram": {
+            "$ref": "#/components/schemas/DiagramData"
+          },
+          "techniques": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Technique"
+            }
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "weights": {
+            "type": "object",
+            "properties": {
+              "correctness": {
+                "type": "integer"
+              },
+              "reasoning": {
+                "type": "integer"
+              },
+              "architecture": {
+                "type": "integer"
+              },
+              "risk": {
+                "type": "integer"
+              }
+            }
+          },
+          "generatorVersion": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "difficulty",
+          "title",
+          "scenario",
+          "attackNarrative",
+          "objective",
+          "question",
+          "options",
+          "diagram",
+          "techniques",
+          "concepts",
+          "weights",
+          "generatorVersion",
+          "createdAt"
+        ]
+      },
+      "ReasoningOption": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/OptionId"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ]
+      },
+      "OptionId": {
+        "type": "string",
+        "enum": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ]
+      },
+      "DiagramData": {
+        "type": "object",
+        "properties": {
+          "boundaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagramBoundary"
+            }
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagramNode"
+            }
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagramEdge"
+            }
+          },
+          "attackPath": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "boundaries",
+          "nodes",
+          "edges",
+          "attackPath"
+        ]
+      },
+      "DiagramBoundary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DiagramBoundaryKind"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind"
+        ]
+      },
+      "DiagramBoundaryKind": {
+        "type": "string",
+        "enum": [
+          "internet",
+          "edge",
+          "dmz",
+          "vpc",
+          "private",
+          "data",
+          "identity",
+          "account",
+          "onprem",
+          "cicd",
+          "management",
+          "cluster",
+          "corporate",
+          "ot",
+          "tenant",
+          "vendor"
+        ]
+      },
+      "DiagramNode": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DiagramNodeType"
+          },
+          "boundary": {
+            "type": "string"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compromised": {
+            "type": "boolean"
+          },
+          "entryPoint": {
+            "type": "boolean"
+          },
+          "controls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "type",
+          "boundary",
+          "detail",
+          "compromised",
+          "entryPoint",
+          "controls"
+        ]
+      },
+      "DiagramNodeType": {
+        "type": "string",
+        "enum": [
+          "user",
+          "client",
+          "external",
+          "web",
+          "api",
+          "service",
+          "identity",
+          "database",
+          "queue",
+          "storage",
+          "cloud",
+          "firewall",
+          "gateway",
+          "network",
+          "control",
+          "attacker",
+          "secret",
+          "compute",
+          "endpoint",
+          "container",
+          "pipeline",
+          "repository",
+          "model",
+          "device",
+          "email",
+          "siem",
+          "saas"
+        ]
+      },
+      "DiagramEdge": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DiagramEdgeKind"
+          }
+        },
+        "required": [
+          "id",
+          "from",
+          "to",
+          "label",
+          "kind"
+        ]
+      },
+      "DiagramEdgeKind": {
+        "type": "string",
+        "enum": [
+          "data",
+          "auth",
+          "control",
+          "attack"
+        ]
+      },
+      "CreateReasoningAttemptRequest": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "skipOldest": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      },
+      "ReasoningPoolStatus": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "available": {
+            "type": "integer"
+          },
+          "refilling": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "domain",
+          "difficulty",
+          "available",
+          "refilling"
+        ]
+      },
+      "ReasoningAttemptList": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReasoningAttemptSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "ReasoningAttemptSummary": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ReasoningAttemptState"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "difficulty": {
+            "$ref": "#/components/schemas/ReasoningDifficulty"
+          },
+          "totalScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "correct": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "countsAsZero": {
+            "type": "boolean"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluatedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "domain",
+          "state",
+          "title",
+          "difficulty",
+          "totalScore",
+          "correct",
+          "countsAsZero",
+          "createdAt",
+          "evaluatedAt"
+        ]
+      },
+      "SubmitReasoningRequest": {
+        "type": "object",
+        "properties": {
+          "selectedOption": {
+            "$ref": "#/components/schemas/OptionId"
+          },
+          "justification": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          },
+          "clientSubmissionId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "selectedOption",
+          "justification",
+          "clientSubmissionId"
+        ]
+      },
+      "ReasoningResult": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "domain": {
+            "$ref": "#/components/schemas/ReasoningDomainKey"
+          },
+          "totalScore": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "correct": {
+            "type": "boolean"
+          },
+          "selectedOption": {
+            "$ref": "#/components/schemas/OptionId"
+          },
+          "correctOption": {
+            "$ref": "#/components/schemas/OptionId"
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/components/schemas/OptionId"
+                },
+                "text": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "$ref": "#/components/schemas/OptionVerdict"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "text",
+                "verdict",
+                "why"
+              ]
+            }
+          },
+          "dimensions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DimensionResult"
+            }
+          },
+          "feedback": {
+            "type": "object",
+            "properties": {
+              "decision": {
+                "type": "string"
+              },
+              "reasoning": {
+                "type": "string"
+              },
+              "gotRight": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "missed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "whyBest": {
+                "type": "string"
+              },
+              "whyAlternatives": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "option": {
+                      "$ref": "#/components/schemas/OptionId"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "option",
+                    "why"
+                  ]
+                }
+              },
+              "architectureAnalysis": {
+                "type": "string"
+              },
+              "expertExplanation": {
+                "type": "string"
+              },
+              "improve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "incorrectClaims": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim": {
+                      "type": "string"
+                    },
+                    "why": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "claim",
+                    "why"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "decision",
+              "reasoning",
+              "gotRight",
+              "missed",
+              "whyBest",
+              "whyAlternatives",
+              "architectureAnalysis",
+              "expertExplanation",
+              "improve",
+              "incorrectClaims"
+            ]
+          },
+          "confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "reviewFlag": {
+            "type": "boolean"
+          },
+          "degraded": {
+            "type": "boolean"
+          },
+          "notices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scoring": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "string"
+              },
+              "weights": {
+                "type": "object",
+                "properties": {
+                  "correctness": {
+                    "type": "integer"
+                  },
+                  "reasoning": {
+                    "type": "integer"
+                  },
+                  "architecture": {
+                    "type": "integer"
+                  },
+                  "risk": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "notes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "version",
+              "weights",
+              "notes"
+            ]
+          },
+          "techniques": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Technique"
+            }
+          },
+          "concepts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answerSeconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "evaluatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "attemptId",
+          "domain",
+          "totalScore",
+          "correct",
+          "selectedOption",
+          "correctOption",
+          "options",
+          "dimensions",
+          "feedback",
+          "confidence",
+          "reviewFlag",
+          "degraded",
+          "notices",
+          "scoring",
+          "techniques",
+          "concepts",
+          "answerSeconds",
+          "evaluatedAt"
+        ]
+      },
+      "OptionVerdict": {
+        "type": "string",
+        "enum": [
+          "best",
+          "plausible",
+          "weak",
+          "wrong"
+        ]
+      },
+      "DimensionResult": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/ReasoningDimensionKey"
+          },
+          "label": {
+            "type": "string"
+          },
+          "weight": {
+            "type": "integer"
+          },
+          "score": {
+            "type": "number"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "point": {
+                  "type": "string"
+                },
+                "status": {
+                  "$ref": "#/components/schemas/PointStatus"
+                },
+                "rationale": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "point",
+                "status",
+                "rationale",
+                "quote"
+              ]
+            }
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "weight",
+          "score",
+          "evidence",
+          "notes"
+        ]
+      },
+      "ReasoningDimensionKey": {
+        "type": "string",
+        "enum": [
+          "correctness",
+          "reasoning",
+          "architecture",
+          "risk"
+        ]
+      },
+      "PointStatus": {
+        "type": "string",
+        "enum": [
+          "met",
+          "partial",
+          "missed"
+        ]
+      },
+      "ReasoningDashboard": {
+        "type": "object",
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "evaluated": {
+            "type": "integer"
+          },
+          "skipped": {
+            "type": "integer"
+          },
+          "inProgress": {
+            "type": "integer"
+          },
+          "averageScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "bestScore": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "correctRate": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "dimensionAverages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "$ref": "#/components/schemas/ReasoningDimensionKey"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "average": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "weight": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "average",
+                "weight"
+              ]
+            }
+          },
+          "scoreHistory": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "attemptId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "score": {
+                  "type": "integer"
+                },
+                "correct": {
+                  "type": "boolean"
+                },
+                "evaluatedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "attemptId",
+                "score",
+                "correct",
+                "evaluatedAt"
+              ]
+            }
+          },
+          "recent": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReasoningAttemptSummary"
+            }
+          },
+          "byDomain": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "domain": {
+                  "$ref": "#/components/schemas/ReasoningDomainKey"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "stats": {
+                  "$ref": "#/components/schemas/ReasoningDomainStats"
+                }
+              },
+              "required": [
+                "domain",
+                "title",
+                "stats"
+              ]
+            }
+          }
+        },
+        "required": [
+          "attempts",
+          "evaluated",
+          "skipped",
+          "inProgress",
+          "averageScore",
+          "bestScore",
+          "correctRate",
+          "dimensionAverages",
+          "scoreHistory",
+          "recent",
+          "byDomain"
         ]
       }
     },
@@ -2328,6 +3774,42 @@
             }
           }
         }
+      },
+      "get": {
+        "operationId": "listDocuments",
+        "summary": "The caller's resumes and job descriptions, newest first (no text); for review and deletion",
+        "tags": [
+          "documents"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "document:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/documents/text": {
@@ -2343,7 +3825,7 @@
           }
         ],
         "x-permission": "document:write",
-        "x-rate-class": "upload",
+        "x-rate-class": "jd_text",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2476,7 +3958,7 @@
       },
       "delete": {
         "operationId": "deleteDocument",
-        "summary": "Delete a document and its file",
+        "summary": "Delete a document, its file and its extracted text; profiles derived from it are reduced to skill ids and levels",
         "tags": [
           "documents"
         ],
@@ -2528,7 +4010,7 @@
           }
         ],
         "x-permission": "document:write",
-        "x-rate-class": "general",
+        "x-rate-class": "document_edit",
         "parameters": [
           {
             "schema": {
@@ -3098,7 +4580,7 @@
     "/v1/interviews/{id}/pause": {
       "post": {
         "operationId": "pauseInterview",
-        "summary": "Pause the interview timer",
+        "summary": "Pause the interview timer; the question is hidden until resume, and pauses are counted in the report",
         "tags": [
           "interviews"
         ],
@@ -3179,6 +4661,57 @@
                 }
               }
             }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/interviews/{id}/tab-hidden": {
+      "post": {
+        "operationId": "recordTabHidden",
+        "summary": "Record that the candidate left the interview tab (counted in the report; never affects the score)",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TabHiddenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No content"
           },
           "default": {
             "description": "Error envelope (ADD §10)",
@@ -3523,6 +5056,44 @@
         }
       }
     },
+    "/v1/platform": {
+      "get": {
+        "operationId": "getPlatform",
+        "summary": "Every ThreatReady app (names, URLs, status) for the shared header",
+        "tags": [
+          "interviews"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "interview:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformApps"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/me": {
       "get": {
         "operationId": "getMe",
@@ -3585,6 +5156,538 @@
                   "items": {
                     "$ref": "#/components/schemas/SkillProgress"
                   }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/domains": {
+      "get": {
+        "operationId": "listReasoningDomains",
+        "summary": "Every Attack Reasoning domain with availability and the user's statistics",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReasoningDomainView"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts": {
+      "post": {
+        "operationId": "createReasoningAttempt",
+        "summary": "Start the next attempt in a domain at a difficulty: serves a random pool question this learner has never seen (instant); generates one only when the pool has none left for them",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:take",
+        "x-rate-class": "reasoning_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReasoningAttemptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listReasoningAttempts",
+        "summary": "Assessment history, newest first",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "name": "cursor",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            },
+            "required": false,
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptList"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/prefetch": {
+      "post": {
+        "operationId": "prefetchReasoningAttempt",
+        "summary": "Pool status for a domain and difficulty: ready questions this learner has not seen; asks for a background refill when it runs low (polled, so rate-limited as a read)",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:take",
+        "x-rate-class": "general",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReasoningAttemptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningPoolStatus"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}/abandon": {
+      "post": {
+        "operationId": "abandonReasoningAttempt",
+        "summary": "Skip an unanswered scenario",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}": {
+      "get": {
+        "operationId": "getReasoningAttempt",
+        "summary": "The attempt: scenario, diagram, question and options (never the answer key)",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}/events": {
+      "get": {
+        "operationId": "streamReasoningEvents",
+        "summary": "SSE stream of attempt state changes while generation or evaluation runs",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events; each data line is a TurnStreamEvent",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}/submit": {
+      "post": {
+        "operationId": "submitReasoningAnswer",
+        "summary": "Submit the selected option and the written justification; queues evaluation",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReasoningRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}/retry": {
+      "post": {
+        "operationId": "retryReasoningAttempt",
+        "summary": "Re-queue a failed generation or evaluation (idempotent)",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:take",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningAttemptView"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/attempts/{id}/result": {
+      "get": {
+        "operationId": "getReasoningResult",
+        "summary": "Score breakdown and feedback once evaluated",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "id",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error envelope (ADD §10)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reasoning/dashboard": {
+      "get": {
+        "operationId": "getReasoningDashboard",
+        "summary": "Attack Reasoning progress and performance analytics",
+        "tags": [
+          "reasoning"
+        ],
+        "security": [
+          {
+            "session": []
+          }
+        ],
+        "x-permission": "reasoning:read",
+        "x-rate-class": "general",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasoningDashboard"
                 }
               }
             }

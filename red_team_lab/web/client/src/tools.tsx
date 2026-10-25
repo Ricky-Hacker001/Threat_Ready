@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { RawRequest, RawResponse, Sev, StatusBadge, Field, SEV_ORDER, useToast, Dialog } from './ui';
-import { api } from './api';
+import { api, BASE } from './api';
 
 export interface ToolProps {
   def: any; view: any; status: any; sid: string;
@@ -45,13 +45,14 @@ const NAV_SHIM = `<script>(function(){
   window.prompt=function(m){ banner('prompt('+m+')'); return null; };
 })();</scr`+`ipt>`;
 
-function SaveEvidence({ act, historyId }: { act: ToolProps['act']; historyId?: string }) {
-  if (!historyId) return null;
+function SaveEvidence({ act, historyId, complete }: { act: ToolProps['act']; historyId?: string; complete?: boolean }) {
+  // Once the report is delivered the engagement is read-only (BIZ-02): the evidence locker is frozen.
+  if (!historyId || complete) return null;
   return <button className="wl-btn sm" onClick={() => act('evidence.add', { historyId })}>★ Save to evidence</button>;
 }
 
 /* ---------------- Embedded Browser ---------------- */
-export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: ToolProps) {
+export function BrowserTool({ def, view, status, act, pushRepeater, browserPrefill }: ToolProps) {
   const [url, setUrl] = useState('/products');
   const [method, setMethod] = useState('GET');
   const [body, setBody] = useState('');
@@ -69,19 +70,42 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
   const lastBrowser = useMemo(() => [...view.history].reverse().find((h: any) => h.tool === 'browser' || h.tool === 'retest'), [view.history]);
   const resp = lastBrowser?.response;
 
-  // Keep the embedded browser inside the simulation: a trusted shim in the sandboxed frame forwards
-  // link clicks and form submits to the lab (browser.navigate) instead of navigating the real origin.
+  // Keep the embedded browser inside the simulation. The target renders in a sandboxed frame whose shim
+  // forwards link clicks / form submits to the lab (browser.navigate) instead of the real origin. By
+  // default the frame is a dedicated served document (target-frame.html) with its own relaxed CSP, so the
+  // learner's XSS payloads and the shim actually execute under the platform gateway CSP (TR-44); we
+  // postMessage the server-rendered HTML into it. If that document cannot load (e.g. the platform has
+  // not granted the Red Team pages `frame-src 'self'`), we fall back to the inline srcdoc render below.
   const frameRef = useRef<HTMLIFrameElement>(null);
   const actRef = useRef(act); actRef.current = act;
+  const readyRef = useRef(false);
+  const pendingRef = useRef<string | null>(null);
+  const [legacy, setLegacy] = useState(false);
+  const legacyRef = useRef(false); legacyRef.current = legacy;
+  const SANDBOX_URL = `${BASE}target-frame.html`;
+  const postRender = () => {
+    const w = frameRef.current?.contentWindow;
+    if (legacyRef.current || !readyRef.current || !w || pendingRef.current == null) return;
+    w.postMessage({ __trlab: 1, type: 'render', html: pendingRef.current }, '*');
+  };
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      if (frameRef.current && e.source !== frameRef.current.contentWindow) return;
+      // Only our own target frame may drive the lab. With no frame mounted (the fallback view before
+      // the first page) there is no legitimate sender, so another window's message is dropped (SEC-5).
+      const own = frameRef.current?.contentWindow;
+      if (!own || e.source !== own) return;
       const d: any = e.data;
-      if (d && d.__trlab && d.type === 'nav' && typeof d.url === 'string')
+      if (!d || d.__trlab !== 1) return;
+      if (d.type === 'ready') { readyRef.current = true; postRender(); }
+      else if (d.type === 'nav' && typeof d.url === 'string')
         actRef.current('browser.navigate', { url: d.url, method: d.method === 'POST' ? 'POST' : 'GET', body: d.body || undefined });
     };
     window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
+    // The sandbox frame is mounted immediately (hidden) below, so it has a chance to report "ready"
+    // before any navigation. If it never does (its document could not load — e.g. the platform has not
+    // granted the pages frame-src 'self'), fall back to the inline srcdoc render.
+    const t = setTimeout(() => { if (!readyRef.current) setLegacy(true); }, 2500);
+    return () => { window.removeEventListener('message', onMsg); clearTimeout(t); };
   }, []);
 
   const links = useMemo(() => {
@@ -93,6 +117,11 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
       return out.slice(0, 20);
     } catch { return []; }
   }, [resp]);
+
+  // The HTML the frame should show: the target page (scripts run inside the sandbox) or a plain-text
+  // preview for non-HTML responses. Pushed into the served sandbox via postMessage as it changes.
+  const frameHtml = resp ? (resp.contentType === 'text/html' ? resp.body : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`) : null;
+  useEffect(() => { pendingRef.current = frameHtml; postRender(); }, [frameHtml]);
 
   const go = (u = url, m = method) => { act('browser.navigate', { url: u, method: m, body: m === 'POST' ? body : undefined }).then(() => setUrl(u)); };
 
@@ -121,12 +150,20 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
       {resp && <span className={`badge ${resp.status < 400 ? 'st-ok' : 'st-none'}`}>{resp.status} {resp.statusText}</span>}
       <span className="grow" />
       {lastBrowser && <button className="wl-btn sm" onClick={() => pushRepeater(lastBrowser.request)}>↗ Repeater</button>}
-      <SaveEvidence act={act} historyId={lastBrowser?.id} />
+      <SaveEvidence act={act} historyId={lastBrowser?.id} complete={status.complete} />
     </div>
 
-    {resp
-      ? <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" srcDoc={resp.contentType === 'text/html' ? resp.body + NAV_SHIM : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`} />
-      : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>}
+    {legacy
+      ? (resp
+          ? <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" srcDoc={resp.contentType === 'text/html' ? resp.body + NAV_SHIM : frameHtml!} />
+          : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>)
+      : // Mounted from the start (visible, with its own placeholder body) so the served sandbox loads early
+        // and the target HTML can be posted straight in — the only way its inline/XSS scripts run under the
+        // gateway CSP. Kept visible (not hidden) so content blockers don't treat it as a tracking frame.
+        <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" src={SANDBOX_URL} />}
+    {/* The inline fallback inherits the page's strict policy, so scripts in the target do not run there.
+        Say so rather than let a working payload look like a failed one (detection stays server-side). */}
+    {legacy && resp && <p className="muted small" role="note" style={{ margin: '6px 0 0' }}>Scripts on the target page can't run in this view, so payload effects such as alert boxes aren't shown. Detection happens on the server, so your findings still count.{links.length > 0 ? ' Use the link buttons below to follow links.' : ''}</p>}
 
     {links.length > 0 && <div style={{ marginTop: 8 }}><span className="muted small">Links on this page:</span><br />
       {links.map((l, i) => <button type="button" key={i} className="linkchip" onClick={() => go(l.href, 'GET')}>{l.text || l.href}</button>)}</div>}
@@ -145,7 +182,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
 }
 
 /* ---------------- Proxy / HTTP history ---------------- */
-export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
+export function ProxyTool({ def, view, status, act, pushRepeater }: ToolProps) {
   const [sel, setSel] = useState<string | null>(null);
   const host = def?.target?.host || 'shop.aerocart.lab';
   const rows = [...view.history].reverse();
@@ -167,7 +204,7 @@ export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
     {selected && <>
       <div className="row" style={{ margin: '10px 0' }}>
         <button className="wl-btn sm" onClick={() => pushRepeater(selected.request)}>↗ Send to Repeater</button>
-        <SaveEvidence act={act} historyId={selected.id} />
+        <SaveEvidence act={act} historyId={selected.id} complete={status.complete} />
         <span className="muted small">Captured {selected.at.slice(11, 19)} via {selected.tool}</span>
       </div>
       <div className="rawgrid"><div><div className="muted small" style={{ marginBottom: 4 }}>Request</div><RawRequest r={selected.request} host={host} /></div>
@@ -177,7 +214,7 @@ export function ProxyTool({ def, view, act, pushRepeater }: ToolProps) {
 }
 
 /* ---------------- Repeater ---------------- */
-export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
+export function RepeaterTool({ def, status, act, repeater, setRepeater }: ToolProps) {
   const host = def?.target?.host || 'shop.aerocart.lab';
   const [resp, setResp] = useState<any>(null);
   const r = repeater || { method: 'GET', path: '/login', query: '', headers: { 'content-type': 'application/x-www-form-urlencoded' }, cookies: {}, body: "username=admin'--&password=x" };
@@ -200,7 +237,7 @@ export function RepeaterTool({ def, act, repeater, setRepeater }: ToolProps) {
     <div>
       <div className="muted small" style={{ marginBottom: 4 }}>Response {resp && <span className={`badge ${resp.response.status < 400 ? 'st-ok' : 'st-none'}`}>{resp.response.status} {resp.response.statusText} · {resp.response.timeMs}ms · {resp.response.body.length}B</span>}</div>
       {resp ? <>
-        <div className="row" style={{ marginBottom: 6 }}><SaveEvidence act={act} historyId={resp.historyId} /></div>
+        <div className="row" style={{ marginBottom: 6 }}><SaveEvidence act={act} historyId={resp.historyId} complete={status.complete} /></div>
         <RawResponse r={resp.response} />
       </> : <div className="card muted">Edit the request and Send. Try an auth-bypass payload in the body, or iterate an id in the query.</div>}
     </div>
@@ -293,10 +330,10 @@ export function FindingsTool({ status, act }: ToolProps) {
   const findings = status.findings;
   return <div>
     <p className="muted small">Confirm a vulnerability with the tools, document it with a severity and evidence, apply the correct remediation, then re-test to verify. Answer keys stay on the server.</p>
-    {findings.map((f: any) => <FindingCard key={f.id} f={f} act={act} />)}
+    {findings.map((f: any) => <FindingCard key={f.id} f={f} act={act} complete={status.complete} />)}
   </div>;
 }
-function FindingCard({ f, act }: { f: any; act: ToolProps['act'] }) {
+function FindingCard({ f, act, complete }: { f: any; act: ToolProps['act']; complete?: boolean }) {
   // No prefilled severity — the learner must choose (UX-13); the reference severity is never sent
   // before they document, so it cannot be read off the card.
   const [sev, setSev] = useState(f.reportedSeverity || '');
@@ -314,16 +351,17 @@ function FindingCard({ f, act }: { f: any; act: ToolProps['act'] }) {
     <div className="meta">{f.impact}</div>
     <div className="small muted">{f.cwe} · {f.owasp} · affected: <span className="code2">{(f.routes || []).join(', ')}</span> · proof: <span className="code2 mono">{f.proof ? `${f.proof.method} ${f.proof.path}${f.proof.query ? '?' + f.proof.query : ''}` : '—'}</span></div>
 
-    {!f.reported && <div style={{ marginTop: 10 }}>
+    {!f.reported && !complete && <div style={{ marginTop: 10 }}>
       <div className="row">
         <Field label="Severity"><select className="wl-select" style={{ width: 150 }} value={sev} onChange={e => setSev(e.target.value)}><option value="">Choose a severity…</option>{SEV_ORDER.map(s => <option key={s}>{s}</option>)}</select></Field>
-        <div className="grow"><Field label="Analyst note (optional)"><input className="wl-input" value={note} onChange={e => setNote(e.target.value)} placeholder="reproduction / impact note" /></Field></div>
+        <div className="grow"><Field label="Analyst note (optional)"><input className="wl-input" value={note} maxLength={2000} onChange={e => setNote(e.target.value)} placeholder="reproduction / impact note" /></Field></div>
       </div>
+      {/* Severity is committed on Document and cannot be changed afterwards (the reference is revealed then). */}
       <button className="wl-btn primary sm" style={{ marginTop: 8 }} disabled={!sev} onClick={() => run('finding.report', { findingId: f.id, severity: sev, note })}>Document finding</button>
     </div>}
     {f.reported && <div className="meta small">Documented as <Sev s={f.reportedSeverity} />{f.note ? ` — “${f.note}”` : ''}</div>}
 
-    {f.reported && !f.verified && <div style={{ marginTop: 10 }}>
+    {f.reported && !f.verified && !complete && <div style={{ marginTop: 10 }}>
       <label className="fld" id={`rem-label-${f.id}`}>Remediation — choose the fix that addresses the root cause</label>
       <div role="radiogroup" aria-labelledby={`rem-label-${f.id}`}>
         {f.options.map((o: any) => <label key={o.id} className="opt"><input type="radio" name={'rem-' + f.id} checked={opt === o.id} onChange={() => setOpt(o.id)} disabled={f.remediated} /> {o.label}</label>)}
@@ -360,7 +398,7 @@ export function ReportTool({ status, act, sid }: ToolProps) {
   return <div className="report">
     <h2>Deliver the penetration-test report</h2>
     <p className="muted small">Documented findings: {status.posture.documented}/{status.posture.total} · verified: {status.posture.verified}/{status.posture.total} · evidence items: {status.evidence.length}</p>
-    <Field label="Executive summary (min 80 chars)"><textarea className="wl-area" style={{ minHeight: 120 }} value={summary} onChange={e => setSummary(e.target.value)} placeholder="Summarise the engagement: what you assessed, the key risks, and the overall posture after remediation." /></Field>
+    <Field label="Executive summary (min 80 chars)"><textarea className="wl-area" style={{ minHeight: 120 }} value={summary} maxLength={6000} onChange={e => setSummary(e.target.value)} placeholder="Summarise the engagement: what you assessed, the key risks, and the overall posture after remediation." /></Field>
     <button className="wl-btn primary" style={{ marginTop: 10 }} disabled={summary.trim().length < 80} onClick={() => setConfirm(true)}>Submit report</button>
     {/* The report can be submitted only once, so confirm first (FUNC-12). */}
     {confirm && <Dialog title="Submit the report?" onClose={() => setConfirm(false)} maxWidth={460}>

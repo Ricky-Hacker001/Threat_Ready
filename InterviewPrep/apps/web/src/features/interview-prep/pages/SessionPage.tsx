@@ -3,8 +3,8 @@ import type { SessionView } from '@threatready/contracts';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, ClipboardCheck, Sparkles } from 'lucide-react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
-import { api } from '../../../lib/api';
-import { Busy, CardSkeleton, ErrorAlert, focusMainHeading, usePageTitle } from '../../../ui/components';
+import { api, ApiError } from '../../../lib/api';
+import { Busy, CardSkeleton, ErrorAlert, focusMainHeading, isMalformedId, isNotFound, NotFoundState, usePageTitle } from '../../../ui/components';
 import { ConfigureView } from '../components/ConfigureView';
 import { Stepper } from '../components/Stepper';
 
@@ -49,15 +49,27 @@ function screenFor(state: string | undefined) {
   }
 }
 
+/** An unknown, malformed or someone else's interview link. */
+function SessionNotFound() {
+  return (
+    <NotFoundState title="This interview doesn’t exist or isn’t yours" to="/interview-prep/history" linkLabel="Go to interview history">
+      The link may be mistyped or out of date. Your interviews and reports are listed in your history.
+    </NotFoundState>
+  );
+}
+
 export default function SessionPage() {
   const { id = '' } = useParams();
+  const malformed = isMalformedId(id);
   const q = useQuery({
     queryKey: ['session', id],
     queryFn: () => api.session(id),
+    enabled: !malformed,
     refetchInterval: (query) => (WORKING.has(query.state.data?.state ?? '') ? 4000 : false),
   });
   useSessionEvents(id, WORKING.has(q.data?.state ?? ''));
-  const screen = screenFor(q.data?.state);
+  const notFound = malformed || isNotFound(q.error);
+  const screen = notFound ? 'Interview not found' : screenFor(q.data?.state);
   usePageTitle(screen);
   // Analysis, configure, room and report generation share one URL: announce each new screen.
   const lastScreen = useRef(screen);
@@ -66,8 +78,9 @@ export default function SessionPage() {
     lastScreen.current = screen;
   }, [screen]);
 
-  if (q.isPending) return <div className="page"><CardSkeleton lines={5} /></div>;
-  if (q.error) return <div className="page"><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
+  if (notFound) return <SessionNotFound />;
+  if (q.isPending) return <div className="page"><CardSkeleton lines={5} label="Loading your interview" /></div>;
+  if (q.error) return <div className="page"><h1 className="h-sm" style={{ marginBottom: 16 }}>Your interview could not be loaded</h1><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
   const s = q.data;
 
   switch (s.state) {
@@ -163,36 +176,58 @@ function GeneratingReport({ session }: { session: SessionView }) {
   );
 }
 
+/** The retry cap: REPORT_RETRY_LIMIT_REACHED, or INTERVIEW_LIMIT_REACHED from an API that predates that code. */
+const retryCapReached = (e: unknown) => e instanceof ApiError && (e.code === 'REPORT_RETRY_LIMIT_REACHED' || e.code === 'INTERVIEW_LIMIT_REACHED');
+
+/** Retries the server still allows (`report.retriesLeft`); null when it doesn't say (older API). */
+const retriesLeft = (s: SessionView) => s.report.retriesLeft ?? null;
+
+/** The next 00:00 UTC in the learner's own clock, e.g. "5:30 am". */
+const utcMidnightLocal = (now = new Date()) =>
+  new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+
 function Ended({ session }: { session: SessionView }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [error, setError] = useState<unknown>(null);
   const [retrying, setRetrying] = useState(false);
-  const scoringFailed = session.state === 'failed' && session.failure?.stage === 'scoring';
+  const [capped, setCapped] = useState(false);
+  const failedScoring = session.state === 'failed' && session.failure?.stage === 'scoring';
   const code = session.failure?.code ?? '';
+  // The platform's daily AI budget stopped the report: the server generates it once the budget resets
+  // at 00:00 UTC, so a retry button could only fail until then.
+  const pausedScoring = failedScoring && code === 'AI_SERVICE_PAUSED';
+  // Every allowed retry is used up: no button that can only fail, and copy that says what to do instead.
+  const exhausted = failedScoring && !pausedScoring && (capped || retriesLeft(session) === 0);
+  const scoringFailed = failedScoring && !exhausted && !pausedScoring;
   // The analysis can fail because of the documents or because the AI service was unavailable.
   const serviceProblem = ['LLM_PROVIDER_UNAVAILABLE', 'LLM_TIMEOUT', 'LLM_OUTPUT_INVALID', 'AI_SERVICE_PAUSED', 'LLM_BUDGET_EXCEEDED'].includes(code);
   const title =
     session.state === 'failed'
-      ? scoringFailed
-        ? 'The report could not be generated'
-        : serviceProblem
-          ? 'The AI service could not analyse your documents'
-          : 'We could not analyse these documents'
+      ? pausedScoring
+        ? 'Your report will be generated later'
+        : failedScoring
+          ? 'The report could not be generated'
+          : serviceProblem
+            ? 'The AI service could not analyse your documents'
+            : 'We could not analyse these documents'
       : session.state === 'cancelled'
         ? 'This interview was cancelled'
         : 'This interview has expired';
-  const body = scoringFailed
-    ? 'Your answers are saved. Generating the report again is safe and will not create duplicates.'
-    : session.state !== 'failed'
-      ? 'Start a new interview whenever you are ready.'
-      : code === 'LLM_BUDGET_EXCEEDED'
-        ? 'You have reached today’s AI usage limit. Try again tomorrow; this attempt does not count toward your monthly quota.'
-        : code === 'AI_SERVICE_PAUSED'
-          ? 'New interviews are paused for today. Try again tomorrow; this attempt does not count toward your monthly quota.'
-          : serviceProblem
-            ? 'Your documents are fine. The AI service was unavailable, so nothing was analysed. Start a new interview to try again; this attempt does not count toward your monthly quota.'
-            : 'Check that the resume and job description contain readable text, then start a new interview.';
+  const pausedBody = `Your answers are saved. Report generation is paused until 00:00 UTC (${utcMidnightLocal()} your time) because the platform’s daily AI budget is used up; the report will then be generated automatically.`;
+  const body = exhausted
+    ? 'Your answers are saved, but we could not generate this report after several tries. Contact support and quote the reference below, or start a new interview.'
+    : scoringFailed
+      ? 'Your answers are saved. Generating the report again is safe and will not create duplicates.'
+      : session.state !== 'failed'
+        ? 'Start a new interview whenever you are ready.'
+        : code === 'LLM_BUDGET_EXCEEDED'
+          ? 'You have reached today’s AI usage limit. Try again tomorrow; this attempt does not count toward your monthly quota.'
+          : code === 'AI_SERVICE_PAUSED'
+            ? 'New interviews are paused for today. Try again tomorrow; this attempt does not count toward your monthly quota.'
+            : serviceProblem
+              ? 'Your documents are fine. The AI service was unavailable, so nothing was analysed. Start a new interview to try again; this attempt does not count toward your monthly quota.'
+              : 'Check that the resume and job description contain readable text, then start a new interview.';
   return (
     <div className="page" style={{ maxWidth: 720 }}>
       <div className="card stack lg">
@@ -200,8 +235,8 @@ function Ended({ session }: { session: SessionView }) {
           <span className={`icon-tile ${session.state === 'failed' ? 'bad' : ''}`}>{session.state === 'failed' ? <AlertTriangle className="icon" aria-hidden /> : <Check className="icon" aria-hidden />}</span>
           <h1 className="h-sm">{title}</h1>
         </div>
-        <p className="subtle">{body}</p>
-        {session.failure && <span className="hint">Reference: {session.failure.code}</span>}
+        <p className="subtle">{pausedScoring ? pausedBody : body}</p>
+        {session.failure && <span className="hint">Reference: {exhausted ? <><code>{session.id}</code> · </> : null}{session.failure.code}</span>}
         {error != null && <ErrorAlert error={error} />}
         <div className="row">
           {scoringFailed && (
@@ -216,7 +251,10 @@ function Ended({ session }: { session: SessionView }) {
                   await api.retryReport(session.id);
                   await qc.invalidateQueries({ queryKey: ['session', session.id] });
                 } catch (e) {
-                  setError(e);
+                  // The cap: the page switches to the "contact support" copy (older APIs send the
+                  // open-interview code here, whose catalogue message would be about something else).
+                  if (retryCapReached(e)) setCapped(true);
+                  else setError(e);
                 } finally {
                   setRetrying(false);
                 }

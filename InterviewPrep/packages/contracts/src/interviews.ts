@@ -100,6 +100,11 @@ export const TranscriptEntry = z
     practiceFeedback: PracticeFeedback.nullable(),
     /** Clarifying questions the candidate asked about this question, with the interviewer's replies. */
     clarifications: z.array(z.object({ question: z.string(), answer: z.string(), at: z.iso.datetime() })),
+    /**
+     * True on the current turn while the interview is paused: `question` and `clarifications` are
+     * empty until the candidate resumes, so a pause cannot be used to research the answer.
+     */
+    questionHidden: z.boolean().optional(),
   })
   .openapi('TranscriptEntry');
 export type TranscriptEntry = z.infer<typeof TranscriptEntry>;
@@ -127,7 +132,26 @@ export const SessionView = z
     }),
     currentTurn: TranscriptEntry.nullable(),
     transcript: z.array(TranscriptEntry),
-    report: z.object({ status: z.enum(['none', 'pending', 'ready', 'failed']), overallScore: z.number().int().nullable() }),
+    report: z.object({
+      status: z.enum(['none', 'pending', 'ready', 'failed']),
+      overallScore: z.number().int().nullable(),
+      /**
+       * Manual "generate again" attempts left while status is failed (null otherwise). 0: the button
+       * goes away. Attempts that failed before any AI call was billed, or while AI is paused for the
+       * day, do not count.
+       */
+      retriesLeft: z.number().int().nullable().optional(),
+    }),
+    /** Recorded for the report (never part of the score): pauses taken and times the tab was left. Always sent by this API. */
+    integrity: z
+      .object({
+        pauseCount: z.number().int(),
+        pausedSec: z.number().int(),
+        /** Pauses allowed in this interview; null = unlimited. */
+        maxPauses: z.number().int().nullable(),
+        tabHiddenCount: z.number().int(),
+      })
+      .optional(),
     failure: z.object({ code: z.string(), stage: z.string() }).nullable(),
     createdAt: z.iso.datetime(),
     startedAt: z.iso.datetime().nullable(),
@@ -158,6 +182,12 @@ export type ClarifyRequest = z.infer<typeof ClarifyRequest>;
 
 export const EndInterviewRequest = z.object({ reason: z.enum(['candidate_ended']).default('candidate_ended') }).openapi('EndInterviewRequest');
 
+/** POST /tab-hidden: sent when the interview tab becomes visible again after being hidden. */
+export const TabHiddenRequest = z
+  .object({ hiddenMs: z.number().int().min(0).max(24 * 3_600_000).optional() })
+  .openapi('TabHiddenRequest');
+export type TabHiddenRequest = z.infer<typeof TabHiddenRequest>;
+
 /**
  * Server-Sent Events emitted by POST /start, /question and /turns. The answer is a POST and
  * the response streams (ADD L5). Every stream ends with exactly one `done` or `error`.
@@ -184,6 +214,8 @@ export const TurnStreamEvent = z.discriminatedUnion('type', [
     message: z.string(),
     retryable: z.boolean(),
     request_id: z.string(),
+    /** Seconds to wait before trying again (429/503 codes). */
+    retry_after_sec: z.number().int().optional(),
   }),
 ]);
 export type TurnStreamEvent = z.infer<typeof TurnStreamEvent>;

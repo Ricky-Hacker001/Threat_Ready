@@ -45,7 +45,10 @@ label.fld { display: block; font-size: 11px; text-transform: uppercase; letter-s
 
 /* tabs */
 .wl-tabs { display: flex; gap: 2px; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 8px; overflow-x: auto; flex: 0 0 auto; }
-.wl-tablist { display: flex; gap: 2px; flex: 0 1 auto; min-width: 0; }
+/* The tool tabs scroll inside their own row when they don't fit (phones), so they never paint over
+   the Mission / Activity drawer toggles pinned at either end (UI-2). */
+.wl-tablist { display: flex; gap: 2px; flex: 0 1 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.wl-tablist::-webkit-scrollbar { display: none; }
 .wl-tab { padding: 9px 13px; font-size: 13px; color: var(--text-2); border: none; background: none; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 .wl-tab:hover { color: var(--text); }
 .wl-tab.active { color: var(--text); border-bottom-color: var(--accent); }
@@ -275,3 +278,6 @@ html[data-theme="light"] .wl .sev-Critical { color: #b3261e; }
 html[data-theme="light"] .wl .sev-High { color: #8a4b00; }
 html[data-theme="light"] .wl .sev-Medium { color: #7a5200; background: rgba(169,105,11,.12); }
 html[data-theme="light"] .wl .sev-Low { color: #1256a0; background: rgba(31,111,174,.12); }
+/* UI-16 — the light-theme --ok (#17734f) is only 4.41:1 on the selected mode card's tinted background;
+   a darker ok-text token keeps the "Selected"/"Verified"/ok badges >= 4.5:1 there and on any surface. */
+html[data-theme="light"] .wl .st-ok, html[data-theme="light"] .wl .st-Verified { color: #13603f; }

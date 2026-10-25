@@ -5,8 +5,8 @@ import { Store, Session } from './store';
 import { cloudLab001, LabEngine } from './engine';
 import { CATALOG } from './catalog';
 import { IdentityResolver, internalTokenMatches } from './identity';
-import { HostedLab, hostedLabs } from './hosted';
-import { limitFromEnv, rateLimiter } from './ratelimit';
+import { HostedLab, HostedSummary, hostedLabs } from './hosted';
+import { clientIp, limitFromEnv, rateLimiter } from './ratelimit';
 export { loadHostedLabs } from './hosted';
 
 const ENGINES: Record<string, LabEngine> = { [cloudLab001.labId]: cloudLab001 };
@@ -30,12 +30,31 @@ export interface AppOptions {
   /** Requests per minute per signed-in user / per client IP (defaults 120 / 300; env LABS_RATE_PER_MIN, LABS_RATE_IP_PER_MIN; 0 disables). */
   ratePerMin?: number;
   rateIpPerMin?: number;
+  /** Runs kept per learner and lab: older archived runs are dropped on reset; the best one and the best completed one are always kept (default 5; env LABS_MAX_RUNS_PER_LAB; 0 keeps all). */
+  maxRunsPerLab?: number;
+  /**
+   * Whether server-kept progress outlives a restart of this instance (on Render: the launcher's
+   * database mirror is on and saving). Asked per request; default env TR_STATE_DURABLE=1, which
+   * deploy/start.mjs sets. Decides whether the catalog says "Saved to your ThreatReady account".
+   */
+  durable?: () => boolean;
 }
 
+/** Set by the launcher (deploy/start.mjs) while lab state is mirrored to its database; read per request. */
+export const stateDurable = () => process.env.TR_STATE_DURABLE === '1';
 const pct = (score: number, max: number) => (max > 0 ? Math.round((score / max) * 100) : 0);
 const runStatus = (s: Session, st: any) => (st.complete ? 'Completed' : s.status === 'archived' ? 'Archived' : 'In progress');
 /** A run saved by an older build of the engine may no longer evaluate; it must not take the catalog down. */
 const safeStatus = (e: LabEngine, s: Session) => { try { return e.status(s.state); } catch (err) { console.error(`run ${s.id} (${s.labId}) cannot be evaluated: ${(err as Error).message}`); return null; } };
+/** A hosted lab's progress for the profile, or null when it cannot answer in time (the summary must not wait on one lab). */
+const SUMMARY_TIMEOUT_MS = 1500;
+async function hostedSummary(h: HostedLab, userId: string): Promise<HostedSummary | null> {
+  if (!h.summary) return null;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([h.summary(userId), new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), SUMMARY_TIMEOUT_MS); })]);
+  } catch (err) { console.error(`${h.slug} summary failed: ${(err as Error).message}`); return null; } finally { clearTimeout(timer); }
+}
 
 export function createApp(store: Store, staticDir: string | undefined, opts: AppOptions) {
   const app = express();
@@ -57,27 +76,21 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   // Reached in-VPC only, never routed through Cloudflare, and every call carries the internal token.
   const internal = express.Router();
   internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, opts.internalToken)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
-  internal.get('/users/:userId/summary', (req, res) => {
+  internal.get('/users/:userId/summary', async (req, res) => {
     const userId = req.params.userId;
     if (!userId || userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
     const runs = store.allSessionsOf(userId).filter(s => ENGINES[s.labId]);
     const rows = runs.flatMap(s => { const e = ENGINES[s.labId]; const st = safeStatus(e, s); return st ? [{ s, e, st, percent: pct(st.score.total, st.score.max) }] : []; });
-    const labsStarted = new Set(rows.map(r => r.s.labId)).size;
-    const labsCompleted = new Set(rows.filter(r => r.st.complete).map(r => r.s.labId)).size;
-    const best = rows.length ? Math.max(...rows.map(r => r.percent)) : null;
-    const active = rows.filter(r => r.s.status === 'active' && !r.st.complete);
+    // Labs with their own server (SOC simulation, Red Team) report their own progress; browser-graded labs keep theirs in the browser.
+    const hosted = (await Promise.all((opts.hosted ?? []).map(h => hostedSummary(h, userId)))).filter((x): x is HostedSummary => !!x);
+    const labsStarted = new Set(rows.map(r => r.s.labId)).size + hosted.filter(h => h.started).length;
+    const labsCompleted = new Set(rows.filter(r => r.st.complete).map(r => r.s.labId)).size + hosted.filter(h => h.completed).length;
+    const bests = [...rows.map(r => r.percent), ...hosted.flatMap(h => (h.best === null ? [] : [h.best]))];
+    const best = bests.length ? Math.max(...bests) : null;
+    const active = rows.filter(r => r.s.status === 'active' && !r.st.complete).length + hosted.reduce((n, h) => n + h.inProgress, 0);
     const origin = opts.appOrigin.replace(/\/+$/, '');
-    res.json({
-      app: 'labs',
-      stats: [
-        { label: 'Labs started', value: labsStarted, hint: `${Object.keys(ENGINES).length + (opts.hosted?.length ?? 0)} available now` },
-        { label: 'Labs completed', value: labsCompleted },
-        { label: 'Best score', value: best === null ? '—' : `${best}/100` },
-        { label: 'In progress', value: active.length },
-        { label: 'Total runs', value: rows.length },
-        { label: 'Findings verified', value: rows.filter(r => r.s.status === 'active').reduce((n, r) => n + (r.st.posture?.resolved ?? 0), 0) },
-      ],
-      items: rows.slice(0, 10).map(r => ({
+    const items = [
+      ...rows.map(r => ({
         id: r.s.id,
         title: `${r.e.title} · run ${r.s.run}`,
         status: r.st.complete ? 'Completed' : r.s.status === 'archived' ? 'Archived' : `In progress · level ${r.st.level}`,
@@ -85,6 +98,19 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
         at: r.s.updatedAt,
         url: `${origin}/labs/${encodeURIComponent(r.s.labId)}`,
       })),
+      ...hosted.flatMap(h => h.items),
+    ].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    res.json({
+      app: 'labs',
+      stats: [
+        { label: 'Labs started', value: labsStarted, hint: `${Object.keys(ENGINES).length + (opts.hosted?.length ?? 0)} available now` },
+        { label: 'Labs completed', value: labsCompleted },
+        { label: 'Best score', value: best === null ? '—' : `${best}/100` },
+        { label: 'In progress', value: active },
+        { label: 'Total runs', value: rows.length + hosted.reduce((n, h) => n + h.runs, 0) },
+        { label: 'Findings verified', value: rows.filter(r => r.s.status === 'active').reduce((n, r) => n + (r.st.posture?.resolved ?? 0), 0) + hosted.reduce((n, h) => n + (h.findingsVerified ?? 0), 0) },
+      ],
+      items: items.slice(0, 10),
       // Labs run on server-side emulators; no LLM calls, so no AI usage.
       aiUsage: null,
     });
@@ -103,13 +129,14 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     next();
   });
 
-  // Per-IP limit before sign-in is resolved (protects the identity lookup too), per-user limit after.
-  api.use(limiter.ipMiddleware);
-
   // Identity: the ThreatReady session from onboard. No session → 401; a trial session → account required.
+  // The per-IP limit covers requests that are not yet known to be signed in (no session, or one that
+  // needs a lookup), so it also protects the identity lookup; a learner the resolver already knows
+  // pays only the per-user limit, so a classroom behind one NAT address is not throttled as one client.
   api.use(async (req, res, next) => {
     try {
-      const r = await opts.identity(req.headers);
+      if (!opts.identity.peek?.(req.headers) && !limiter.ip(req, res)) return;
+      const r = await opts.identity(req.headers, clientIp(req.headers, req.ip));
       if (r.ok === false) {
         if (r.reason === 'unavailable') return res.status(503).set('Retry-After', '5').json({ error: 'Sign-in is briefly unavailable. Try again in a moment.', code: 'AUTH_PROVIDER_UNAVAILABLE' });
         for (const c of r.setCookies) res.append('Set-Cookie', c);
@@ -137,21 +164,26 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   /** The catalog with this learner's progress in each playable lab. */
   api.get('/labs', (req, res) => {
     const user = (req as any).user;
+    // Where server-kept progress lives: "account" once it outlives a restart (saved with the platform
+    // account), else "server" (this instance only). "browser": the lab keeps it in the learner's browser.
+    const kept = (opts.durable ?? stateDurable)() ? 'account' : 'server';
     res.json(CATALOG.map(c => {
       // Hosted labs keep their own progress; they are live when this server serves them.
-      if (c.href) return { ...c, available: !!opts.hosted?.some(h => `${h.slug}/` === c.href), progress: null };
+      if (c.href) { const h = opts.hosted?.find(x => `${x.slug}/` === c.href); return { ...c, available: !!h, progress: null, progressIn: h && 'handler' in h ? kept : 'browser', onProfile: !!h?.summary }; }
       const e = ENGINES[c.id];
       if (!e) return { ...c, available: false, progress: null };
       const runs = store.sessionsOf(user.id, c.id);
       const latest = runs[runs.length - 1];
-      if (!latest) return { ...c, available: true, progress: null };
+      const where = { progressIn: kept, onProfile: true };
+      if (!latest) return { ...c, available: true, progress: null, ...where };
       const st = safeStatus(e, latest);
-      if (!st) return { ...c, available: true, progress: null };
-      return { ...c, available: true, progress: { runs: runs.length, status: runStatus(latest, st), level: st.level, percent: st.progress, score: st.score.total, max: st.score.max, complete: st.complete, updatedAt: latest.updatedAt } };
+      if (!st) return { ...c, available: true, progress: null, ...where };
+      return { ...c, available: true, ...where, progress: { runs: runs.length, status: runStatus(latest, st), level: st.level, percent: st.progress, score: st.score.total, max: st.score.max, complete: st.complete, updatedAt: latest.updatedAt } };
     }));
   });
 
-  api.get('/labs/:labId', (req, res) => { const e = engineOf(req.params.labId); if (!e) return res.status(404).json({ error: 'Lab not found.' }); res.json(e.definition()); });
+  const maxRuns = opts.maxRunsPerLab ?? limitFromEnv('LABS_MAX_RUNS_PER_LAB', 5);
+  api.get('/labs/:labId', (req, res) => { const e = engineOf(req.params.labId); if (!e) return res.status(404).json({ error: 'Lab not found.' }); res.json({ ...e.definition(), maxRuns }); });
 
   const snapshot = (s: Session) => { const e = ENGINES[s.labId]; return { session: { id: s.id, run: s.run, status: s.status, createdAt: s.createdAt }, cloud: e.view(s.state), status: e.status(s.state) }; };
 
@@ -183,6 +215,9 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
     if (s.status !== 'active') return res.status(409).json({ error: 'This run is archived and read-only.' });
     if (hasOwn(s.requests, requestId)) return res.json({ ...s.requests[requestId], replayed: true, ...snapshot(s) });
     const { state, result } = e.dispatch(s.state, { type, params });
+    // A completed run is read-only (the engine refuses every action once the report is in): nothing is
+    // stored, and the reply carries the closed run, so a stale tab turns read-only too.
+    if (result.code === 'LabComplete' && state === s.state) return res.json({ ...result, ...snapshot(s) });
     store.commit(s, state, requestId, result);
     res.json({ ...result, ...snapshot(s) });
   });
@@ -204,12 +239,31 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   api.post('/sessions/:sid/reset', (req, res) => {
     const s: Session = (req as any).session; const e = ENGINES[s.labId];
     if (req.body?.confirm !== 'RESET') return res.status(400).json({ error: 'Reset must be confirmed.' });
-    res.json(snapshot(store.createSession(s.userId, s.labId, e.createInitialState()))); // previous run is archived, not deleted
+    const next = store.createSession(s.userId, s.labId, e.createInitialState()); // the previous run is archived
+    // Runs are capped per learner and lab (a reset loop must not grow the store without bound): the
+    // oldest archived runs go first. The best-scoring run stays, so the profile's best score holds, and so
+    // does the best completed run (an incomplete run can score higher than a completed one that used
+    // hints), so a completed lab stays completed and its final report stays readable.
+    if (maxRuns > 0) {
+      type Scored = { r: Session; p: number; done: boolean };
+      const scored: Scored[] = store.sessionsOf(s.userId, s.labId).map(r => { const st = safeStatus(e, r); return { r, p: st ? pct(st.score.total, st.score.max) : -1, done: !!st?.complete }; });
+      const top = (xs: Scored[]) => xs.reduce<Scored | null>((b, x) => (!b || x.p > b.p ? x : b), null);
+      const keep = [top(scored), top(scored.filter(x => x.done))].flatMap(x => (x ? [x.r.id] : []));
+      store.pruneRuns(s.userId, s.labId, maxRuns, new Set([next.id, ...keep]));
+    }
+    res.json(snapshot(next));
   });
 
   app.use('/api', api);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
   if (staticDir && fs.existsSync(staticDir)) { app.use(express.static(staticDir)); app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html'))); }
-  app.use((err: any, _req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.' }); console.error(err); res.status(500).json({ error: 'Internal error.' }); });
+  // A request the parsers refuse (a malformed or too large body, an unsupported encoding or charset, an
+  // undecodable URL parameter) is the client's fault: a 4xx, never a 500 with a stack in the log.
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.' });
+    const status = Number(err?.status ?? err?.statusCode);
+    if (status >= 400 && status < 500) return res.status(status).json({ error: err.type ? 'Invalid request body.' : 'Invalid request.' });
+    console.error(err); res.status(500).json({ error: 'Internal error.' });
+  });
   return app;
 }

@@ -16,6 +16,7 @@ import { decideNext, meanLevel } from './adaptive.js';
 import { analysisOf } from './analysis.service.js';
 import { InterviewService } from './interview.service.js';
 import { rubricKindFor, type InterviewPlan, type PendingTurn, type PlanItem, type SessionProgress } from './plan.types.js';
+import { EVALUATING_LEASE_MS } from './recovery.js';
 import { configOf, loadOwnedSession, loadTurns, planOf, progressOf, transition, type SessionRow, type TurnRow } from './session.repo.js';
 import { remainingSec, startClock, stopClock } from './timing.js';
 
@@ -97,7 +98,9 @@ export class TurnService {
         .returning();
       if (!turn) throw new DomainError('INTERVIEW_INVALID_STATE');
       const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince });
-      const next = await transition(tx, s, ['awaiting_answer'], { state: 'evaluating', ...clock, lastActivityAt: new Date() }, 'INTERVIEW_TURN_IN_PROGRESS');
+      // The lease lets a lost evaluation (process restart mid-call) be recovered instead of blocking the session (recovery.ts).
+      const progress = { ...progressOf(s), evaluatingLeaseUntil: new Date(Date.now() + EVALUATING_LEASE_MS).toISOString() };
+      const next = await transition(tx, s, ['awaiting_answer'], { state: 'evaluating', ...clock, lastActivityAt: new Date(), progress }, 'INTERVIEW_TURN_IN_PROGRESS');
       return { replay: false as const, session: next, turn };
     });
     if (stored.replay) return this.finishWithView(p, stored.session.id, sse);
@@ -128,6 +131,7 @@ export class TurnService {
     const level = meanLevel(evaluation);
     const updated: SessionProgress = {
       ...progress,
+      evaluatingLeaseUntil: undefined,
       recentLevels: level === null ? progress.recentLevels : [...progress.recentLevels, level].slice(-6),
       runningSummary: [...progress.runningSummary, summaryLine(this.content, item, turn, evaluation)].slice(-12),
       integrityFlags: progress.integrityFlags + (evaluation?.answer_integrity.instructs_grader ? 1 : 0),
@@ -182,22 +186,30 @@ export class TurnService {
    * keeps running, as in a real interview.
    */
   async clarify(p: Principal, id: string, req: ClarifyRequest, sse: SseStream): Promise<void> {
-    const { session, turn } = await this.db.user(p, async (tx) => {
+    // The clarification's slot is taken before the model is asked, in one guarded UPDATE: parallel
+    // requests cannot all pass the count and each pay for a reply (audit 2026-10-23 TR-08). The reply
+    // is written into that slot afterwards; until then its answer is empty and it is not shown.
+    const { session, turn, slot } = await this.db.user(p, async (tx) => {
       const s = await loadOwnedSession(tx, p.userId, id);
       if (s.state !== 'awaiting_answer' || s.currentTurnId !== req.turnId) throw new DomainError('INTERVIEW_INVALID_STATE');
       const [t] = await tx.db.select().from(interviewTurns).where(and(eq(interviewTurns.id, req.turnId), eq(interviewTurns.sessionId, s.id)));
       if (!t || t.answer) throw new DomainError('INTERVIEW_INVALID_STATE');
-      if (t.clarifications.length >= MAX_CLARIFICATIONS) {
-        throw new DomainError('INTERVIEW_LIMIT_REACHED', { message: 'You can ask up to three clarifying questions per question' });
-      }
-      return { session: s, turn: t };
+      const entry = { question: req.message, answer: '', at: new Date().toISOString() };
+      const [claimed] = await tx.db
+        .update(interviewTurns)
+        .set({ clarifications: sql`${interviewTurns.clarifications} || ${JSON.stringify([entry])}::jsonb` })
+        .where(and(eq(interviewTurns.id, t.id), sql`jsonb_array_length(${interviewTurns.clarifications}) < ${MAX_CLARIFICATIONS}`))
+        .returning({ n: sql<number>`jsonb_array_length(${interviewTurns.clarifications})` });
+      if (!claimed) throw new DomainError('CLARIFICATION_LIMIT_REACHED');
+      return { session: s, turn: t, slot: Number(claimed.n) - 1 };
     });
 
     const analysis = analysisOf(session)!;
     let reply = '';
     try {
       const meta: CallMeta = { feature: 'interview.clarify', owner: { userId: p.userId, orgId: p.orgId }, sourceId: session.id, budget: 'live_turn' };
-      const request = clarifyRequest({ job: analysis.job, question: stripOpening(turn.question), message: req.message, earlier: turn.clarifications });
+      const earlier = turn.clarifications.filter((c) => c.answer);
+      const request = clarifyRequest({ job: analysis.job, question: stripOpening(turn.question), message: req.message, earlier });
       for await (const chunk of this.llm.stream(meta, { ...request, timeoutMs: QUESTION_TIMEOUT_MS })) {
         if (reply.length >= MAX_QUESTION_CHARS) continue;
         reply += chunk;
@@ -213,11 +225,11 @@ export class TurnService {
     }
 
     await this.db.user(p, async (tx) => {
-      const entry = { question: req.message, answer: reply, at: new Date().toISOString() };
+      // Entries are only ever appended, so the slot's index is stable.
       await tx.db
         .update(interviewTurns)
-        .set({ clarifications: sql`${interviewTurns.clarifications} || ${JSON.stringify([entry])}::jsonb` })
-        .where(and(eq(interviewTurns.id, turn.id), sql`jsonb_array_length(${interviewTurns.clarifications}) < ${MAX_CLARIFICATIONS}`));
+        .set({ clarifications: sql`jsonb_set(${interviewTurns.clarifications}, ${`{${slot},answer}`}::text[], to_jsonb(${reply}::text))` })
+        .where(eq(interviewTurns.id, turn.id));
       await tx.db.update(interviewSessions).set({ lastActivityAt: new Date() }).where(eq(interviewSessions.id, session.id));
     });
     return this.finishWithView(p, session.id, sse);

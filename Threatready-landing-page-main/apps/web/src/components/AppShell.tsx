@@ -1,11 +1,11 @@
 import type { AppInfo, Me } from "@threatready/contracts";
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
-import { appForUrl, clearNext, pendingNext, takeNext } from "../lib/platform";
-import { AppSwitcher, BrandLink, PlatformFooter, PlatformHeader, PlatformLoading, rememberApps, ThemeToggle, type ShellLocation } from "./Platform";
+import { clearNext, pendingNext, rememberNext, takeNext } from "../lib/platform";
+import { appAt, AppSwitcher, BrandLink, nextPrefixes, PlatformFooter, PlatformHeader, PlatformLoading, rememberApps, ThemeToggle, type ShellLocation } from "./Platform";
 import { ProfileMenu } from "./ProfileMenu";
 import { Button, Notice } from "./ui";
 
@@ -16,7 +16,7 @@ interface MeContext {
   apps: AppInfo[];
 }
 
-const appTitleFor = (apps: AppInfo[], url: string) => appForUrl(apps, url)?.title ?? "that app";
+const appTitleFor = (apps: AppInfo[], url: string) => appAt(apps, url)?.title ?? "that app";
 const Ctx = createContext<MeContext | null>(null);
 export function useMe(): MeContext {
   const v = useContext(Ctx);
@@ -24,9 +24,12 @@ export function useMe(): MeContext {
   return v;
 }
 
+/** Set when a 401 sent the browser to sign in; a second one moments later means the local session is stuck. */
+const EXPIRED_KEY = "tr_session_expired_at";
+
 /** Protected layout: no session → back to the auth page. */
 export function AppShell() {
-  const { data: session } = useSession();
+  const { data: session, refetch: refetchSession } = useSession();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   // Header "current" follows the route; only /app itself is Home.
@@ -37,8 +40,10 @@ export function AppShell() {
   const [signingOut, setSigningOut] = useState(false);
   const [leaving, setLeaving] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const expired = useRef(false);
 
   const refresh = useCallback(async () => {
+    if (expired.current) return; // already on the way to sign-in
     try {
       const [m, c] = await Promise.all([api.me(), api.config()]);
       setMe(m);
@@ -47,12 +52,27 @@ export function AppShell() {
       setError(null);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        navigate("/", { replace: true });
+        expired.current = true;
+        // The session ended (signed out elsewhere, revoked, cookies cleared). Re-read it past the
+        // cookie cache first: the auth page trusts the client's cached session and would send the
+        // browser straight back here, again and again. Then sign in and return to this page.
+        let last = 0;
+        try {
+          last = Number(sessionStorage.getItem(EXPIRED_KEY)) || 0;
+          sessionStorage.setItem(EXPIRED_KEY, String(Date.now()));
+        } catch {
+          /* storage unavailable */
+        }
+        await refetchSession({ query: { disableCookieCache: true } }).catch(() => undefined);
+        // Bounced straight back: drop the local session outright rather than loop.
+        if (Date.now() - last < 10_000) await authClient.signOut().catch(() => undefined);
+        rememberNext(window.location.href);
+        navigate("/?reason=expired", { replace: true });
         return;
       }
-      setError(err instanceof ApiError ? err.message : messageFor(null));
+      setError(err instanceof ApiError ? (err.status === 429 ? messageFor(err) : err.message) : messageFor(null));
     }
-  }, [navigate]);
+  }, [navigate, refetchSession]);
 
   // The API, not the client-side session cache, decides access: /api/me
   // returning 401 sends the user back to sign in. Re-checks when the session
@@ -71,21 +91,32 @@ export function AppShell() {
       setFlash(`${title} needs a ThreatReady account. Create a free one to continue.`);
       return;
     }
-    const { url, bounced } = takeNext(config.appOrigins);
+    const { url, bounced } = takeNext(config.appOrigins, nextPrefixes(config.apps));
     if (url) {
+      const target = new URL(url);
+      if (target.origin === window.location.origin && /^\/app(\/|$)/.test(target.pathname)) {
+        // One of onboard's own pages (a session that expired here): no reload needed.
+        navigate(`${target.pathname}${target.search}${target.hash}`, { replace: true });
+        return;
+      }
       setLeaving(appTitleFor(config.apps, url));
       window.location.replace(url);
     } else if (bounced) {
       setFlash(`We couldn't open ${appTitleFor(config.apps, bounced)}. It may be unavailable; try again in a moment.`);
     }
-  }, [me, config]);
+  }, [me, config, navigate]);
 
   async function signOut() {
     setSigningOut(true);
+    expired.current = true; // leaving on purpose: no "session ended" round trip
+    clearNext();
     // A trial user can't come back to the same trial, so remove it rather than leave an orphan.
     if (me?.user.isTrial) await authClient.deleteAnonymousUser().catch(() => undefined);
-    await authClient.signOut();
-    navigate("/", { replace: true });
+    await authClient.signOut().catch(() => undefined);
+    // A fresh page load, not a client-side navigation: the client's session store still holds the old
+    // session for a moment after sign-out (Better Auth refetches it later), so the sign-in page would
+    // send the browser back to /app and on to "Your session ended". A new document reads the session anew.
+    window.location.replace("/");
   }
 
   let who: ReactNode = null;

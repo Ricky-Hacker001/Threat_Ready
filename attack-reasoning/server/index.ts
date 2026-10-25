@@ -1,7 +1,6 @@
 import path from 'node:path';
-import express from 'express';
-import { createApp } from './app';
 import { onboardApps, onboardIdentity } from './identity';
+import { createStandaloneServer, trustProxyFrom } from './standalone';
 
 const root = path.resolve(import.meta.dirname, '..');
 try { process.loadEnvFile(path.join(root, '.env')); } catch { /* no .env: use the real environment */ }
@@ -21,18 +20,19 @@ const reasoningApiUrl = process.env.REASONING_API_URL;
 if (!reasoningApiUrl) console.warn('REASONING_API_URL is not set: assessments are unavailable; the catalogue still serves.');
 
 // The app lives under /ar (its API at /ar/api, onboard's internal calls at /ar/internal); /v1 is the engine.
-const ar = createApp(path.join(root, 'dist'), {
+const appOrigin = new URL(env('APP_ORIGIN', 'http://localhost:5176')).origin;
+const server = createStandaloneServer(path.join(root, 'dist'), {
   identity: onboardIdentity({ identityUrl, internalToken, cacheSeconds: Number(process.env.IDENTITY_CACHE_SECONDS ?? 30) }),
   internalToken,
-  appOrigin: new URL(env('APP_ORIGIN', 'http://localhost:5176')).origin,
+  appOrigin,
   onboardUrl: new URL(env('ONBOARD_URL', 'http://localhost:5173')).origin,
   apps: onboardApps(identityUrl),
   reasoningApi: reasoningApiUrl ? { url: new URL(reasoningApiUrl).origin } : undefined,
+}, {
+  // Behind a reverse proxy, say so (AR_TRUST_PROXY=1, or loopback, or its addresses); a proxy that
+  // sets x-threatready-client-ip for every request: AR_TRUST_CLIENT_IP_HEADER=1.
+  trustProxy: trustProxyFrom(process.env.AR_TRUST_PROXY),
+  trustClientIpHeader: process.env.AR_TRUST_CLIENT_IP_HEADER === '1',
+  hsts: appOrigin.startsWith('https://'),
 });
-const server = express();
-server.disable('x-powered-by');
-server.use('/ar', ar);
-// The SPA calls /v1/reasoning/* on its own origin; same handler as under /ar.
-if (reasoningApiUrl) server.use('/v1', ar);
-server.get('/', (_req, res) => res.redirect(302, '/ar/'));
 server.listen(port, () => console.log(`ThreatReady Attack Reasoning — http://localhost:${port}/ar/`));

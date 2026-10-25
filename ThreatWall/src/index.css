@@ -46,7 +46,8 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-/* The appliance (lab screen) is a light UI; the ThreatReady training layer (home, record, notebook) is dark. */
+/* Dark-only by design (VIS-07): the ThreatReady training layer (home, record, notebook) is dark and does not follow the
+   platform theme. The appliance (lab screen) is a simulated vendor UI with a fixed light look, so its native controls stay light. */
 html { color-scheme: light; }
 html:not([data-screen='lab']) { color-scheme: dark; background: #0b1520; }
 body { margin: 0; font: 13px/1.4 var(--font); color: var(--text); background: var(--canvas); -webkit-font-smoothing: antialiased; }

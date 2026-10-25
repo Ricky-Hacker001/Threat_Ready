@@ -2,6 +2,7 @@ import { AI_CONSENT_VERSION } from '@threatready/contracts';
 import { randomUUID } from 'node:crypto';
 import type { SessionView } from '@threatready/contracts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { InterviewService } from '../src/modules/interview/interview.service.js';
 import { JobsService } from '../src/modules/jobs/jobs.service.js';
 import { drainJobs, JD_TEXT, ORIGIN, resetDatabase, RESUME_TEXT, signUp, sse, startApp, type Agent, type TestApp } from './harness.js';
 import { docxFrom, uploadDocument } from './harness.js';
@@ -79,7 +80,7 @@ describe('session resilience', () => {
     await sse(agent, `/v1/interviews/${s.id}/clarify`, { turnId, message: 'Do I have admin access?' });
     const fourth = await sse(agent, `/v1/interviews/${s.id}/clarify`, { turnId, message: 'One more thing?' });
     expect(fourth.status).toBe(409);
-    expect(fourth.raw.body).toContain('INTERVIEW_LIMIT_REACHED');
+    expect(fourth.raw.body).toContain('CLARIFICATION_LIMIT_REACHED');
 
     await agent.post(`/v1/interviews/${s.id}/pause`).set('Origin', ORIGIN);
     const whilePaused = await sse(agent, `/v1/interviews/${s.id}/clarify`, { turnId, message: 'Could you repeat that?' });
@@ -296,5 +297,278 @@ describe('session resilience', () => {
     await t.app.get(JobsService).sweep();
     process.env.APP_ROLE = 'api';
     expect((await agent.get(`/v1/interviews/${s.id}`)).body.state).toBe('scoring');
+  });
+});
+
+describe('session integrity, recovery and report retries (audit 2026-10-23, second pass)', () => {
+  let t: TestApp;
+  let agent: Agent;
+
+  beforeAll(async () => {
+    t = await startApp({ INTERVIEW_MAX_OPEN_SESSIONS: '50', INTERVIEW_MONTHLY_QUOTA_FREE: '100', RATE_LIMIT_SCALE: '20' });
+    agent = await signUp(t, 'Integrity Learner');
+  });
+  beforeEach(() => t.llm.reset());
+  afterAll(async () => t?.close());
+
+  const answerAndEnd = async (s: SessionView) => {
+    await sse(agent, `/v1/interviews/${s.id}/turns`, { turnId: s.currentTurn!.turnId, answer: ANSWER, clientSubmissionId: randomUUID() });
+    const ended = await agent.post(`/v1/interviews/${s.id}/end`).set('Origin', ORIGIN).send({ reason: 'candidate_ended' });
+    expect(ended.body.state).toBe('scoring');
+  };
+  const progressOfRow = async (id: string) => (await t.pool.query('SELECT progress FROM interview_sessions WHERE id = $1', [id])).rows[0].progress;
+
+  it('a paused interview hides the question; pauses and tab switches are counted and reported (TR-24)', async () => {
+    const s = await readySession(t, agent);
+    const question = s.currentTurn!.question;
+    const paused = await agent.post(`/v1/interviews/${s.id}/pause`).set('Origin', ORIGIN);
+    expect(paused.body.currentTurn).toMatchObject({ turnId: s.currentTurn!.turnId, question: '', questionHidden: true, clarifications: [] });
+    const view = await agent.get(`/v1/interviews/${s.id}`);
+    expect(JSON.stringify(view.body)).not.toContain(question.slice(-40));
+    expect(view.body.transcript.some((e: { turnId: string }) => e.turnId === s.currentTurn!.turnId)).toBe(false);
+    expect(view.body.integrity).toMatchObject({ pauseCount: 1, maxPauses: null, tabHiddenCount: 0 });
+    await t.pool.query(`UPDATE interview_sessions SET integrity = jsonb_set(integrity, '{pausedAt}', to_jsonb((now() - interval '2 minutes')::text)) WHERE id = $1`, [s.id]);
+    for (const hiddenMs of [4000, 9000]) expect((await agent.post(`/v1/interviews/${s.id}/tab-hidden`).set('Origin', ORIGIN).send({ hiddenMs })).status).toBe(204);
+    const resumed = await agent.post(`/v1/interviews/${s.id}/resume`).set('Origin', ORIGIN);
+    expect(resumed.body.currentTurn.question).toBe(question);
+    expect(resumed.body.currentTurn.questionHidden).toBeUndefined();
+    expect(resumed.body.integrity.pausedSec).toBeGreaterThanOrEqual(119);
+    await answerAndEnd(resumed.body);
+    await drainJobs(t);
+    const report = await agent.get(`/v1/interviews/${s.id}/report`);
+    expect(report.body.integrity).toMatchObject({ pauseCount: 1, tabHiddenCount: 2 });
+    expect(report.body.integrity.pausedSec).toBeGreaterThanOrEqual(119);
+    expect(report.body.integrityNotes.join(' ')).toMatch(/paused the interview once.*about 2 minutes/);
+    expect(report.body.integrityNotes.join(' ')).toMatch(/switched away from the interview tab 2 times/);
+    // Once the interview is over, tab reports change nothing.
+    expect((await agent.post(`/v1/interviews/${s.id}/tab-hidden`).set('Origin', ORIGIN).send({})).status).toBe(204);
+  });
+
+  it('INTERVIEW_MAX_PAUSES caps the pauses a candidate may take', async () => {
+    const capped = await startApp({ INTERVIEW_MAX_PAUSES: '1', INTERVIEW_MAX_OPEN_SESSIONS: '50', INTERVIEW_MONTHLY_QUOTA_FREE: '100', RATE_LIMIT_SCALE: '20' });
+    try {
+      const a = await signUp(capped, 'Pause Capped');
+      const s = await readySession(capped, a);
+      expect((await a.post(`/v1/interviews/${s.id}/pause`).set('Origin', ORIGIN)).body.integrity.maxPauses).toBe(1);
+      expect((await a.post(`/v1/interviews/${s.id}/resume`).set('Origin', ORIGIN)).status).toBe(200);
+      const again = await a.post(`/v1/interviews/${s.id}/pause`).set('Origin', ORIGIN);
+      expect(again.status).toBe(409);
+      expect(again.body.error.code).toBe('INTERVIEW_PAUSE_LIMIT_REACHED');
+    } finally {
+      await capped.close();
+    }
+  });
+
+  it('an evaluation lost mid-call is recovered: the interview moves on, and ending is possible (TR-23)', async () => {
+    const s = await readySession(t, agent);
+    const stall = async (leaseOffsetSec: number) => {
+      await t.pool.query(`UPDATE interview_turns SET answer = $2, answered_at = now(), evaluation_status = 'pending' WHERE id = $1`, [s.currentTurn!.turnId, ANSWER]);
+      await t.pool.query(
+        `UPDATE interview_sessions SET state = 'evaluating', running_since = null,
+           progress = jsonb_set(progress, '{evaluatingLeaseUntil}', to_jsonb((now() + make_interval(secs => $2))::text)) WHERE id = $1`,
+        [s.id, leaseOffsetSec],
+      );
+    };
+    await stall(120);
+    expect((await agent.post(`/v1/interviews/${s.id}/end`).set('Origin', ORIGIN)).status).toBe(409); // still within its lease
+    expect((await agent.get(`/v1/interviews/${s.id}`)).body.state).toBe('evaluating');
+    await stall(-5);
+    const recovered = await agent.get(`/v1/interviews/${s.id}`);
+    expect(recovered.body.state).toBe('asking');
+    const { rows } = await t.pool.query('SELECT evaluation_status FROM interview_turns WHERE id = $1', [s.currentTurn!.turnId]);
+    expect(rows[0].evaluation_status).toBe('failed');
+    const next = done((await sse(agent, `/v1/interviews/${s.id}/question`)).events)!;
+    expect(next.state).toBe('awaiting_answer');
+    expect(next.progress.questionNumber).toBe(2);
+
+    // The sweeper recovers too, and an expired lease never blocks ending.
+    const s2 = await readySession(t, agent);
+    await t.pool.query(`UPDATE interview_turns SET answer = $2, answered_at = now(), evaluation_status = 'pending' WHERE id = $1`, [s2.currentTurn!.turnId, ANSWER]);
+    await t.pool.query(`UPDATE interview_sessions SET state = 'evaluating', last_activity_at = now() - interval '10 minutes', progress = progress - 'evaluatingLeaseUntil' WHERE id = $1`, [s2.id]);
+    process.env.APP_ROLE = 'worker';
+    await t.app.get(JobsService).sweep();
+    process.env.APP_ROLE = 'api';
+    expect((await t.pool.query('SELECT state FROM interview_sessions WHERE id = $1', [s2.id])).rows[0].state).toBe('asking');
+    const s3 = await readySession(t, agent);
+    await t.pool.query(`UPDATE interview_turns SET answer = $2, answered_at = now(), evaluation_status = 'pending' WHERE id = $1`, [s3.currentTurn!.turnId, ANSWER]);
+    await t.pool.query(`UPDATE interview_sessions SET state = 'evaluating', progress = jsonb_set(progress, '{evaluatingLeaseUntil}', to_jsonb((now() - interval '1 minute')::text)) WHERE id = $1`, [s3.id]);
+    const ended = await agent.post(`/v1/interviews/${s3.id}/end`).set('Origin', ORIGIN);
+    expect(ended.status).toBe(200);
+    expect(ended.body.state).toBe('scoring');
+  });
+
+  it('while the daily AI breaker refuses final scoring, retries are not used up, and the report is generated once it closes (IP-REG0, AR-REG0)', async () => {
+    const s = await readySession(t, agent);
+    await answerAndEnd(s);
+    const { rows: [other] } = await t.pool.query(`SELECT org_id, user_id FROM interview_sessions WHERE user_id <> (SELECT user_id FROM interview_sessions WHERE id = $1) LIMIT 1`, [s.id]);
+    const owner = other ?? (await t.pool.query('SELECT org_id, user_id FROM interview_sessions WHERE id = $1', [s.id])).rows[0];
+    const spend = (1.11 * t.cfg.AI_GLOBAL_DAILY_CAP_USD).toFixed(2);
+    const { rows: [row] } = await t.pool.query(
+      `INSERT INTO llm_call_log (org_id, user_id, feature, tier, model, prompt_version, status, estimated_cost_usd, cost_usd)
+       VALUES ($1, $2, 'test.breaker', 'LARGE', 'claude-sonnet-5-5', 't', 'settled', $3, $3) RETURNING id`,
+      [owner.org_id, owner.user_id, spend],
+    );
+    try {
+      await drainJobs(t, { only: ['interview.final_scoring'] }); // no throw: nothing for the queue to retry
+      const failed = await agent.get(`/v1/interviews/${s.id}`);
+      expect(failed.body).toMatchObject({ state: 'failed', failure: { code: 'AI_SERVICE_PAUSED', stage: 'scoring' }, report: { status: 'failed', retriesLeft: 3 } });
+      for (let i = 0; i < 4; i++) {
+        const retry = await agent.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN);
+        expect(retry.status).toBe(503);
+        expect(retry.body.error).toMatchObject({ code: 'AI_SERVICE_PAUSED', retryable: false });
+        expect(retry.body.error.message).toMatch(/00:00 UTC/);
+        expect(Number(retry.headers['retry-after'])).toBeGreaterThan(0);
+      }
+      expect((await progressOfRow(s.id)).retryReportCount ?? 0).toBe(0);
+    } finally {
+      await t.pool.query('DELETE FROM llm_call_log WHERE id = $1', [row.id]);
+    }
+    // The next sweep after the breaker closes resumes it; the learner does not have to come back.
+    expect(await t.app.get(JobsService).resumePausedScoring()).toBeGreaterThanOrEqual(1);
+    await drainJobs(t);
+    expect((await agent.get(`/v1/interviews/${s.id}`)).body.state).toBe('report_ready');
+  });
+
+  it('a provider outage does not use up report retries: attempts that billed nothing are free (IP-REG0)', async () => {
+    const s = await readySession(t, agent);
+    await answerAndEnd(s);
+    for (let i = 0; i < 5; i++) {
+      t.llm.failNext('turn_assessment', 'unavailable');
+      await expect(drainJobs(t, { only: ['interview.final_scoring'] })).rejects.toThrow();
+      await t.app.get(JobsService).onDeadLetter({ kind: 'final_scoring', sessionId: s.id });
+      await t.pool.query(`UPDATE pgboss.job SET state = 'failed' WHERE name = 'interview.final_scoring' AND state IN ('created', 'retry')`);
+      const view = await agent.get(`/v1/interviews/${s.id}`);
+      expect(view.body.report.retriesLeft).toBe(3);
+      const retry = await agent.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN);
+      expect(retry.status, `retry ${i + 1}`).toBe(202);
+    }
+    await drainJobs(t);
+    expect((await agent.get(`/v1/interviews/${s.id}`)).body.state).toBe('report_ready');
+  });
+
+  it('billed failures are capped: the fourth retry is refused with its own code and the button goes away (IP-REG0, UX-REG4)', async () => {
+    const s = await readySession(t, agent);
+    await answerAndEnd(s);
+    const { withUsage } = await import('../src/platform/ports/llm.port.js');
+    const { PortError } = await import('@threatready/shared');
+    t.llm.overrides.set('turn_assessment', () => {
+      throw withUsage(new PortError('invalid_output', 'truncated', { retryable: true }), { model: t.cfg.LLM_MODEL_LARGE, inputTokens: 100, outputTokens: 100, cacheReadTokens: 0, cacheWriteTokens: 0 });
+    });
+    const fail = async () => {
+      await expect(drainJobs(t, { only: ['interview.final_scoring'] })).rejects.toThrow();
+      await t.app.get(JobsService).onDeadLetter({ kind: 'final_scoring', sessionId: s.id });
+      await t.pool.query(`UPDATE pgboss.job SET state = 'failed' WHERE name = 'interview.final_scoring' AND state IN ('created', 'retry')`);
+    };
+    await fail();
+    for (let i = 1; i <= 3; i++) {
+      expect((await agent.get(`/v1/interviews/${s.id}`)).body.report.retriesLeft).toBe(4 - i);
+      expect((await agent.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN)).status, `retry ${i}`).toBe(202);
+      await fail();
+    }
+    const view = await agent.get(`/v1/interviews/${s.id}`);
+    expect(view.body.report.retriesLeft).toBe(0);
+    const refused = await agent.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN);
+    expect(refused.status).toBe(409);
+    expect(refused.body.error).toMatchObject({ code: 'REPORT_RETRY_LIMIT_REACHED', retryable: false });
+  });
+
+  it('a report PDF lost with the instance storage is rendered again instead of a broken link (TR-36)', async () => {
+    const s = await readySession(t, agent);
+    await answerAndEnd(s);
+    await drainJobs(t);
+    const first = await agent.get(`/v1/interviews/${s.id}/report/pdf`);
+    expect(first.status).toBe(200);
+    const { rows: [r] } = await t.pool.query('SELECT object_key FROM reports WHERE session_id = $1', [s.id]);
+    const { STORAGE_PORT } = await import('../src/platform/ports/storage.port.js');
+    await t.app.get<{ delete(k: string): Promise<void> }>(STORAGE_PORT).delete(r.object_key);
+    const gone = await agent.get(`/v1/interviews/${s.id}/report/pdf`);
+    expect(gone.status).toBe(409);
+    expect(gone.body.error.code).toBe('REPORT_NOT_READY');
+    expect(Number(gone.headers['retry-after'])).toBeGreaterThan(0);
+    await drainJobs(t, { only: ['interview.report_pdf'] });
+    const again = await agent.get(`/v1/interviews/${s.id}/report/pdf`);
+    expect(again.status).toBe(200);
+    const target = new URL(again.body.url);
+    const file = await agent.get(`${target.pathname}${target.search}`);
+    expect(file.status).toBe(200);
+  });
+
+  it('a final-scoring retry does not pay again for answers already assessed (TR-08)', async () => {
+    const s = await readySession(t, agent);
+    await answerAndEnd(s);
+    t.llm.reset();
+    t.llm.failNext('report_summary', 'unavailable');
+    await expect(drainJobs(t, { only: ['interview.final_scoring'] })).rejects.toThrow(); // the batches ran, the summary failed
+    expect((await progressOfRow(s.id)).scoringCheckpoint.turns).toHaveProperty(s.currentTurn!.turnId);
+    await drainJobs(t); // the queue's retry
+    expect((await agent.get(`/v1/interviews/${s.id}`)).body.state).toBe('report_ready');
+    expect(t.llm.calls.filter((c) => c.name === 'turn_assessment')).toHaveLength(1);
+    expect(t.llm.calls.filter((c) => c.name === 'report_summary')).toHaveLength(2);
+    expect((await progressOfRow(s.id)).scoringCheckpoint).toBeUndefined(); // cleared with the report
+  });
+
+  it('final scoring stops at its per-session ceiling, without queue retries, and is not offered again (TR-08 IP-07)', async () => {
+    const capped = await startApp({ AI_FINALIZE_SOURCE_CAP_USD: '0.0001', INTERVIEW_MAX_OPEN_SESSIONS: '50', INTERVIEW_MONTHLY_QUOTA_FREE: '100', RATE_LIMIT_SCALE: '20' });
+    try {
+      const a = await signUp(capped, 'Ceiling Learner');
+      const s = await readySession(capped, a);
+      await sse(a, `/v1/interviews/${s.id}/turns`, { turnId: s.currentTurn!.turnId, answer: ANSWER, clientSubmissionId: randomUUID() });
+      expect((await a.post(`/v1/interviews/${s.id}/end`).set('Origin', ORIGIN).send({ reason: 'candidate_ended' })).body.state).toBe('scoring');
+      capped.llm.reset();
+      await drainJobs(capped, { only: ['interview.final_scoring'] }); // no throw: nothing for the queue to retry
+      expect(capped.llm.calls.filter((c) => c.name === 'turn_assessment')).toHaveLength(0);
+      const view = (await a.get(`/v1/interviews/${s.id}`)).body;
+      expect(view).toMatchObject({ state: 'failed', failure: { code: 'LLM_BUDGET_EXCEEDED', stage: 'scoring' }, report: { status: 'failed', retriesLeft: 0 } });
+      const retry = await a.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN);
+      expect(retry.status).toBe(409);
+      expect(retry.body.error.code).toBe('REPORT_RETRY_LIMIT_REACHED');
+      // Support's recovery (scripts/retry-report.ts --reset --allow-usd=5) raises only this session's
+      // ceiling; the report is then generated.
+      expect(await capped.app.get(InterviewService).resetReportRetries(s.id, 5)).toEqual({ extraSourceCapUsd: 5 });
+      const again = await a.post(`/v1/interviews/${s.id}/report/retry`).set('Origin', ORIGIN);
+      expect(again.status).toBe(202);
+      await drainJobs(capped, { only: ['interview.final_scoring'] });
+      expect(capped.llm.calls.filter((c) => c.name === 'turn_assessment').length).toBeGreaterThan(0);
+      expect((await a.get(`/v1/interviews/${s.id}`)).body.state).toBe('report_ready');
+    } finally {
+      await capped.close();
+    }
+  });
+
+  it('parallel clarifications cannot exceed three or each pay for a reply (TR-08)', async () => {
+    const s = await readySession(t, agent);
+    const turnId = s.currentTurn!.turnId;
+    t.llm.reset();
+    t.llm.delayMs = 200; // every request has taken or been refused its slot before the first reply arrives
+    const results = await Promise.all(Array.from({ length: 6 }, (_, i) => sse(agent, `/v1/interviews/${s.id}/clarify`, { turnId, message: `Could you clarify part ${i}?` })));
+    t.llm.delayMs = 0;
+    expect(results.filter((r) => r.status === 200)).toHaveLength(3);
+    for (const r of results.filter((x) => x.status !== 200)) expect(r.raw.body).toContain('CLARIFICATION_LIMIT_REACHED');
+    expect(t.llm.calls.filter((c) => c.promptVersion === 'clarify.v2')).toHaveLength(3);
+    const view = (await agent.get(`/v1/interviews/${s.id}`)).body;
+    expect(view.currentTurn.clarifications).toHaveLength(3);
+    expect(view.currentTurn.clarifications.every((c: { answer: string }) => c.answer.length > 0)).toBe(true);
+  });
+
+  it('a session cancelled after its analysis counts toward the monthly quota; one cancelled before does not (TR-08 IP-06)', async () => {
+    const one = await startApp({ INTERVIEW_MONTHLY_QUOTA_FREE: '1', INTERVIEW_MAX_OPEN_SESSIONS: '5' });
+    try {
+      const a = await signUp(one, 'Cancel Loop');
+      const resume = await uploadDocument(one, a, 'resume', await docxFrom(RESUME_TEXT));
+      const jd = await a.post('/v1/documents/text').set('Origin', ORIGIN).send({ kind: 'jd', text: JD_TEXT });
+      const body = { resumeDocumentId: resume.id, jdDocumentId: jd.body.id, aiProcessingConsent: CONSENT };
+      const early = await a.post('/v1/interviews').set('Origin', ORIGIN).send(body);
+      expect((await a.post(`/v1/interviews/${early.body.id}/cancel`).set('Origin', ORIGIN)).body.state).toBe('cancelled'); // before analysis ran
+      const analysed = await a.post('/v1/interviews').set('Origin', ORIGIN).send(body);
+      expect(analysed.status).toBe(202);
+      await drainJobs(one, { only: ['interview.analyse'] });
+      expect((await a.post(`/v1/interviews/${analysed.body.id}/cancel`).set('Origin', ORIGIN)).body.state).toBe('cancelled');
+      const again = await a.post('/v1/interviews').set('Origin', ORIGIN).send(body);
+      expect(again.status).toBe(403);
+      expect(again.body.error.code).toBe('ENTITLEMENT_QUOTA_EXCEEDED');
+      expect((await a.get('/v1/interview-prep/dashboard')).body.usage.interviewsThisMonth).toBe(1);
+    } finally {
+      await one.close();
+    }
   });
 });

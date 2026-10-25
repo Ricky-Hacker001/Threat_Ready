@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/db.js";
 import { entitlements, memberships, organizations } from "../db/schema.js";
 
@@ -6,10 +6,14 @@ export type PersonalRole = "learner" | "trial";
 
 /**
  * Every user gets a personal organisation with one membership and one
- * entitlement row (ADD L7 step 2). Idempotent: safe to call twice.
+ * entitlement row (ADD L7 step 2). Idempotent: safe to call twice, and safe to
+ * call in parallel (the sign-up hook and the AuthGuard self-heal can race): a
+ * per-user advisory lock serialises the check and the insert, and the unique
+ * index memberships_personal_user_uidx (migration 0008) backs it up.
  */
 export async function ensurePersonalWorkspace(db: Db, userId: string, role: PersonalRole): Promise<void> {
   await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`personal-ws:${userId}`}, 0))`);
     const existing = await tx
       .select({ id: memberships.id })
       .from(memberships)

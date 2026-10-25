@@ -78,6 +78,34 @@
       "when": 1792574785720,
       "tag": "0010_bill_failed_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792753866109,
+      "tag": "0013_reasoning_retries",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792753988297,
+      "tag": "0011_interview_integrity",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792858759252,
+      "tag": "0014_reasoning_skip_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792922679977,
+      "tag": "0015_reasoning_submit_refused",
+      "breakpoints": true
     }
   ]
 }

@@ -24,7 +24,7 @@ export function validateUser(cfg: FirewallConfig, f: UserForm, originalId: strin
   return e;
 }
 
-/** `passwordHash` is the SHA-256 digest of f.password from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
+/** `passwordHash` is the salted hash of f.password from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
 export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | null, passwordHash: string = f.password ? hashPassword(f.password) : ''): Result {
   const before = cfg.users.local.find((u) => u.id === originalId);
   const u: LocalUser = {
@@ -33,6 +33,16 @@ export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | 
   };
   const local = originalId ? cfg.users.local.map((x) => (x.id === originalId ? u : x)) : [...cfg.users.local, u];
   return { next: { ...cfg, users: { ...cfg.users, local } }, audit: [{ category: 'Users', action: `Local user ${u.name} ${originalId ? 'modified' : 'added'}`, detail: `Groups: ${u.groups.join(', ')}${u.otp ? '; one-time password required' : ''}${f.password && originalId ? '; password changed' : ''}` }] };
+}
+
+/**
+ * After a successful simulated login (NetExtender, user login): a local user's hash from an older save (FNV,
+ * unsalted SHA-256, fewer iterations) replaced by its salted upgrade, as the administrator's is on login. Only
+ * while it is still the hash that was checked; no audit entry, since the administrator changed nothing.
+ */
+export function upgradeUserHash(cfg: FirewallConfig, id: string, checked: string, passwordHash: string): FirewallConfig {
+  if (!cfg.users.local.some((u) => u.id === id && u.passwordHash === checked)) return cfg;
+  return { ...cfg, users: { ...cfg.users, local: cfg.users.local.map((u) => (u.id === id ? { ...u, passwordHash } : u)) } };
 }
 
 export function deleteUser(cfg: FirewallConfig, id: string): Result {

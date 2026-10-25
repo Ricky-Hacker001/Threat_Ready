@@ -1,6 +1,7 @@
 # Render Blueprint: the whole ThreatReady platform as ONE free web service.
 # Every app is served from one URL (/, /interview-prep/, /labs/, /ar/) so one login works everywhere
 # without a custom domain. Databases: Neon (free). Email: Resend (free). See deploy/README.md.
+# On SIGTERM (deploy, restart, sleep) the launcher saves lab state within Render's 30 s shutdown delay.
 services:
   - type: web
     name: threatready
@@ -9,6 +10,8 @@ services:
     region: singapore
     buildCommand: bash deploy/build.sh
     startCommand: node --max-old-space-size=96 --max-semi-space-size=2 deploy/start.mjs
+    # 503 "starting" while migrations run and, on a deploy, until both APIs are up: a broken deploy is
+    # never marked live and Render keeps the old version (deploy/README.md, "Health check").
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -54,3 +57,17 @@ services:
       # --- Optional: platform admins (comma-separated verified emails) ---
       - key: ADMIN_EMAILS
         sync: false
+      # --- Optional: error tracking (Sentry project DSN). Forwarded to the APIs; without it the
+      #     service still boots and the launcher logs a warning. ---
+      - key: SENTRY_DSN
+        sync: false
+      # --- Optional: where interview data is stored, as the AI consent notice states it (e.g. "Singapore").
+      #     A legal decision; without it the notice names no location. ---
+      - key: INTERVIEW_DATA_STORAGE_LOCATION
+        sync: false
+      # --- Optional: guest sessions without an account ("true" offers "Continue as a guest"; default
+      #     off). The trial model is an owner decision; every app except onboard refuses guests. ---
+      - key: TRIAL_ENABLED
+        sync: false
+      # Other optional settings (client-IP source, body cap, lab-state mirror, each app's limits and
+      # feature flags) have safe defaults: see deploy/README.md, "Settings".

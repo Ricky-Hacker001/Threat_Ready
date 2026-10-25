@@ -26,6 +26,36 @@ const bool = (v: any, name: string): boolean => { if (typeof v !== 'boolean') ba
 const get = <T>(m: Record<string, T>, k: any, what: string): T => { if (typeof k !== 'string' || !Object.prototype.hasOwnProperty.call(m, k)) throw new LabError('NotFound', `${what} not found.`); return m[k]; };
 const clone = <T>(x: T): T => structuredClone(x);
 
+/**
+ * Ring buffers for the run's growing histories, so a long or scripted run cannot grow the stored state
+ * without bound. The oldest entries go first, except those `keep` marks while there are others to drop.
+ * Sized so a scripted worst-case run stays near 320 KB (a typical completed run is about 70 KB): every
+ * run of every learner lives in one data file, which the launcher mirrors to its database only while it
+ * stays under the mirror's size limit.
+ */
+export const LIMITS = { labEvents: 300, cloudtrail: 300, timeline: 300, outages: 100, notifications: 100, alarmHistory: 50, logLines: 200, accessLog: 30 };
+function bound<T>(list: T[], max: number, keep: (x: T) => boolean = () => false): T[] {
+  let excess = list.length - max;
+  if (excess <= 0) return list;
+  const out = list.filter(x => { if (excess > 0 && !keep(x)) { excess--; return false; } return true; });
+  return out.length > max ? out.slice(out.length - max) : out;
+}
+/** The scenario's own audit history: the evidence a learner investigates, never dropped. */
+const FIXTURE_EVENTS = new Set<string>(fx.createInitialState().cloudtrail.events.map((e: any) => e.id));
+function trim(s: any) {
+  // Successful actions feed the report's containment and remediation lists, so failed ones go first.
+  s.labEvents = bound(s.labEvents, LIMITS.labEvents, (e: any) => e.outcome === 'Success');
+  // The scenario's history, the evidence locker and the intruder's own calls (a handful) are what a
+  // learner investigates; the learner's own calls and probes go first.
+  s.cloudtrail.events = bound(s.cloudtrail.events, LIMITS.cloudtrail, (e: any) => FIXTURE_EVENTS.has(e.id) || s.sim.evidence.includes(e.id) || e.sourceIp === fx.ATTACKER_IP);
+  s.sim.timeline = bound(s.sim.timeline, LIMITS.timeline, (t: any) => t.kind === 'story');
+  s.sim.outages = bound(s.sim.outages, LIMITS.outages); // the score only counts the first five
+  s.cloudwatch.notifications = bound(s.cloudwatch.notifications, LIMITS.notifications);
+  for (const a of Object.values<any>(s.cloudwatch.alarms)) if (Array.isArray(a.history)) a.history = bound(a.history, LIMITS.alarmHistory);
+  for (const g of Object.values<any>(s.cloudwatch.logGroups)) for (const k of Object.keys(g.streams ?? {})) if (Array.isArray(g.streams[k])) g.streams[k] = bound(g.streams[k], LIMITS.logLines);
+  for (const sec of Object.values<any>(s.secrets.secrets)) if (Array.isArray(sec.accessLog)) sec.accessLog = bound(sec.accessLog, LIMITS.accessLog);
+}
+
 export const simTime = (s: any) => new Date(new Date(s.clock.start).getTime() + s.clock.minutes * 60000).toISOString();
 const timeline = (s: any, kind: 'story' | 'good' | 'bad' | 'warn' | 'info', text: string) => s.sim.timeline.push({ at: simTime(s), kind, text });
 
@@ -82,6 +112,11 @@ const denied = (action: string, res: (p: any) => string): Handler => ({ kind: 'c
 
 const H: Record<string, Handler> = {
   'incident.acknowledge': { kind: 'meta', run: ({ s }) => { if (s.incident.acknowledged) return { message: 'Ticket already acknowledged.' }; s.incident.acknowledged = true; s.incident.status = 'Investigating'; timeline(s, 'info', 'Ticket INC-2041 acknowledged by the analyst.'); return { message: 'INC-2041 acknowledged. You are the assigned analyst.' }; } },
+  // Inspection is self-reported on purpose (TR-43): the console sends `inspect` when a resource's tab
+  // is opened, and finding.report only requires that the matching evidence key was inspected. A learner
+  // can send the key without opening the tab; for a self-paced trainer that is accepted low friction,
+  // not a control (it never touches another user or the attacker). If labs ever award certificates or
+  // badges, make it server-authoritative: record a key only when the server serves that evidence view.
   'inspect': { kind: 'inspect', run: ({ s, p }) => { const k = str(p.key, 'key', 160, /^[\w./$\[\]#:@ -]+$/); if (!own(s.sim.inspected, k) && k !== '__proto__' && Object.keys(s.sim.inspected).length < 400) s.sim.inspected[k] = simTime(s); return { message: 'ok' }; } },
   'finding.report': { kind: 'meta', run: ({ s, p }) => {
     const f = get(FINDING, p.findingId, 'Finding'); const resource = str(p.resource, 'resource', 160);
@@ -520,23 +555,27 @@ export const cloudLab001: LabEngine = {
   definition: () => ({ id: 'TR-CLOUD-001', title: 'The Compromised Startup', subtitle: 'Investigate, contain, and secure a vulnerable AWS environment.', category: 'Cloud Security / AWS Security', briefing: BRIEFING, vulnerabilities: FINDINGS.map(f => ({ id: f.id, title: f.title })), triageOptions: TRIAGE_OPTIONS, reportForm: REPORT_FORM, sources: Object.entries(SOURCES).map(([id, v]) => ({ id, label: v.label })) }),
   createInitialState() { const s = fx.createInitialState(); recompute(s, 'lab start'); const c = CHAPTERS[0]; timeline(s, 'story', `Chapter 1: ${c.title} — ${c.text}`); return s; },
   dispatch(state, action) {
+    // A submitted report closes the run: every action is refused and the state is returned as it was (no
+    // clone, no clock, no attacker, no failed-action count), so nothing about a completed run can change,
+    // its score included. The browser shows completed runs read-only; this is what enforces it.
+    if (state.sim?.report) return { state, result: { ok: false, code: 'LabComplete', message: 'The incident is closed. Reset the lab to start a new run.' } };
     const h = typeof action.type === 'string' && Object.prototype.hasOwnProperty.call(H, action.type) ? H[action.type] : undefined;
     const fail = (code: string, message: string) => {
       const s = clone(state); s.sim.failedActions++;
       s.labEvents.push({ seq: ++s.eventSeq, at: simTime(s), type: action.type, outcome: code, message, params: summarize(action.params) });
       if (code === 'AccessDenied') recordTrail(s, { name: action.type.split('.')[1] || action.type, source: action.type.split('.')[0], actor: 'ThreatReady-SecurityAnalyst', outcome: 'AccessDenied', readOnly: false });
       if (action.type === 'finding.report' && code === 'NotSupportedByEvidence') s.sim.wrongReports++;
+      trim(s);
       return { state: s, result: { ok: false, code, message } };
     };
     if (!h) return fail('UnknownAction', 'Unknown action.');
-    if (state.sim.report && h.kind === 'change') return fail('LabComplete', 'The incident is closed. Reset the lab to start a new run.');
     const s = clone(state);
     let out;
     try { out = h.run({ s, p: action.params && typeof action.params === 'object' ? action.params : {} }); }
     catch (e) { if (e instanceof LabError) return fail(e.code, e.message); throw e; }
     s.rev++; s.clock.minutes += h.kind === 'change' ? 5 : h.kind === 'test' ? 2 : 1;
     if (action.type !== 'inspect') s.labEvents.push({ seq: ++s.eventSeq, at: simTime(s), type: action.type, outcome: 'Success', message: out.message, params: summarize(action.params) });
-    runAttacker(s); recompute(s, action.type);
+    runAttacker(s); recompute(s, action.type); trim(s);
     return { state: s, result: { ok: true, message: out.message, result: out.result } };
   },
   view(state) {
@@ -580,7 +619,7 @@ export const cloudLab001: LabEngine = {
       availability: { outages: s.sim.outages, current: health(s).map(h => ({ label: h.label, ok: h.ok })) },
       remainingRisks: [...FINDINGS.filter(f => !fsOf(f).verified).map(f => fsOf(f).discovered ? `${f.id} ${f.title}: ${fsOf(f).remediated ? 'changed but unverified' : 'open'}` : 'One or more findings were never discovered'), ...(s.sim.attacker.exfil ? [`${s.sim.attacker.exfil} confidential document download(s) by the intruder are on record and cannot be recalled`] : []), 'CloudTrail events between the StopLogging call and the restart were never recorded'].filter((x, i, a) => a.indexOf(x) === i),
       reportAssessment: s.sim.report ? { ...s.sim.report.score, input: s.sim.report.input, triage: ALERTS.map(a => ({ id: a.id, title: a.title, chosen: s.sim.triage[a.id], correct: s.sim.triage[a.id] === a.truth })) } : null,
-      performance: { score: sc, hintsUsed: Object.values<number>(s.sim.hints).reduce((a, b) => a + b, 0), failedActions: s.sim.failedActions, unsupportedReports: s.sim.wrongReports, actions: ev.length, objectives: OBJECTIVES.map(o => ({ id: o.id, level: o.level, title: o.title, done: s.sim.objectives[o.id].done, at: s.sim.objectives[o.id].at || null, awarded: sc.perObjective[o.id], points: o.points, hints: s.sim.hints[o.id] || 0 })) },
+      performance: { score: sc, hintsUsed: Object.values<number>(s.sim.hints).reduce((a, b) => a + b, 0), failedActions: s.sim.failedActions, unsupportedReports: s.sim.wrongReports, actions: s.eventSeq ?? ev.length, objectives: OBJECTIVES.map(o => ({ id: o.id, level: o.level, title: o.title, done: s.sim.objectives[o.id].done, at: s.sim.objectives[o.id].at || null, awarded: sc.perObjective[o.id], points: o.points, hints: s.sim.hints[o.id] || 0 })) },
     };
   },
 };

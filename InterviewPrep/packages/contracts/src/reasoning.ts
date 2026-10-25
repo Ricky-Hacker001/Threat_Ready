@@ -105,6 +105,7 @@ export type Technique = z.infer<typeof Technique>;
 
 export const ReasoningItemPublic = z
   .object({
+    /** The attempt's id. A pool question's own id never leaves the API, so learners cannot match shared questions by it. */
     id: z.uuid(),
     domain: ReasoningDomainKey,
     difficulty: ReasoningDifficulty,
@@ -123,6 +124,7 @@ export const ReasoningItemPublic = z
     /** Names of the scoring dimensions and their weights, so the learner knows what counts. */
     weights: z.record(ReasoningDimensionKey, z.number().int()),
     generatorVersion: z.string(),
+    /** The day the question was generated (00:00 UTC). */
     createdAt: z.iso.datetime(),
   })
   .openapi('ReasoningItemPublic');
@@ -130,8 +132,13 @@ export type ReasoningItemPublic = z.infer<typeof ReasoningItemPublic>;
 
 /* ---------------- Requests ---------------- */
 
-/** Difficulty is chosen per attempt; the domain's default applies when omitted. */
-export const CreateReasoningAttemptRequest = z.object({ domain: ReasoningDomainKey, difficulty: ReasoningDifficulty.optional() }).openapi('CreateReasoningAttemptRequest');
+/**
+ * Difficulty is chosen per attempt; the domain's default applies when omitted. 'expert' is served from
+ * the advanced pool and recorded as advanced. At the open-question limit, starting another skips the
+ * oldest unanswered question; when that skip would count as 0 the request is refused with
+ * REASONING_SKIP_CONFIRMATION_REQUIRED unless `skipOldest` is true (the learner confirmed it).
+ */
+export const CreateReasoningAttemptRequest = z.object({ domain: ReasoningDomainKey, difficulty: ReasoningDifficulty.optional(), skipOldest: z.boolean().optional() }).openapi('CreateReasoningAttemptRequest');
 export type CreateReasoningAttemptRequest = z.infer<typeof CreateReasoningAttemptRequest>;
 
 export const SubmitReasoningRequest = z
@@ -154,10 +161,15 @@ export const ReasoningAttemptView = z
     /** True when the question came ready from the shared pool (no waiting for generation). */
     prefetched: z.boolean(),
     item: ReasoningItemPublic.nullable(),
-    answer: z.object({ selectedOption: OptionId, justification: z.string(), submittedAt: z.iso.datetime() }).nullable(),
+    /** answerSeconds: wall-clock time from the question being shown to the submission (information only, never scored). */
+    answer: z.object({ selectedOption: OptionId, justification: z.string(), submittedAt: z.iso.datetime(), answerSeconds: z.number().int().nullable() }).nullable(),
     /** Present once evaluated: the headline only; the full result has its own route. */
     result: z.object({ totalScore: z.number().int(), correct: z.boolean(), confidence: z.enum(['high', 'medium', 'low']) }).nullable(),
     failure: z.object({ code: z.string(), stage: z.enum(['generation', 'evaluation']) }).nullable(),
+    /** Whether skipping this question once shown (or leaving it to expire) counts as answered with 0; false for questions opened before that rule. */
+    skipCounts: z.boolean(),
+    /** When an unanswered (ready) question is skipped automatically; null when it does not expire or is not ready. */
+    expiresAt: z.iso.datetime().nullable(),
     version: z.number().int(),
     createdAt: z.iso.datetime(),
     updatedAt: z.iso.datetime(),
@@ -174,6 +186,8 @@ export const ReasoningAttemptSummary = z
     difficulty: ReasoningDifficulty.nullable(),
     totalScore: z.number().int().nullable(),
     correct: z.boolean().nullable(),
+    /** A skipped question that was shown and counts as answered with 0 in the statistics. */
+    countsAsZero: z.boolean(),
     createdAt: z.iso.datetime(),
     evaluatedAt: z.iso.datetime().nullable(),
   })
@@ -231,13 +245,21 @@ export const ReasoningResult = z
     scoring: z.object({ version: z.string(), weights: z.record(ReasoningDimensionKey, z.number().int()), notes: z.array(z.string()) }),
     techniques: z.array(Technique),
     concepts: z.array(z.string()),
+    /** Wall-clock seconds from the question being shown to the submission (information only, never scored). */
+    answerSeconds: z.number().int().nullable(),
     evaluatedAt: z.iso.datetime(),
   })
   .openapi('ReasoningResult');
 export type ReasoningResult = z.infer<typeof ReasoningResult>;
 
+/**
+ * Learner statistics. A question that was shown and skipped (or left unanswered until it expired) is
+ * counted: in `attempts` and `skipped`, as 0 in `averageScore` and as not correct in `correctRate`, so
+ * skipping hard questions cannot raise an average. A skip before the question was shown is not counted,
+ * nor is a skip of a question opened before this rule existed (its learner was told it would not count).
+ */
 export const ReasoningDomainStats = z
-  .object({ attempts: z.number().int(), evaluated: z.number().int(), averageScore: z.number().int().nullable(), bestScore: z.number().int().nullable(), lastAttemptAt: z.iso.datetime().nullable() })
+  .object({ attempts: z.number().int(), evaluated: z.number().int(), skipped: z.number().int(), averageScore: z.number().int().nullable(), bestScore: z.number().int().nullable(), lastAttemptAt: z.iso.datetime().nullable() })
   .openapi('ReasoningDomainStats');
 export type ReasoningDomainStats = z.infer<typeof ReasoningDomainStats>;
 
@@ -261,6 +283,7 @@ export const ReasoningDashboard = z
   .object({
     attempts: z.number().int(),
     evaluated: z.number().int(),
+    skipped: z.number().int(),
     inProgress: z.number().int(),
     averageScore: z.number().int().nullable(),
     bestScore: z.number().int().nullable(),

@@ -107,13 +107,28 @@ export interface Overview {
 export const ACTIVITY_APPS = ["home", "interview", "labs", "reasoning"] as const;
 export type ActivityApp = (typeof ACTIVITY_APPS)[number];
 
+/** A time zone the runtime knows (IANA name or UTC); shape alone would accept "Mars/Olympus_Mons". */
+export function isTimeZone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** `POST /api/activity/ping`, sent about once a minute while a page is visible and in use. */
 export const activityPingSchema = z.object({
   app: z.enum(ACTIVITY_APPS),
   /** A lab slug, an Attack Reasoning domain, … ("" for the app's main pages). */
   area: z.string().max(40).regex(/^[A-Za-z0-9_-]*$/).default(""),
   /** The browser's IANA time zone, e.g. "Asia/Kolkata". */
-  timeZone: z.string().max(64).regex(/^([A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}|UTC|)$/).default(""),
+  timeZone: z
+    .string()
+    .max(64)
+    .regex(/^([A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}|UTC|)$/)
+    .refine((tz) => tz === "" || isTimeZone(tz), "Unknown time zone")
+    .default(""),
 });
 export type ActivityPing = z.infer<typeof activityPingSchema>;
 
@@ -231,8 +246,16 @@ export function addAiUsage(into: AiUsageTotals, add: AiUsageTotals): AiUsageTota
 /**
  * Only these redirect targets are honoured after sign-in/out (`?next=`).
  * An open redirect on the identity host would be a phishing gift.
+ *
+ * With `allowedPrefixes` the target must also sit inside one of those URLs (an app's home, or
+ * onboard's /app). In a single-origin deployment every app shares one origin with onboard, so the
+ * origin check alone would accept /signout or /api/… as a post-sign-in target.
  */
-export function safeNext(next: string | null | undefined, allowedOrigins: readonly string[]): string | null {
+export function safeNext(
+  next: string | null | undefined,
+  allowedOrigins: readonly string[],
+  allowedPrefixes?: readonly string[],
+): string | null {
   if (!next) return null;
   let url: URL;
   try {
@@ -241,5 +264,21 @@ export function safeNext(next: string | null | undefined, allowedOrigins: readon
     return null;
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return null;
-  return allowedOrigins.includes(url.origin) ? url.toString() : null;
+  if (!allowedOrigins.includes(url.origin)) return null;
+  if (allowedPrefixes && !allowedPrefixes.some((p) => withinPrefix(url, p))) return null;
+  return url.toString();
+}
+
+/** `url` is `prefix` itself or below it, on a path-segment boundary ("/ar" does not cover "/archive"). */
+function withinPrefix(url: URL, prefix: string): boolean {
+  let p: URL;
+  try {
+    p = new URL(prefix);
+  } catch {
+    return false;
+  }
+  if (p.origin !== url.origin) return false;
+  const base = p.pathname;
+  if (base.endsWith("/")) return url.pathname.startsWith(base) || url.pathname === base.slice(0, -1);
+  return url.pathname === base || url.pathname.startsWith(`${base}/`);
 }

@@ -145,6 +145,8 @@ export const memberships = pgTable(
   (t) => [
     uniqueIndex("memberships_org_user_uidx").on(t.orgId, t.userId),
     index("memberships_user_id_idx").on(t.userId),
+    // One personal workspace per user (migration 0008); institute roles may repeat.
+    uniqueIndex("memberships_personal_user_uidx").on(t.userId).where(sql`${t.role} in ('learner', 'trial')`),
   ],
 );
 
@@ -227,6 +229,26 @@ export const userLocations = pgTable(
   },
   (t) => [primaryKey({ columns: [t.userId, t.day, t.country, t.timeZone] }), index("user_locations_day_idx").on(t.day)],
 );
+
+/** When the user last pinged, from any tab or area: time is credited once per user (migration 0007). */
+export const activityLastPing = pgTable("activity_last_ping", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  lastAt: timestamp("last_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * Failed sign-ins per submitted username (migration 0006), keyed by a hash so the table never holds
+ * the name and a lock looks the same whether or not the account exists. Not in rate_limits: Better
+ * Auth prunes that table after its longest window (one hour), and a lock can last a day.
+ */
+export const signinFailures = pgTable("signin_failures", {
+  key: text("key").primaryKey(),
+  failures: integer("failures").notNull().default(0),
+  lockedUntil: timestamp("locked_until", { withTimezone: true }),
+  lastFailureAt: timestamp("last_failure_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** Keys must equal Better Auth model names for the drizzle adapter. */
 export const authSchema = {

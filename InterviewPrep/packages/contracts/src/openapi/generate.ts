@@ -10,7 +10,7 @@ export function buildOpenApiDocument() {
   registry.register('ErrorEnvelope', ErrorEnvelopeSchema);
   registry.register('TurnStreamEvent', TurnStreamEvent);
   registry.register('ReasoningStateEvent', ReasoningStateEvent);
-  registry.registerComponent('securitySchemes', 'session', { type: 'apiKey', in: 'cookie', name: 'better-auth.session_token' });
+  registry.registerComponent('securitySchemes', 'session', { type: 'apiKey', in: 'cookie', name: 'tr.session_token' });
 
   for (const r of ROUTES) {
     const pathParams = [...r.path.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!);

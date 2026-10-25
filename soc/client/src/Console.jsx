@@ -38,10 +38,13 @@ export function NameChip() {
   );
 }
 
-// The daily-wipe notice is only true when the server runs the wipe (it is off inside ThreatReady).
+// Where records are kept, said only when it is true: the daily wipe when the server runs it; inside
+// ThreatReady (no wipe), saved with the learner's account while the platform keeps them across
+// restarts, otherwise only where they are kept.
 export function ResetNote() {
-  if (!session.dailyWipe) return null;
-  return <p className="reset-note">Practice records reset daily at 00:00 UTC.</p>;
+  if (session.dailyWipe) return <p className="reset-note">Practice records reset daily at 00:00 UTC.</p>;
+  if (session.hosted) return <p className="reset-note">{session.durable ? 'Practice records are saved to your ThreatReady account.' : 'Practice records are kept on the ThreatReady lab server.'}</p>;
+  return null;
 }
 
 export function Footer() {

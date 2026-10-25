@@ -9,6 +9,7 @@
 //   E2E_BASE=… E2E_INTERVIEW=… E2E_LABS=… E2E_AR=…              # other hosts (defaults: local dev)
 //   E2E_BROWSER_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe" …   # installed Chrome instead
 import { chromium } from 'playwright';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,12 +64,19 @@ const failures = [];
 let checks = 0;
 const fail = (route, vp, msg) => { failures.push(`${route} @ ${vp}: ${msg}`); console.log(`  ✗ ${route} @ ${vp} — ${msg}`); };
 
-// Static: marketing CTAs must reach onboard, never the retired threatready.io/app path (FUNC-01).
+// Static: the site checker owns the rules (FUNC-01, BIZ-01): every sign-in / sign-up / labs link uses the
+// one platform URL in tools/sync_shell.py, no link goes to another app host (onboard./labs. subdomains,
+// threatready.io/app), plan copy promises nothing the platform lacks, wide tables scroll by keyboard.
+// --offline: the DNS lookup of the platform host is CI's job (python3 tools/check_site.py).
 if (SITE) {
-  const siteDir = path.join(here, '..', 'Landing_Page-main');
-  for (const f of fs.readdirSync(siteDir).filter((n) => n.endsWith('.html'))) {
-    checks++;
-    if (/href="[^"]*threatready\.io\/app/.test(fs.readFileSync(path.join(siteDir, f), 'utf8'))) fail(`site ${f}`, 'source', 'links to threatready.io/app');
+  const r = spawnSync('python3', [path.join(here, '..', 'Landing_Page-main', 'tools', 'check_site.py'), '--offline'], { encoding: 'utf8' });
+  checks++;
+  if (r.error) fail('site', 'source', `could not run tools/check_site.py (${r.error.code ?? r.error.message})`);
+  else if (r.status !== 0 || r.signal) {
+    // A checker that crashed (traceback on stderr, nothing on stdout) is a failure too, never a pass.
+    const lines = (r.stdout ?? '').trim().split('\n').filter(Boolean);
+    if (lines.length) for (const line of lines) fail('site', 'source', line);
+    else fail('site', 'source', `tools/check_site.py ${r.signal ? `was stopped (${r.signal})` : `exited ${r.status}`}: ${(r.stderr ?? '').trim().split('\n').pop() || 'no output'}`);
   }
 }
 

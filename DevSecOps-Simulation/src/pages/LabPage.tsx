@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { LabDef, Mode } from '../engine/lab';
-import { activeMs, createLabState, score, settle } from '../engine/lab';
+import { activeMs, createLabState, score, settle, wallMs } from '../engine/lab';
 import type { LabState } from '../engine/types';
 import { runLine, type ShellCtx } from '../engine/shell';
 import { ancestry, status } from '../engine/git';
@@ -19,6 +19,7 @@ import { TaskPanel } from '../components/TaskPanel';
 import { Ansi } from '../components/Ansi';
 import { Modal } from '../components/Modal';
 import { SmallScreenNotice } from '../components/SmallScreenNotice';
+import { IdentityNotice } from '../components/IdentityNotice';
 
 type Tab = 'terminal' | 'findings' | 'pipeline' | 'git' | 'activity';
 const TABS: Tab[] = ['terminal', 'findings', 'pipeline', 'git', 'activity'];
@@ -45,6 +46,7 @@ export function LabPage(props: Props) {
   if (!canOpen(def.id, progress))
     return (
       <div className="page">
+        <IdentityNotice />
         <main className="wrap section">
           <h1 className="pagetitle">
             <span aria-hidden="true">🔒 </span>
@@ -96,11 +98,13 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
     (st: LabState) => {
       const m: Mode = st.mode ?? dashboardMode;
       const sc = score(def, st, m);
-      const minutes = Math.round(activeMs(st) / 60000);
+      // Both clocks are recorded: wall-clock time is what the speed bonus measured, active time is for information.
+      const minutes = Math.round(wallMs(st) / 60000);
+      const activeMinutes = Math.round(activeMs(st) / 60000);
       update((p) => {
         const prev = p.results[def.id];
         if (prev && prev.score >= sc.score) return p;
-        return { ...p, results: { ...p.results, [def.id]: { score: sc.score, max: sc.max, mode: m, minutes, completedAt: st.completedAt ?? Date.now() } } };
+        return { ...p, results: { ...p.results, [def.id]: { score: sc.score, max: sc.max, mode: m, minutes, activeMinutes, completedAt: st.completedAt ?? Date.now() } } };
       });
       setShowDone(true);
     },
@@ -142,8 +146,9 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
     [active, afterAction, def],
   );
 
-  // Time away (tab hidden, lab closed or left for the dashboard) does not count towards the lab timer or the Expert
-  // speed bonus (UX-14). Declared before the first save so a gap since the last visit is accounted for.
+  // Time away (tab hidden, lab closed or left for the dashboard) does not count towards the active time (UX-14), which
+  // is shown for information. The Expert speed bonus runs on wall-clock time (SEC-3), since time away can still be
+  // spent on the lab. Declared before the first save so a gap since the last visit is accounted for.
   useEffect(() => {
     const back = () => {
       const st = stateRef.current;
@@ -185,12 +190,14 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
   const onEdit = (v: string) => {
     if (!active) return;
     s.files[active] = v;
-    if (active === 'src/lib/cart.js') void prepareCartTests([v]);
     setTick((t) => t + 1);
     window.clearTimeout(settleTimer.current);
     settleTimer.current = window.setTimeout(() => {
       s.activity.push({ t: Date.now(), kind: 'edit', text: `edited ${active}` });
       afterAction();
+      // Evaluate the edited cart.js once typing settles (one sandbox run per pause, not one per keystroke, UX-REG8);
+      // a command run before then evaluates it itself.
+      if (active === 'src/lib/cart.js') void prepareCartTests([v]);
     }, 450);
   };
 
@@ -275,6 +282,7 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
   const nextLab = LABS[idx + 1];
   const sc = score(def, s, mode);
   const elapsed = activeMs(s, now);
+  const wall = wallMs(s, now);
 
   const resetLab = () => {
     if (!window.confirm('Reset this lab? Your changes, scans and pipeline runs in this lab will be discarded, and a fresh attempt starts in the current dashboard mode.')) return;
@@ -303,12 +311,19 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
         <span className="chip green">
           {doneN}/{req.length} objectives
         </span>
-        <span className="timer" title="Active time in this lab (paused while you are away)">
-          <span aria-hidden="true">⏱ </span>
-          <span className="sr">Time in lab: </span>
-          {fmtTime(elapsed)}
-          {mode === 'expert' ? ` / ${def.minutes}:00` : ''}
-        </span>
+        {mode === 'expert' ? (
+          <span className="timer" title={`Time since this attempt started, including time away. Finish within ${def.minutes} minutes for the speed bonus. Active time: ${fmtTime(elapsed)}.`}>
+            <span aria-hidden="true">⏱ </span>
+            <span className="sr">Time since the attempt started: </span>
+            {fmtTime(wall)} / {def.minutes}:00
+          </span>
+        ) : (
+          <span className="timer" title="Active time in this lab (paused while you are away)">
+            <span aria-hidden="true">⏱ </span>
+            <span className="sr">Time in lab: </span>
+            {fmtTime(elapsed)}
+          </span>
+        )}
         <button className="btn sm" onClick={() => setShowCommit(true)}>
           <span aria-hidden="true">⎇ </span>Commit &amp; Push
         </button>
@@ -321,6 +336,7 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
           <span aria-hidden="true">↺ </span>Reset
         </button>
       </header>
+      <IdentityNotice />
       <SmallScreenNotice />
 
       <main className="wsmain">
@@ -388,7 +404,9 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
               </button>
               <button {...tabProps('activity')}>Activity</button>
             </div>
-            <div className="tabbody" id="ws-tabpanel" role="tabpanel" aria-labelledby={`ws-tab-${tab}`}>
+            {/* tabIndex 0 (APG tabs): Git and Activity hold nothing focusable, and the terminal input takes the arrow keys, so the
+                panel itself takes focus for keyboard scrolling (axe scrollable-region-focusable). */}
+            <div className="tabbody" id="ws-tabpanel" role="tabpanel" aria-labelledby={`ws-tab-${tab}`} tabIndex={0}>
               <div style={{ display: tab === 'terminal' ? 'block' : 'none', height: '100%' }}>
                 <Terminal
                   key={termKey}
@@ -464,7 +482,7 @@ function LabWorkspace({ def, mode: dashboardMode, update, go }: Props) {
             </div>
             <div style={{ color: 'var(--muted)', fontSize: 13.5 }}>
               <span aria-hidden="true">⏱ </span>
-              {fmtTime(activeMs(s))} · {mode} mode
+              {fmtTime(wallMs(s))} from start · {fmtTime(activeMs(s))} active · {mode} mode
               <br />
               {s.hintsUsed.length} hint(s) · {s.pipelineRuns.length} pipeline run(s) · {s.activity.filter((a) => a.kind === 'cmd' || a.kind === 'git').length} commands
             </div>
@@ -611,7 +629,7 @@ function downloadReport(def: LabDef, s: LabState, mode: Mode) {
     '',
     `- Mode: ${mode}`,
     `- Score: ${sc.score} / ${sc.max}`,
-    `- Time: ${fmtTime(activeMs(s))}`,
+    `- Time: ${fmtTime(wallMs(s))} from start to finish (active: ${fmtTime(activeMs(s))}, time away excluded)`,
     `- Hints used: ${s.hintsUsed.length}`,
     `- Pipeline runs: ${s.pipelineRuns.map((r) => `#${r.id} ${r.status}`).join(', ') || 'none'}`,
     '',

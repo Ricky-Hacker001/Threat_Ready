@@ -243,9 +243,12 @@ const EXPLOIT_STEPS: GuideStep[] = [
 ];
 
 // Remediation steps — one per vulnerability (Level 3), each maps 1:1 to a `fix:<id>` objective.
+// The detail must NOT name the graded reference severity: it is the answer to "Severity accuracy", so
+// it stays off the walkthrough and only reaches a learner once they have committed their own rating
+// (findingPublic sends it after `reported`). See SEC-2/BIZ-02.
 const REMEDIATE_STEPS: GuideStep[] = FINDINGS.map(f => ({
   id: `g-fix-${f.id}`, level: 3, tool: 'findings', title: `Remediate & verify: ${f.title}`, done: (s: any) => verified(s, f.id),
-  detail: `Open Findings and find “${f.title}” (${f.severity}). Choose the remediation that fixes the root cause (not a symptom), click “Apply remediation”, then “Re-test to verify”.\n${f.verifyRetest}`,
+  detail: `Open Findings and find “${f.title}”. Choose the remediation that fixes the root cause (not a symptom), click “Apply remediation”, then “Re-test to verify”.\n${f.verifyRetest}`,
 }));
 
 export const GUIDE_STEPS: GuideStep[] = [
@@ -316,11 +319,6 @@ export const LEVEL_TIPS = [
   `Remediate — in Findings, fix each confirmed issue and re-test to verify it’s closed.`,
   `Report — document severities, attach evidence, and deliver the report.`,
 ];
-
-// Final-report form (the learner's deliverable). Choices are server-validated.
-export const REPORT_FORM = {
-  severitySuggested: Object.fromEntries(FINDINGS.map(f => [f.id, f.severity])),
-};
 
 export function scoreReport(s: any, input: any): { total: number; max: number; breakdown: { label: string; got: number; max: number }[] } {
   const breakdown: { label: string; got: number; max: number }[] = [];

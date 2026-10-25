@@ -9,9 +9,22 @@ coverage/
 .env.*
 !.env.example
 
+# Private keys and certificate bundles
+*.pem
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
 # Licensed asset: Renderpeople model, must not be publicly downloadable (see
-# InterviewPrep/apps/web/src/features/interview-prep/avatar/ASSET_LICENSE.md). Deploy it out of band.
+# InterviewPrep/apps/web/src/features/interview-prep/avatar/ASSET_LICENSE.md). Deploy it out of band
+# (Render Secret File). No other .glb is part of the platform, so none is committed.
 InterviewPrep/apps/api/assets/interviewer.glb
+**/interviewer.glb
+*.glb
+
+# The six sub-apps are separate clones with their own .git; they are published by
+# scripts/publish.rsync-filter, which leaves every nested .git behind (check: scripts/publish-check.mjs).
 
 # Local data: uploaded resumes/reports, bundled PostgreSQL, lab progress, logs
 InterviewPrep/apps/api/var/
@@ -27,3 +40,6 @@ test-results/
 
 # Internal audit reports: describe unfixed vulnerabilities, never publish
 audit/
+
+# Python bytecode (site tools)
+__pycache__/

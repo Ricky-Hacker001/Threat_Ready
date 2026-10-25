@@ -1,7 +1,7 @@
 import React from "react";
 import { BRAND } from "@/brand/brand";
 import { useApp } from "@/state/store";
-import { inPlatform, platformIdentityProblem, usePlatformUser } from "@/platform";
+import { inPlatform, platformIdentityProblem, platformRetryAfter, usePlatformUser, waitText } from "@/platform";
 import { Modal } from "./common";
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -81,7 +81,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         >
           <p>
             Your attempt at <strong>{at.scenario.title}</strong> is not finished. It is kept
-            {platformIdentityProblem() ? " in this tab" : " on this device"}, so you can resume it from Mission
+            {platformIdentityProblem() ? " in this tab" : " in this browser"}, so you can resume it from Mission
             Control — starting a different scenario replaces it.
           </p>
         </Modal>
@@ -115,6 +115,7 @@ function useViewFocus(view: string) {
 function SessionOnlyNotice() {
   const problem = platformIdentityProblem();
   if (!problem) return null;
+  const wait = platformRetryAfter();
   return (
     <div className="notice amber" role="status">
       <div>
@@ -122,7 +123,12 @@ function SessionOnlyNotice() {
         {problem === "signed-out"
           ? "Your ThreatReady sign-in could not be confirmed (it may have expired)."
           : "We couldn't reach ThreatReady to confirm who is signed in."}{" "}
-        You can still practise, but scores and attempts stay in this tab only. Reload to try again.
+        You can still practise, but scores and attempts stay in this tab only.{" "}
+        {problem === "signed-out"
+          ? "Reload to sign in again."
+          : wait
+            ? `Reload in about ${waitText(wait)} to try again.`
+            : "Reload to try again."}
       </div>
       <button className="btn sm" onClick={() => window.location.reload()}>
         Reload

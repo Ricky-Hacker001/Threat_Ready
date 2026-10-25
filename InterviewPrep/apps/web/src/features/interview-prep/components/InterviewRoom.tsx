@@ -31,7 +31,7 @@ import { AvatarFallback } from '../avatar/AvatarFallback';
 import { STATUS_LABEL } from '../avatar/StatusPill';
 import { hasWebGL } from '../avatar/webgl';
 import { useInterviewSession } from '../hooks/useInterviewSession';
-import { useTabGuard } from '../hooks/useTabGuard';
+import { useTabGuard, type TabSwitchRecording } from '../hooks/useTabGuard';
 import { chime, SPEECH_LANGS, useSpeech, useSpeechRecognition, type RecognitionError } from '../hooks/useVoice';
 import { appendPhrase, SECURITY_PHRASES } from '../lib/transcript';
 import '../room.css';
@@ -138,11 +138,12 @@ function Waveform({ active }: { active: boolean }) {
 type Capture = 'answer' | 'clarify';
 
 /**
- * Shown when the candidate comes back after switching away from the interview tab. A reminder only:
- * nothing is recorded and the score is unaffected. A proper modal: focus inside, Tab kept in, Escape
- * closes, the room behind is inert, and focus goes back to where it was.
+ * Shown when the candidate comes back after switching away from the interview tab. The score is
+ * unaffected; when the API records switches (it notes them in the report) the reminder says so, and
+ * never claims more than that. A proper modal: focus inside, Tab kept in, Escape closes, the room
+ * behind is inert, and focus goes back to where it was.
  */
-function TabSwitchWarning({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+function TabSwitchWarning({ count, recording, onDismiss }: { count: number; recording: TabSwitchRecording; onDismiss: () => void }) {
   const box = useRef<HTMLDivElement>(null);
   const btn = useRef<HTMLButtonElement>(null);
   useModal(box, onDismiss, btn);
@@ -154,7 +155,12 @@ function TabSwitchWarning({ count, onDismiss }: { count: number; onDismiss: () =
         <h2 id="tab-guard-title">You switched away from the interview</h2>
         <p id="tab-guard-body" className="subtle">
           The timer kept running while you were away. As in a real interview, try to stay on this tab until you finish.
-          {count > 1 ? ` You have switched away ${count} times.` : ''} This is a reminder only; it doesn’t affect your score.
+          {count > 1 ? ` You have switched away ${count} times.` : ''}
+          {recording === 'recorded'
+            ? ' It doesn’t affect your score; your report notes how often you switched away.'
+            : recording === 'not-recorded'
+              ? ' This is a reminder only; it doesn’t affect your score.'
+              : ' It doesn’t affect your score.'}
         </p>
         <button ref={btn} className="btn primary" type="button" onClick={onDismiss}>Back to the interview</button>
       </div>
@@ -299,19 +305,20 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
     else listen('answer');
   }, [turn?.turnId, session.state]);
 
-  // Speak Alex's reply to a clarifying question, then go back to listening for the answer.
+  // Speak Alex's reply to a clarifying question, then go back to listening for the answer. Counted per
+  // turn and only while answering: replies already there when a turn is first seen (a reload) or that
+  // come back on resume (the API withholds them while paused) are shown, not read out over the question.
   const clarCount = turn?.clarifications.length ?? 0;
-  const spokenClar = useRef(0);
+  const spokenClar = useRef<{ turnId: string | null; count: number }>({ turnId: null, count: 0 });
   useEffect(() => {
-    if (!turn || clarCount <= spokenClar.current) {
-      spokenClar.current = clarCount;
-      return;
-    }
-    spokenClar.current = clarCount;
+    if (!turn || turn.questionHidden || session.state !== 'awaiting_answer') return;
+    const seen = spokenClar.current;
+    spokenClar.current = { turnId: turn.turnId, count: clarCount };
+    if (seen.turnId !== turn.turnId || clarCount <= seen.count) return;
     const last = turn.clarifications[clarCount - 1]!;
     if (speech.supported && !muted && (config?.speakQuestions || config?.voiceAnswers)) speech.speak(last.answer, () => listen('answer'));
     else listen('answer');
-  }, [clarCount]);
+  }, [turn?.turnId, clarCount, session.state]);
 
   // Stop listening whenever the candidate cannot answer (evaluating, paused, finished).
   useEffect(() => {
@@ -479,7 +486,13 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
     });
   }
 
-  const questionText = streaming ? streaming.text : turn?.question ?? '';
+  // Pauses the API allows in this interview (null: unlimited, or an API that doesn't say).
+  const maxPauses = session.integrity?.maxPauses ?? null;
+  const pausesLeft = maxPauses == null ? null : Math.max(0, maxPauses - (session.integrity?.pauseCount ?? 0));
+  // While paused the question is off screen (the clock is stopped, so it can't be researched meanwhile);
+  // newer APIs also withhold it. It comes back on resume.
+  const paused = session.state === 'paused';
+  const questionText = streaming ? streaming.text : paused ? '' : turn?.question ?? '';
   const topic = streaming?.topic ?? turn?.topic;
   const qNumber = Math.max(streaming?.questionNumber ?? session.progress.questionNumber, 1);
   const isFollowUp = (streaming?.kind ?? turn?.kind) === 'follow_up';
@@ -519,7 +532,14 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
             </button>
           )}
           {session.state === 'awaiting_answer' && (
-            <button className="btn icon-only" type="button" onClick={() => { rec.stop(); speech.stop(); void control('pause'); }} disabled={phase !== 'idle'} aria-label="Pause the interview" title="Pause">
+            <button
+              className="btn icon-only"
+              type="button"
+              onClick={() => { rec.stop(); speech.stop(); void control('pause'); }}
+              disabled={phase !== 'idle' || pausesLeft === 0}
+              aria-label={`Pause the interview${pausesLeft != null ? `, ${pausesLeft} pause${pausesLeft === 1 ? '' : 's'} left` : ''}`}
+              title={pausesLeft === 0 ? 'No pauses left in this interview' : pausesLeft != null ? `Pause (${pausesLeft} left)` : 'Pause'}
+            >
               <Pause className="icon" aria-hidden />
             </button>
           )}
@@ -531,7 +551,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
         </div>
       </header>
 
-      {tabGuard.warning && <TabSwitchWarning count={tabGuard.count} onDismiss={tabGuard.dismiss} />}
+      {tabGuard.warning && <TabSwitchWarning count={tabGuard.count} recording={tabGuard.recording} onDismiss={tabGuard.dismiss} />}
 
       {confirmEnd && (
         <div
@@ -582,7 +602,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
                   <p className="subtle">
                     About {config?.durationMin} minutes. Alex's questions follow your answers, with follow-ups when useful.{' '}
                     {config?.voiceAnswers ? 'Alex will speak each question and listen for your answer; your words appear on screen so you can edit them. Your browser will ask to use the microphone. ' : ''}
-                    The timer runs only while you are answering, and you can pause at any time.
+                    The timer runs only while you are answering, and you can pause {maxPauses != null ? `up to ${maxPauses} time${maxPauses === 1 ? '' : 's'}` : 'at any time'}; the question is hidden while paused.
                   </p>
                   {voiceAvailable && <MicCheck />}
                 </div>
@@ -614,7 +634,9 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
                     </div>
                   )}
                 </div>
-                {questionText ? (
+                {paused ? (
+                  <p className="subtle">The question is hidden while the interview is paused. Resume to see it again.</p>
+                ) : questionText ? (
                   <p className="question-text">{questionText}{phase === 'streaming' && <span className="caret" aria-hidden />}</p>
                 ) : (
                   <p className="subtle row thinking">
@@ -623,7 +645,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
                   </p>
                 )}
 
-                {(turn?.clarifications.length || reply || asking) && (
+                {!paused && (turn?.clarifications.length || reply || asking) && (
                   <div className="clarify-thread">
                     {turn?.clarifications.map((c, i) => (
                       <div key={i} className="clar">
@@ -825,7 +847,7 @@ export default function InterviewRoom({ initial }: { initial: SessionView }) {
             {showTranscript && (
               <div id="transcript-list" className="chat" ref={chatRef}>
                 {session.transcript.length === 0 && <p className="muted" style={{ fontSize: 13.5 }}>The conversation appears here as you go.</p>}
-                {session.transcript.map((t) => (
+                {session.transcript.filter((t) => !(paused && t.turnId === turn?.turnId && !t.answer)).map((t) => (
                   <div key={t.turnId} className="chat-turn">
                     <div className="bubble alex">
                       <span className="who">Alex · {t.kind === 'follow_up' ? 'Follow-up' : `Q${t.questionNumber}`}</span>

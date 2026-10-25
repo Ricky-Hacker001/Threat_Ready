@@ -1,6 +1,7 @@
 import { Brand } from '../components/Brand';
 import { Ansi } from '../components/Ansi';
 import { LABS, LEVELS } from '../content/labs';
+import { progressNote } from '../components/IdentityNotice';
 
 const STEPS = [
   { icon: '⚙️', title: 'Configure pipelines', text: 'Write GitHub Actions workflows, wire security gates with needs:, and watch real runs pass or fail on exit codes.' },
@@ -143,7 +144,9 @@ export function Welcome({ go, hasProgress }: { go: (r: string) => void; hasProgr
           </div>
         </section>
       </main>
-      <footer className="footer">All companies, people, credentials and data in this lab are fictional training material. Progress is stored only in this browser.</footer>
+      <footer className="footer">
+        All companies, people, credentials and data in this lab are fictional training material. {progressNote()}
+      </footer>
     </div>
   );
 }

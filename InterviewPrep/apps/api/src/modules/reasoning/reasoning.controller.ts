@@ -81,14 +81,17 @@ export class ReasoningController {
       let last = '';
       const deadline = Date.now() + 5 * 60_000;
       let nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
+      // Each poll is a database read: every 2 s just after a change, easing to every 5 s while nothing moves (audit TR-25).
+      let pollMs = 2000;
       while (!sse.isClosed && Date.now() < deadline) {
         const sig = `${state.state}:${state.version}`;
         if (sig !== last) {
           last = sig;
+          pollMs = 2000;
           sse.send({ type: 'state', state: state.state, version: state.version });
           if (STABLE.has(state.state)) break;
-        }
-        await new Promise((r) => setTimeout(r, 2000));
+        } else pollMs = Math.min(5000, pollMs + 1000);
+        await new Promise((r) => setTimeout(r, pollMs));
         if (Date.now() >= nextIdentityCheck) {
           nextIdentityCheck = Date.now() + SSE_IDENTITY_RECHECK_MS;
           const still = await this.auth.resolve(req.headers).catch(() => null);

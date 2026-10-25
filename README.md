@@ -2,18 +2,24 @@
 
 One sign-in, separate apps. Each app keeps its own overview, management, reports and status. The ThreatReady profile on onboard shows all of them together, and the admin console shows every user's activity, tokens and AI cost.
 
-| Domain | Project | What it is |
-|---|---|---|
-| `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
-| `interviewprep.threatready.io` | `InterviewPrep/` | AI mock interviews: its own dashboard, history and reports |
-| `labs.threatready.io` | `threatready-lab-001/` | Lab **catalog** at `/labs/`, grouped into four tracks (Cloud Security, Blue Team, Red Team, Network Security); each track lists its labs at `/labs/tracks/<track>`. `TR-CLOUD-001` runs in this app at `/labs/TR-CLOUD-001`; the labs below are their own apps, served by this one behind the platform sign-in |
-| `labs.threatready.io/labs/soc/` | `soc/` | On the main Labs page: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
-| `labs.threatready.io/labs/devsecops/` | `DevSecOps-Simulation/` | On the main Labs page: DevSecOps lab (scanners, fixes and a gated pipeline), runs in the browser |
-| `labs.threatready.io/labs/aisec/` | `AI-Security/` | On the main Labs page: AI Security Lab, 30 simulated AI/LLM attack-detect-fix-retest scenarios against AeroPay's assistant, runs in the browser |
-| `labs.threatready.io/labs/threatwall/` | `ThreatWall/` | **Network Security**: ThreatReady Firewall, firewall administration from first cable to incident containment, runs in the browser |
-| `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: AeroCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
-| `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning Lab, **15 live domains** (Cloud Security, Identity & Access, AppSec, Network, SOC, IR & DFIR, DevSecOps, Kubernetes, Data, Threat Intel, Endpoint, Zero Trust, API, AI & LLM, GRC): **domain landing** at `/`, a domain's entry point at `/domains/<key>`, one AI-generated assessment at `/attempts/<id>` (architecture diagram, MCQ, written justification, three-stage evaluation, feedback), history and analytics at `/history`; hand-authored scenario briefs stay at `/scenarios/<id>`. The reasoning engine itself is the `reasoning` module of the InterviewPrep API (the ThreatReady monolith); this app proxies `/v1/*` to it. See `docs/ATTACK_REASONING.md` |
-| `threatready.io` | `Landing_Page-main/` | Public marketing site and the **source of the design system** every app follows |
+**Where it runs today:** one Render web service, **https://threatready.onrender.com**, with every app
+under a path of that one origin (sign-in at `/`, sign-up at `/?mode=signup`; see `deploy/README.md`).
+The marketing site `threatready.io` links there. The `*.threatready.io` subdomains in the table are the
+**planned** multi-host layout (production checklist below); none of them exists in DNS yet, so never
+link to them.
+
+| Live path | Planned host | Project | What it is |
+|---|---|---|---|
+| `/` | `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
+| `/interview-prep/` (API `/v1/`) | `interviewprep.threatready.io` | `InterviewPrep/` | AI mock interviews: its own dashboard, history and reports |
+| `/labs/` | `labs.threatready.io` | `threatready-lab-001/` | Lab **catalog** at `/labs/`, grouped into four tracks (Cloud Security, Blue Team, Red Team, Network Security); each track lists its labs at `/labs/tracks/<track>`. `TR-CLOUD-001` runs in this app at `/labs/TR-CLOUD-001`; the labs below are their own apps, served by this one behind the platform sign-in |
+| `/labs/soc/` | `labs.threatready.io/labs/soc/` | `soc/` | On the main Labs page: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
+| `/labs/devsecops/` | `labs.threatready.io/labs/devsecops/` | `DevSecOps-Simulation/` | On the main Labs page: DevSecOps lab (scanners, fixes and a gated pipeline), runs in the browser |
+| `/labs/aisec/` | `labs.threatready.io/labs/aisec/` | `AI-Security/` | On the main Labs page: AI Security Lab, 30 simulated AI/LLM attack-detect-fix-retest scenarios against AeroPay's assistant, runs in the browser |
+| `/labs/threatwall/` | `labs.threatready.io/labs/threatwall/` | `ThreatWall/` | **Network Security**: ThreatReady Firewall, firewall administration from first cable to incident containment, runs in the browser |
+| `/labs/redteam/` | `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: AeroCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
+| `/ar/` | `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning Lab, **15 live domains** (Cloud Security, Identity & Access, AppSec, Network, SOC, IR & DFIR, DevSecOps, Kubernetes, Data, Threat Intel, Endpoint, Zero Trust, API, AI & LLM, GRC): **domain landing** at `/`, a domain's entry point at `/domains/<key>`, one AI-generated assessment at `/attempts/<id>` (architecture diagram, MCQ, written justification, three-stage evaluation, feedback), history and analytics at `/history`; hand-authored scenario briefs stay at `/scenarios/<id>`. The reasoning engine itself is the `reasoning` module of the InterviewPrep API (the ThreatReady monolith); this app proxies `/v1/*` to it. See `docs/ATTACK_REASONING.md` |
+| — (GitHub Pages) | `threatready.io` | `Landing_Page-main/` | Public marketing site and the **source of the design system** every app follows |
 
 ## One design across every app
 
@@ -67,7 +73,9 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 2. Migrate onboard (`pnpm db:migrate`; adds `users.role`) and InterviewPrep (`node packages/db/dist/migrate.js` with `.env` loaded; adds migrations 0005 and 0006, the Attack Reasoning tables). Set `ALLOWED_APP_ORIGINS=http://localhost:5176` in `InterviewPrep/.env` and `REASONING_API_URL=http://localhost:3100` in `attack-reasoning/.env` (`REASONING_PREFETCH_ENABLED` controls background pre-generation of the next scenario). The InterviewPrep worker (`npm run dev:worker`) must run: scenario generation and evaluation are its jobs.
 3. Open http://localhost:5173. Locally no `COOKIE_DOMAIN` is needed because localhost cookies ignore the port, so all three apps share the session.
 
-## Production checklist
+## Production checklist (planned multi-host layout)
+
+For the live single-origin Render service, follow `deploy/README.md` instead.
 
 - Onboard: `COOKIE_DOMAIN=threatready.io`, `BETTER_AUTH_URL`/`WEB_ORIGIN=https://onboard.threatready.io`, `INTERVIEW_APP_URL`, `LABS_APP_URL`, `REASONING_APP_URL` (https), `*_INTERNAL_URL` pointing at the in-VPC services, `INTERNAL_API_TOKEN` from Parameter Store, OAuth redirect URIs on the onboard host.
 - InterviewPrep: `APP_ORIGIN=https://interviewprep.threatready.io`, `ONBOARD_URL=https://onboard.threatready.io`, `IDENTITY_URL` = onboard in-VPC, same token. Web build: `VITE_ONBOARD_URL`.
@@ -76,14 +84,30 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 - Cloudflare: route `/api/*` (onboard, labs, ar) and `/v1/*` (interviewprep) to their services; **do not route `/internal/*`**.
 - CAPTCHA: set **both** `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare Turnstile) before launch. Without them sign-up, sign-in and OTP requests rely on rate limits alone; the launcher logs a warning at start.
 - Internal routes (`/api/internal/*`, `/labs/internal/*`, `/ar/internal/*`, and `/internal/` under any lab) are protected by `INTERNAL_API_TOKEN` **and** the gateway's caller check (loopback peer, no edge headers). Behind a proxy every peer is loopback, so the token is the real control: keep it long, random and out of every other app's environment.
-- CSP `connect-src` stays `'self'` everywhere: the browser only ever talks to its own app's origin.
+- CSP `connect-src` stays `'self'` everywhere (plus `blob:` on the gateway, for the 3D interviewer's textures, which three.js reads with `fetch(blob:)`): the browser only ever talks to its own app's origin.
+
+## Publishing to GitHub
+
+This working tree is not a clean repository: six sub-apps (`AI-Security`, `DevSecOps-Simulation`,
+`InterviewPrep`, `soc`, `threatready-lab-001`, `ThreatWall`) are their own clones with a `.git`, and
+`InterviewPrep/apps/api/assets/interviewer.glb` is a licensed model that must never be downloadable.
+Publish with the filter, then check the result before committing there:
+
+```
+rsync -a --delete --filter='merge scripts/publish.rsync-filter' ./ ../Threat_Ready/
+node scripts/publish-check.mjs ../Threat_Ready
+```
+
+The filter leaves out every nested `.git`, any `.glb`, real `.env` files (templates stay), private
+keys, `audit/`, build output and local lab data. `publish-check` fails on any of those, on gitlinks and
+on files over 25 MB; CI runs it on every push too.
 
 ## Known follow-ups
 
 - Identity is cached for `IDENTITY_CACHE_SECONDS` (30 s) per app, on top of Better Auth's 60-second cookie cache, so a revoked session can keep working for up to about 1½ minutes outside onboard (the internal identity endpoint and the admin console bypass the cookie cache).
 - InterviewPrep's old local accounts (from before this change) keep their data, but their ids don't match onboard users, so that usage appears in admin totals and not under any onboard user.
 - InterviewPrep still lists `better-auth` in its `package.json` files although nothing imports it, and its `sessions`, `accounts` and `verifications` tables are no longer written. Remove both in a cleanup.
-- Labs still store progress in a JSON file (`data/store.json`). Moving it to PostgreSQL is the next step for multi-instance deploys.
+- Labs, SOC and Red Team still store progress in JSON files. On Render the launcher mirrors them to PostgreSQL so a restart keeps them (`deploy/README.md`), but that is one instance's backup, not shared state: moving the stores to PostgreSQL is the next step for multi-instance deploys.
 - The ADD's staff TOTP requirement now applies to the admin console. Add the Better Auth 2FA plugin and require it for `admin:read`.
 - The Playwright browser test for Labs is updated but was not run here (no Chromium installed): `npx playwright install chromium && npm run build && npm run test:e2e`.
 - UI regression sweep (`e2e/ui-audit.mjs`, from the Oct 2026 UI/UX audit in `docs/`): every route at eight viewports, no sideways scrolling, lab consoles that fit under the lab strip, and axe-core WCAG 2.1 AA. `cd e2e && E2E_USER=… E2E_PASSWORD=… E2E_SITE=http://localhost:8090 npm run ui-audit`.

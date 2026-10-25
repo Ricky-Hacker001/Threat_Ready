@@ -20,6 +20,7 @@ export const ERROR_CATALOGUE = {
   JD_UNREADABLE: { http: 422, retryable: false, message: 'We could not read text from this job description' },
   JD_NOT_FOUND: { http: 404, retryable: false, message: 'Job description not found' },
   DOCUMENT_NOT_READY: { http: 409, retryable: true, message: 'The document is still being processed' },
+  TEXT_TOO_LONG: { http: 413, retryable: false, message: 'The text is longer than the 30,000-character limit' },
   PARSE_IN_PROGRESS: { http: 409, retryable: true, message: 'Analysis is still in progress' },
   PARSE_FAILED: { http: 422, retryable: false, message: 'We could not analyse these documents' },
 
@@ -35,7 +36,10 @@ export const ERROR_CATALOGUE = {
   INTERVIEW_LIMIT_REACHED: { http: 409, retryable: false, message: 'You have reached your interview limit' },
   INTERVIEW_TURN_IN_PROGRESS: { http: 409, retryable: true, message: 'Your previous answer is still being processed' },
   INTERVIEW_ANSWER_TOO_LONG: { http: 422, retryable: false, message: 'Answers are limited to 4,000 characters' },
+  INTERVIEW_PAUSE_LIMIT_REACHED: { http: 409, retryable: false, message: 'You have used every pause allowed in this interview' },
+  CLARIFICATION_LIMIT_REACHED: { http: 409, retryable: false, message: 'You can ask up to three clarifying questions per question' },
   REPORT_NOT_READY: { http: 409, retryable: true, message: 'The report is not ready yet' },
+  REPORT_RETRY_LIMIT_REACHED: { http: 409, retryable: false, message: 'We could not generate this report after several attempts. Your answers are saved; contact support with the reference.' },
 
   REASONING_ATTEMPT_NOT_FOUND: { http: 404, retryable: false, message: 'Assessment attempt not found' },
   REASONING_DOMAIN_UNAVAILABLE: { http: 404, retryable: false, message: 'This domain is not available yet' },
@@ -45,6 +49,9 @@ export const ERROR_CATALOGUE = {
   REASONING_ANSWER_TOO_LONG: { http: 422, retryable: false, message: 'Justifications are limited to 4,000 characters' },
   REASONING_GENERATION_FAILED: { http: 502, retryable: true, message: 'We could not generate a valid scenario this time; retry to generate another' },
   REASONING_EVALUATION_FAILED: { http: 502, retryable: true, message: 'Your answer is saved but could not be evaluated yet; retry the evaluation' },
+  REASONING_DAILY_LIMIT_REACHED: { http: 429, retryable: false, message: 'You have used today’s evaluations; your answer is kept, submit it after the daily reset' },
+  REASONING_RETRY_LIMIT_REACHED: { http: 409, retryable: false, message: 'This step has already been retried the maximum number of times; start a new question' },
+  REASONING_SKIP_CONFIRMATION_REQUIRED: { http: 409, retryable: false, message: 'Starting another question skips your oldest unanswered one, which counts as 0; confirm to continue' },
 
   ENTITLEMENT_REQUIRED: { http: 402, retryable: false, message: 'Your plan does not include this feature' },
   ENTITLEMENT_QUOTA_EXCEEDED: { http: 403, retryable: false, message: 'Your plan quota for this period is used up' },
@@ -52,6 +59,7 @@ export const ERROR_CATALOGUE = {
   STORAGE_UPLOAD_EXPIRED: { http: 410, retryable: false, message: 'The upload link has expired; start the upload again' },
   STORAGE_OBJECT_NOT_FOUND: { http: 404, retryable: false, message: 'The uploaded file was not found' },
   STORAGE_UNAVAILABLE: { http: 503, retryable: true, message: 'File storage is temporarily unavailable' },
+  STORAGE_UPLOAD_CONFLICT: { http: 409, retryable: false, message: 'This upload link has already been used; start the upload again' },
 
   ASSET_NOT_AVAILABLE: { http: 404, retryable: false, message: 'This asset is not available' },
 
@@ -61,25 +69,39 @@ export const ERROR_CATALOGUE = {
 export type ErrorCode = keyof typeof ERROR_CATALOGUE;
 
 export interface ErrorEnvelope {
-  error: { code: ErrorCode; message: string; request_id: string; retryable: boolean; details?: unknown };
+  error: { code: ErrorCode; message: string; request_id: string; retryable: boolean; details?: unknown; retry_after_sec?: number };
 }
 
-/** A domain failure with one catalogue code. Thrown by services, mapped to the envelope by the API filter. */
+/**
+ * A domain failure with one catalogue code. Thrown by services, mapped to the envelope by the API filter.
+ * `retryAfterSec` becomes the Retry-After header (429 and 503 always carry one); `retryable` overrides the
+ * catalogue for one instance, e.g. a rate limit whose window is an hour is not worth an automatic retry.
+ */
 export class DomainError extends Error {
   readonly code: ErrorCode;
   readonly details?: unknown;
-  constructor(code: ErrorCode, opts: { details?: unknown; cause?: unknown; message?: string } = {}) {
+  readonly retryAfterSec?: number;
+  private readonly retryableOverride?: boolean;
+  constructor(code: ErrorCode, opts: { details?: unknown; cause?: unknown; message?: string; retryable?: boolean; retryAfterSec?: number } = {}) {
     super(opts.message ?? ERROR_CATALOGUE[code].message, { cause: opts.cause });
     this.name = 'DomainError';
     this.code = code;
     this.details = opts.details;
+    if (opts.retryAfterSec !== undefined) this.retryAfterSec = Math.max(1, Math.ceil(opts.retryAfterSec));
+    this.retryableOverride = opts.retryable;
   }
   get http(): number {
     return ERROR_CATALOGUE[this.code].http;
   }
   get retryable(): boolean {
-    return ERROR_CATALOGUE[this.code].retryable;
+    return this.retryableOverride ?? ERROR_CATALOGUE[this.code].retryable;
   }
+}
+
+/** Seconds until the next UTC midnight, when the daily AI budgets reset. */
+export function secondsUntilUtcMidnight(now: Date = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
 }
 
 export type PortErrorKind =

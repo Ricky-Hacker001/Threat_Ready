@@ -1,0 +1,37 @@
+# ThreatReady publish filter (rsync merge file). Copies this working tree to the GitHub repository
+# checkout without what must never be published (README.md, "Publishing to GitHub"):
+#   rsync -a --delete --filter='merge scripts/publish.rsync-filter' ./ ../Threat_Ready/
+#   node scripts/publish-check.mjs ../Threat_Ready
+# Excluded paths are also protected from --delete on the receiving side (its own .git stays).
+
+# Nested repositories (six sub-apps are separate clones): never copied, so no gitlinks.
+- .git/
+- .git
+# Licensed Renderpeople model: deployed as a Render Secret File, never downloadable.
+- interviewer.glb
+- *.glb
+# Local secrets (templates are .env.example).
++ .env.example
+- .env
+- .env.*
+- *.pem
+- id_rsa*
+# Internal audit reports describe unfixed vulnerabilities.
+- /audit/
+# Local data: uploads, bundled PostgreSQL, lab progress (learners' names and work).
+- /InterviewPrep/apps/api/var/
+- /Threatready-landing-page-main/.local/
+- /threatready-lab-001/data/*.json
+- /soc/data/*.json
+- /soc/data/*.tmp
+- /red_team_lab/web/data/
+# Build output, dependencies and tool state.
+- node_modules/
+- dist/
+- coverage/
+- *.tsbuildinfo
+- .logs/
+- test-results/
+- .claude/
+- .DS_Store
+- __pycache__/

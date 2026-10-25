@@ -8,6 +8,7 @@ import { runChecks } from '../tasks/runtime';
 import { tunnelStatus } from '../engine/vpn';
 import { BadgeShield, BADGE_DISCLAIMER, BrandFooter, BrandRow, COMPANY, PRODUCT } from './Brand';
 import { lastRoute, levelSummary, nextTask } from './progress';
+import { IdentityNotice } from '../components/IdentityNotice';
 
 const fmtDur = (ms: number) => { const m = Math.round(ms / 60000); return m < 1 ? '<1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
 const fmtDate = (t: number) => new Date(t).toLocaleString();
@@ -84,6 +85,7 @@ export function Record() {
         </span>} />
 
         <main>
+        <IdentityNotice variant="page" />
         <header className="tr-hero" style={{ marginBottom: 14 }}>
           <h1>Training record</h1>
           <p>{p.learner ? <b style={{ color: 'var(--tr-text)' }}>{p.learner}</b> : <span className="tr-empty">Learner name not set</span>} · {PRODUCT} · generated {fmtDate(Date.now())} · every check re-run against the current lab configuration</p>
@@ -109,8 +111,9 @@ export function Record() {
         </section>
 
         <section className="tr-section">
-          <h2>Results by level</h2>
-          <div className="tr-card" style={{ padding: 0, overflowX: 'auto' }}>
+          <h2 id="rec-levels">Results by level</h2>
+          {/* Wide on a phone: the scroll area takes focus so the arrow keys can scroll it (axe scrollable-region-focusable). */}
+          <div className="tr-card tr-scroll" role="region" aria-labelledby="rec-levels" tabIndex={0}>
             <table className="tr-table">
               <thead><tr><th>Level</th><th>Result</th><th>Verified</th><th>Failed attempts</th><th>Badge</th></tr></thead>
               <tbody>
@@ -168,8 +171,8 @@ export function Record() {
         </section>
 
         <section className="tr-section">
-          <h2>Task history</h2>
-          <div className="tr-card" style={{ padding: 0, overflowX: 'auto' }}>
+          <h2 id="rec-history">Task history</h2>
+          <div className="tr-card tr-scroll" role="region" aria-labelledby="rec-history" tabIndex={0}>
             <table className="tr-table">
               <thead><tr><th>Task</th><th>Result</th><th>Completed</th><th>Time</th><th>Failed attempts</th><th>Checks now</th></tr></thead>
               <tbody>

@@ -10,11 +10,19 @@ import { bridge } from './tour/bridge.js';
 const MAX_LIVE = 300;
 // Failed connection attempts in a row before the stream is reported as stopped.
 const MAX_STREAM_RETRIES = 3;
+// While the stream is stopped or refused, the newest lines and the case are fetched this often instead.
+const POLL_MS = 5000;
+// This page's key for its live stream: the server lets a reconnect from the same page replace its own
+// slot (MAX_SSE_PER_USER) instead of being refused while the old connection is still being torn down.
+const TAB_KEY = (() => {
+  try { return window.crypto.randomUUID().replace(/-/g, ''); } catch { return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`; }
+})();
 const NARROW_KEY = 'soc-sim-narrow-notice';
 const STREAM_SAY = {
   reconnecting: 'Live log stream interrupted. Reconnecting.',
   restored: 'Live log stream reconnected.',
   ended: 'Live log stream ended with the ticket.',
+  busy: 'Live log stream not started: too many live consoles are open.',
 };
 
 function narrowDismissed() {
@@ -70,8 +78,11 @@ export default function CaseView({ id, goHome, go }) {
   const [live, setLive] = useState([]);
   const [paused, setPausedState] = useState(false);
   const [held, setHeld] = useState(0);
-  // connecting | live | reconnecting | failed | ended
+  // connecting | live | reconnecting | failed | busy (refused: too many consoles open) | ended |
+  // signedout (the ThreatReady session ended: nothing is fetched until the page is reloaded)
   const [stream, setStream] = useState('connecting');
+  const [signedOut, setSignedOut] = useState('');
+  const [busy, setBusy] = useState({ max: 3, retryAfter: 5 });
   const [streamNonce, setStreamNonce] = useState(0);
   const [streamSay, setStreamSay] = useState('');
   const lastSeq = useRef(null);
@@ -87,6 +98,15 @@ export default function CaseView({ id, goHome, go }) {
   const [flash, setFlash] = useState(null);
 
   const refresh = useCallback(() => api.getCase(id).then(setCs).catch((e) => { if (e.status === 404) setLoadErr(e); }), [id]);
+  // The ThreatReady session ended or no longer reaches this lab: stop the stream fallback and say so
+  // (an ended session, 401 auth_required, is already announced above every page by App).
+  const endedBy = useCallback((e) => {
+    if (e?.status !== 401 && e?.status !== 403) return false;
+    setSignedOut(e.code === 'auth_required' ? '' : e.message || 'Reload the page to sign in again.');
+    setStream('signedout');
+    setStreamSay('');
+    return true;
+  }, []);
 
   const push = useCallback((events) => {
     const fresh = events.filter((e) => !seen.current.has(e.id));
@@ -128,8 +148,19 @@ export default function CaseView({ id, goHome, go }) {
     let dead = false;
     let failures = 0;
     let troubled = false;
-    const after = lastSeq.current != null ? `?after=${lastSeq.current}` : '';
-    const es = new EventSource(apiUrl(`/api/cases/${id}/stream${after}`));
+    const q = new URLSearchParams({ tab: TAB_KEY });
+    if (lastSeq.current != null) q.set('after', String(lastSeq.current));
+    const es = new EventSource(apiUrl(`/api/cases/${id}/stream?${q}`));
+    // Stopped for good (no browser reconnect): find out why, since EventSource cannot read the reply.
+    // Refused because this analyst already has the maximum of live consoles open: say so, and let them
+    // retry once they have closed one; nothing reconnects on its own.
+    const stop = () => {
+      es.close();
+      api.streams().then((s) => {
+        if (dead) return;
+        if (s?.full) { setBusy({ max: s.max, retryAfter: s.retryAfter || 5 }); setStream('busy'); setStreamSay(STREAM_SAY.busy); } else { setStream('failed'); setStreamSay(''); }
+      }, (e) => { if (!dead) { if (!endedBy(e)) setStream('failed'); setStreamSay(''); } });
+    };
     es.addEventListener('hello', () => {
       failures = 0;
       setStream('live');
@@ -141,22 +172,38 @@ export default function CaseView({ id, goHome, go }) {
     });
     es.addEventListener('case', () => refresh());
     es.addEventListener('closed', () => { es.close(); setStream('ended'); setStreamSay(STREAM_SAY.ended); });
+    // A newer connection from this page took over this one's slot.
+    es.addEventListener('replaced', () => { if (!dead) stop(); });
     es.onerror = () => {
       if (dead) return;
       failures += 1;
       troubled = true;
-      // CLOSED: the server refused the stream (e.g. 401/404); otherwise the browser is retrying.
-      if (es.readyState === EventSource.CLOSED || failures >= MAX_STREAM_RETRIES) {
-        es.close();
-        setStream('failed');
-        setStreamSay('');
-      } else {
+      // CLOSED: the server refused the stream (429 too many consoles, 401, 404); otherwise the browser
+      // is retrying, after the delay the server set (SSE retry).
+      if (es.readyState === EventSource.CLOSED || failures >= MAX_STREAM_RETRIES) stop();
+      else {
         setStream('reconnecting');
         setStreamSay(STREAM_SAY.reconnecting);
       }
     };
     return () => { dead = true; es.close(); };
-  }, [id, push, refresh, streamNonce]);
+  }, [id, push, refresh, streamNonce, endedBy]);
+
+  // Not live: keep the console moving by fetching the newest lines and the case every few seconds,
+  // until the session ends (401/403: polling on would only be refused).
+  const caseOpen = !!cs && cs.status !== 'closed';
+  useEffect(() => {
+    if ((stream !== 'failed' && stream !== 'busy') || !caseOpen) return undefined;
+    let t = null;
+    const poll = () => {
+      if (document.visibilityState !== 'visible') return;
+      const failed = (e) => { if (endedBy(e)) clearInterval(t); };
+      api.logs(id, { limit: 120 }).then((r) => push(r.events)).catch(failed);
+      api.getCase(id).then(setCs).catch((e) => { if (e.status === 404) setLoadErr(e); else failed(e); });
+    };
+    t = setInterval(poll, POLL_MS);
+    return () => clearInterval(t);
+  }, [stream, caseOpen, id, push, endedBy]);
 
   const reloadStream = () => {
     setStream('connecting');
@@ -307,11 +354,21 @@ export default function CaseView({ id, goHome, go }) {
         </div>
       )}
       {err && <div className="flash flash-bad"><ErrorNote error={err} onDismiss={() => setErr(null)} /></div>}
-      {stream === 'failed' && !closed && (
+      {stream === 'signedout' && signedOut && !closed && (
         <div className="flash flash-bad">
           <div className="note note-bad" role="alert">
-            <span><strong>The live log stream stopped.</strong> New lines are not arriving. Everything that happened is still in Log search.</span>
-            <button type="button" className="btn btn-sm" onClick={reloadStream}>Reload stream</button>
+            <span><strong>Live updates stopped.</strong> {signedOut}</span>
+            <button type="button" className="btn btn-sm" onClick={() => window.location.reload()}>Reload page</button>
+          </div>
+        </div>
+      )}
+      {(stream === 'failed' || stream === 'busy') && !closed && (
+        <div className="flash flash-bad">
+          <div className="note note-bad" role="alert">
+            {stream === 'busy'
+              ? <span><strong>Too many live consoles are open.</strong> You can stream {busy.max ? `at most ${busy.max} tickets` : 'only a few tickets'} at once. Close another SOC tab or window, then retry in about {busy.retryAfter} seconds. Until then this ticket refreshes every few seconds.</span>
+              : <span><strong>The live log stream stopped.</strong> This ticket now refreshes every few seconds instead, and everything that happened is in Log search.</span>}
+            <button type="button" className="btn btn-sm" onClick={reloadStream}>{stream === 'busy' ? 'Retry live stream' : 'Reload stream'}</button>
           </div>
         </div>
       )}

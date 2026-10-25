@@ -22,6 +22,8 @@ export interface StoragePort {
   head(key: string): Promise<{ size: number; contentType?: string } | null>;
   read(key: string, maxBytes: number): Promise<Buffer>;
   put(key: string, body: Buffer, contentType: string): Promise<void>;
+  /** Local storage only: removes partial uploads older than `olderThan` (S3 aborts its own). */
+  sweepIncoming?(olderThan: Date): Promise<number>;
 }
 
 export const STORAGE_PORT = Symbol('StoragePort');

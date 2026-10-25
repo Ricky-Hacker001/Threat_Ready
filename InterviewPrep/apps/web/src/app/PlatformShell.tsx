@@ -132,8 +132,10 @@ export function PlatformHeader({ user }: { user: Me }) {
   return (
     <header className="tr-nav">
       <div className="tr-wrap tr-nav-in">
+        {/* The name starts with the visible text ("ThreatReady InterviewPrep"; the space is collapsed in
+            the flex row), so voice control users can say what they see (WCAG 2.5.3). */}
         <a className="tr-brand" href={`${BASE}`} aria-label={`ThreatReady ${title} home`}>
-          <img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady<small>{title}</small>
+          <img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady{' '}<small>{title}</small>
         </a>
         <nav aria-label="ThreatReady apps">
           <ul className="tr-apps">

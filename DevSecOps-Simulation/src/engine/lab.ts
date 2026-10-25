@@ -150,7 +150,15 @@ export function scanFresh(s: LabState, tool: ToolName): boolean {
   return s.scans[tool]?.rev === revOf(s);
 }
 
-/** Active time in the lab: wall-clock time since the start minus time away (tab hidden or lab closed). */
+/** Wall-clock time of this attempt, from its start to completion (or now). The Expert speed bonus measures this. */
+export function wallMs(s: LabState, now = Date.now()): number {
+  return Math.max(0, (s.completedAt ?? now) - s.startedAt);
+}
+
+/**
+ * Active time in the lab: wall-clock time since the start minus time away (tab hidden or lab closed). Shown for
+ * information only; it never earns the speed bonus, since time away can still be spent on the lab.
+ */
 export function activeMs(s: LabState, now = Date.now()): number {
   const end = s.completedAt ?? (s.awayAt ?? now);
   return Math.max(0, end - s.startedAt - (s.pausedMs ?? 0));
@@ -162,7 +170,8 @@ export function score(def: LabDef, s: LabState, mode: Mode): { score: number; ma
   const bonus = def.objectives.filter((o) => o.bonus && s.achieved.includes(o.id)).length;
   let pts = Math.round((done / Math.max(1, req.length)) * 100) + bonus * 10;
   if (mode === 'standard') pts -= s.hintsUsed.length * 5;
-  const mins = activeMs(s) / 60000;
+  // Speed bonus on wall-clock time (SEC-3): leaving the tab or closing the lab does not stop this clock.
+  const mins = wallMs(s) / 60000;
   if (mode === 'expert' && s.completedAt && mins <= def.minutes) pts += 20;
   return { score: Math.max(0, pts), max: 100 + def.objectives.filter((o) => o.bonus).length * 10 + (mode === 'expert' ? 20 : 0) };
 }

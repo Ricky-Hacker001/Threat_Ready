@@ -32,9 +32,54 @@ const envSchema = z
     ALLOW_NO_CAPTCHA: z.enum(["true", "false"]).default("false"),
     EMAIL_FROM: z.string().min(3).default("ThreatReady <no-reply@threatready.io>"),
     AWS_REGION: z.string().default("ap-south-1"),
-    CLIENT_IP_HEADER: z.string().default("x-forwarded-for"),
+    /**
+     * Header a trusted proxy sets to the client's IP (x-threatready-client-ip behind the gateway,
+     * cf-connecting-ip behind Cloudflare → ALB). Unset: the TCP peer is the client, and no
+     * client-supplied header is believed.
+     */
+    CLIENT_IP_HEADER: optional,
     /** Test hook: raise auth rate limits so e2e suites can run many sign-ups. */
     RATE_LIMIT_MULTIPLIER: z.coerce.number().positive().default(1),
+    /**
+     * Guest sessions ("Continue as a guest", /sign-in/anonymous). Off by default: every app still
+     * refuses trial identities, so a guest can only look around onboard (TR-30, product decision).
+     */
+    TRIAL_ENABLED: z.enum(["true", "false"]).default("false"),
+    /**
+     * Per-account lockout: this many failed sign-ins for one username lock it for
+     * SIGNIN_LOCKOUT_MINUTES, doubling with each further run of failures (at most a day). 0 turns it off.
+     */
+    SIGNIN_LOCKOUT_FAILURES: z.coerce.number().int().min(0).default(5),
+    SIGNIN_LOCKOUT_MINUTES: z.coerce.number().int().min(1).default(15),
+    /** Verification/reset codes per email address and hour: from one client IP, and from all clients. 0 turns a cap off. */
+    OTP_ISSUE_PER_IP_PER_HOUR: z.coerce.number().int().min(0).default(5),
+    OTP_ISSUE_PER_EMAIL_PER_HOUR: z.coerce.number().int().min(0).default(20),
+    /**
+     * Activity pings per signed-in user and minute, and a per-IP backstop for everyone behind one
+     * address (a classroom NAT). 0 turns a limit off.
+     */
+    ACTIVITY_PING_PER_USER_PER_MINUTE: z.coerce.number().int().min(0).default(20),
+    ACTIVITY_PING_PER_IP_PER_MINUTE: z.coerce.number().int().min(0).default(600),
+    /**
+     * Per-IP backstop on the session read (/api/auth/get-session) that every onboard page makes.
+     * 0 (the default) exempts it from the per-IP limiter: everyone behind one classroom NAT shares a bucket.
+     */
+    AUTH_GET_SESSION_PER_IP_PER_MINUTE: z.coerce.number().int().min(0).default(0),
+    /**
+     * Clean-up of expired sessions, codes, stale guests and never-verified sign-ups. 0 hours turns the
+     * job off. At most 24 days: a longer timer would overflow and fire continuously.
+     */
+    RETENTION_INTERVAL_HOURS: z.coerce.number().min(0).max(24 * 24, "RETENTION_INTERVAL_HOURS must be at most 576 (24 days)").default(24),
+    RETENTION_UNVERIFIED_DAYS: z.coerce.number().int().min(1).default(30),
+    RETENTION_GUEST_DAYS: z.coerce.number().int().min(1).default(7),
+    /**
+     * Error tracking (common/error-report.ts): server errors are sent to this Sentry project DSN.
+     * Optional everywhere, and a malformed value only logs a warning: without it errors are only in the logs.
+     */
+    SENTRY_DSN: optional,
+    SENTRY_ENVIRONMENT: optional,
+    /** Build identifier attached to error reports (the launcher passes the git commit). */
+    RELEASE: optional,
 
     /*
      * Platform. Onboard is the identity provider for every subdomain app.
@@ -89,6 +134,8 @@ export type Config = z.infer<typeof envSchema> & {
   apps: Record<AppKey, RegisteredApp>;
   /** Origins allowed as ?next= targets and as Better Auth trusted origins */
   appOrigins: string[];
+  /** Guest sessions offered (TRIAL_ENABLED) */
+  trialEnabled: boolean;
   adminEmails: Set<string>;
   google?: { clientId: string; clientSecret: string };
   github?: { clientId: string; clientSecret: string };
@@ -135,6 +182,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...c,
     apps,
     appOrigins,
+    trialEnabled: c.TRIAL_ENABLED === "true",
     adminEmails: new Set(
       (c.ADMIN_EMAILS ?? "")
         .split(",")

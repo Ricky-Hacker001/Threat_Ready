@@ -35,6 +35,12 @@ export const repo = {
     return a;
   },
   touchAttempt() { attemptsFile.save(); },
+  removeAttempt(id) {
+    if (!attemptsFile.db.attempts[id]) return false;
+    delete attemptsFile.db.attempts[id];
+    attemptsFile.save();
+    return true;
+  },
   listAttempts(userId) {
     return Object.values(attemptsFile.db.attempts).filter((a) => a.userId === userId).sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.attemptId.localeCompare(a.attemptId));
   },

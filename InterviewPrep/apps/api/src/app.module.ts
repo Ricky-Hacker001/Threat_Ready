@@ -60,6 +60,7 @@ function portProviders(role: AppRole): Provider[] {
       useFactory: (cfg: AppConfig) =>
         new PgBossQueueAdapter(role === 'worker' ? (cfg.WORKER_DATABASE_URL ?? cfg.DATABASE_URL) : cfg.DATABASE_URL, role, {
           llmTimeoutMsLarge: cfg.LLM_TIMEOUT_MS_LARGE,
+          llmTimeoutMsSmall: cfg.LLM_TIMEOUT_MS_SMALL,
           llmMaxRetries: cfg.LLM_MAX_RETRIES,
           reasoningMaxGenerationTries: cfg.REASONING_MAX_GENERATION_TRIES,
         }),

@@ -46,6 +46,8 @@ async function boot() {
   const info = await api.sessionInfo();
   session.homeUrl = info.homeUrl;
   session.dailyWipe = info.dailyWipe !== false;
+  session.hosted = info.hosted === true;
+  session.durable = info.durable === true;
   if (!info.signedIn) return { signedIn: false, tokenError };
   session.me = await api.me();
   return { signedIn: true };
@@ -88,6 +90,19 @@ function SignIn({ tokenError, onSignedIn }) {
   );
 }
 
+// Inside ThreatReady the platform session ended (another tab signed out, or it expired): the page
+// stays as it is (nothing typed is lost) and says how to sign in again.
+function SessionEnded({ message }) {
+  return (
+    <div className="flash flash-bad session-ended">
+      <div className="note note-bad" role="alert">
+        <span><strong>Signed out of ThreatReady.</strong> {message}</span>
+        <button type="button" className="btn btn-sm" onClick={() => window.location.reload()}>Reload page</button>
+      </div>
+    </div>
+  );
+}
+
 function NotFound({ go }) {
   return (
     <main className="page">
@@ -107,10 +122,15 @@ export default function App() {
   // Homepage walkthrough: an overlay that lives above whichever page is showing.
   const [tour, setTour] = useState(() => tourStore.get());
   const [badges, setBadges] = useState([]);
+  const [ended, setEnded] = useState('');
 
   useEffect(() => {
     boot().then((s) => setState({ ready: true, ...s })).catch((e) => setState({ ready: true, signedIn: false, tokenError: e }));
-    const offA = onApi('noSession', () => setState((s) => ({ ...s, signedIn: false })));
+    // This app's own session ended: its sign-in page. The ThreatReady session ended (hosted): a notice.
+    const offA = onApi('noSession', (body) => {
+      if (body?.error === 'auth_required') setEnded(body.message || 'Your ThreatReady session has ended. Reload the page to sign in again.');
+      else setState((s) => ({ ...s, signedIn: false }));
+    });
     const offB = onApi('awards', (list) => setBadges((q) => [...q, ...list.filter((b) => !q.some((x) => x.badgeId === b.badgeId))]));
     const on = () => setRoute(parse());
     window.addEventListener('hashchange', on);
@@ -120,6 +140,7 @@ export default function App() {
   const closeBadge = useCallback(() => setBadges((q) => q.slice(1)), []);
 
   if (!state.ready) return <main className="page"><p className="muted" role="status">Loading…</p></main>;
+  if (!state.signedIn && ended) return <main className="page"><SessionEnded message={ended} /></main>;
   if (!state.signedIn) return <SignIn tokenError={state.tokenError} onSignedIn={() => { setState({ ready: true, signedIn: true }); go('#/'); }} />;
 
   const nav = {
@@ -145,6 +166,7 @@ export default function App() {
 
   return (
     <>
+      {ended && <SessionEnded message={ended} />}
       {page}
       {tour !== null && <HomeTour initial={tour} onClose={() => setTour(null)} />}
       {badges.length > 0 && <BadgeDialog badge={badges[0]} onClose={closeBadge} go={go} />}

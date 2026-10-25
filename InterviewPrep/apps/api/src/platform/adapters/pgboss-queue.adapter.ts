@@ -7,6 +7,8 @@ import { JOBS, type JobContext, type JobName, type QueuePort } from '../ports/qu
 /** The LLM timing a job's expiry is derived from (config values; see queuePolicy). */
 export interface QueueTiming {
   llmTimeoutMsLarge: number;
+  /** LLM_TIMEOUT_MS_SMALL; 20 s when not given. */
+  llmTimeoutMsSmall?: number;
   llmMaxRetries: number;
   reasoningMaxGenerationTries: number;
 }
@@ -20,11 +22,13 @@ export interface QueueTiming {
  */
 export function queuePolicy(t: QueueTiming): Record<JobName, { retryLimit: number; expireInSeconds: number }> {
   const perCallSec = Math.ceil((t.llmTimeoutMsLarge * (1 + t.llmMaxRetries) * 2) / 1000);
+  const perSmallCallSec = Math.ceil(((t.llmTimeoutMsSmall ?? 20_000) * (1 + t.llmMaxRetries) * 2) / 1000);
   const forCalls = (n: number) => n * perCallSec + 60;
   return {
     [JOBS.documentExtract]: { retryLimit: 2, expireInSeconds: 120 },
-    // ADD LLD-3: parsing fails after two attempts. Two LARGE calls (resume and JD) run in parallel.
-    [JOBS.interviewAnalyse]: { retryLimit: 1, expireInSeconds: Math.max(300, forCalls(1)) },
+    // ADD LLD-3: parsing fails after two attempts. Three sequential calls: the resume and the JD
+    // profiles (SMALL), then the gap analysis (LARGE).
+    [JOBS.interviewAnalyse]: { retryLimit: 1, expireInSeconds: Math.max(300, 2 * perSmallCallSec + forCalls(1)) },
     // Final scoring: assessment batches in parallel, then the summary. Two retries: every retry re-runs
     // every LARGE batch, so a persistent failure must not keep billing (audit 2026-10-15 §3.5).
     [JOBS.interviewFinalScoring]: { retryLimit: 2, expireInSeconds: Math.max(600, forCalls(2)) },
@@ -42,8 +46,23 @@ export function queuePolicy(t: QueueTiming): Record<JobName, { retryLimit: numbe
   };
 }
 
-/** Defaults matching the configuration defaults (LLM_TIMEOUT_MS_LARGE=120000, LLM_MAX_RETRIES=2, 3 generation tries). */
-const DEFAULT_TIMING: QueueTiming = { llmTimeoutMsLarge: 120_000, llmMaxRetries: 2, reasoningMaxGenerationTries: 3 };
+/**
+ * How long a job can legitimately be in flight across all its attempts: each attempt up to its expiry,
+ * plus the longest backoff before each retry (retryDelay 30 s doubling with jitter, capped at 30 min),
+ * plus five minutes of queue polling slack. The sweeper must not fail a session or an attempt before
+ * this, or it marks work failed that pg-boss is still running or about to retry (audit IP-REG3).
+ */
+export function stageDeadlineSec(policy: { retryLimit: number; expireInSeconds: number }): number {
+  let backoff = 0;
+  for (let r = 1; r <= policy.retryLimit; r++) backoff += Math.min(RETRY_DELAY_MAX_SEC, RETRY_DELAY_SEC * 2 ** r);
+  return policy.expireInSeconds * (policy.retryLimit + 1) + backoff + 300;
+}
+
+const RETRY_DELAY_SEC = 30;
+const RETRY_DELAY_MAX_SEC = 1800;
+
+/** Defaults matching the configuration defaults (LLM_TIMEOUT_MS_LARGE=120000, LLM_TIMEOUT_MS_SMALL=20000, LLM_MAX_RETRIES=2, 3 generation tries). */
+export const DEFAULT_TIMING: QueueTiming = { llmTimeoutMsLarge: 120_000, llmTimeoutMsSmall: 20_000, llmMaxRetries: 2, reasoningMaxGenerationTries: 3 };
 
 export class PgBossQueueAdapter implements QueuePort {
   private readonly boss: PgBoss;
@@ -66,9 +85,9 @@ export class PgBossQueueAdapter implements QueuePort {
         const existing = await this.boss.getQueue(name);
         const options = {
           retryLimit: policy.retryLimit,
-          retryDelay: 30,
+          retryDelay: RETRY_DELAY_SEC,
           retryBackoff: true,
-          retryDelayMax: 1800,
+          retryDelayMax: RETRY_DELAY_MAX_SEC,
           expireInSeconds: policy.expireInSeconds,
           ...(name === JOBS.deadLetter ? {} : { deadLetter: JOBS.deadLetter }),
         };
@@ -98,6 +117,11 @@ export class PgBossQueueAdapter implements QueuePort {
   async schedule(job: JobName, cron: string): Promise<void> {
     await this.start();
     await this.boss.schedule(job, cron, {});
+  }
+
+  async unschedule(job: JobName): Promise<void> {
+    await this.start();
+    await this.boss.unschedule(job);
   }
 
   async work<T>(job: JobName, handler: (data: T, ctx: JobContext) => Promise<void>): Promise<void> {

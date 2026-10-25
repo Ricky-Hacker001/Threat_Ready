@@ -18,6 +18,7 @@ import { FeaturesService } from "./features/features.service.js";
 import { AppsClient } from "./platform/apps.client.js";
 import { PlatformController } from "./platform/platform.controller.js";
 import { PublicController } from "./public/public.controller.js";
+import { RetentionService } from "./retention/retention.service.js";
 
 @Module({})
 export class AppModule {
@@ -58,6 +59,7 @@ export class AppModule {
         CaptchaService,
         AppsClient,
         AdminService,
+        RetentionService,
       ],
     };
   }

@@ -5,7 +5,7 @@ import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { api, ApiError, messageFor } from '../lib/api';
 import { redirectToSignIn, redirectToSignUp, useMe } from '../lib/auth';
 import { PlatformFooter, PlatformHeader, PlatformLoading } from './PlatformShell';
-import { CardSkeleton, focusMainHeading, RouteErrorBoundary, ToastProvider } from '../ui/components';
+import { Busy, CardSkeleton, focusMainHeading, RouteErrorBoundary, ToastProvider } from '../ui/components';
 
 const Dashboard = lazy(() => import('../features/interview-prep/pages/DashboardPage'));
 const CreateInterview = lazy(() => import('../features/interview-prep/pages/CreateInterviewPage'));
@@ -15,25 +15,35 @@ const CapturePage = import.meta.env.DEV ? lazy(() => import('../features/intervi
 const ReportPage = lazy(() => import('../features/interview-prep/pages/ReportPage'));
 const HistoryPage = lazy(() => import('../features/interview-prep/pages/HistoryPage'));
 
-/** Signed in on onboard.threatready.io, or sent there and brought back to this page. */
-function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { data, isPending, error, refetch } = useMe();
-  const accountRequired = error instanceof ApiError && error.code === 'AUTH_ACCOUNT_REQUIRED';
-  useEffect(() => {
-    if (!isPending && data === null) redirectToSignIn();
-    if (accountRequired) redirectToSignUp();
-  }, [isPending, data, accountRequired]);
-  if (error && !accountRequired) {
-    return (
-      <div className="page">
-        <div className="card stack">
-          <h1 className="h-sm">InterviewPrep couldn’t open</h1>
-          <p role="alert">{messageFor(error)}</p>
-          <div><button className="btn" type="button" onClick={() => void refetch()}>Try again</button></div>
+/** The session check failed (API down, network): say so and offer a retry, never an endless loader. */
+function OpenError({ error, onRetry, retrying }: { error: unknown; onRetry: () => void; retrying: boolean }) {
+  return (
+    <div className="page">
+      <div className="card stack">
+        <h1 className="h-sm">InterviewPrep couldn’t open</h1>
+        <p role="alert">{messageFor(error)}</p>
+        <div>
+          <button className="btn" type="button" onClick={onRetry} disabled={retrying}>
+            {retrying ? <Busy label="Trying again…" /> : 'Try again'}
+          </button>
         </div>
       </div>
-    );
-  }
+    </div>
+  );
+}
+
+const accountRequired = (error: unknown) => error instanceof ApiError && error.code === 'AUTH_ACCOUNT_REQUIRED';
+
+/** Signed in on onboard.threatready.io, or sent there and brought back to this page. */
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { data, isPending, error, refetch, isFetching } = useMe();
+  const needsAccount = accountRequired(error);
+  useEffect(() => {
+    if (!isPending && data === null) redirectToSignIn();
+    if (needsAccount) redirectToSignUp();
+  }, [isPending, data, needsAccount]);
+  // A failed background refresh keeps the page: only a session that was never confirmed shows the error.
+  if (error && !needsAccount && !data) return <OpenError error={error} onRetry={() => void refetch()} retrying={isFetching} />;
   if (isPending || !data) return <PlatformLoading />;
   return <>{children}</>;
 }
@@ -76,7 +86,7 @@ function SubNav() {
             </span>
           )}
           <NavLink to="/interview-prep/new" className="btn primary sm">
-            <Plus className="icon sm" aria-hidden /> New interview
+            <Plus className="icon sm" aria-hidden /> <span>New<span className="subnav-long"> interview</span></span>
           </NavLink>
         </div>
       </div>
@@ -85,7 +95,7 @@ function SubNav() {
 }
 
 export function App() {
-  const { data, isPending } = useMe();
+  const { data, isPending, error, refetch, isFetching } = useMe();
   // The app list loads with the session check (same key as the header's query) and the loading screen waits for
   // both, capped at 1.5 s, so the app switcher is never half-filled on first render.
   const platform = useQuery({ queryKey: ['platform'], queryFn: api.platform, staleTime: 300_000 });
@@ -101,6 +111,15 @@ export function App() {
     };
   }, []);
 
+  // The session check failed: an error with "Try again" (checked first: a refetch from a remounting
+  // route used to flip it back to pending and keep the loader up for as long as the API was down).
+  if (error && !data && !accountRequired(error)) {
+    return (
+      <div className="ip-shell tr-shell">
+        <main id="main" tabIndex={-1}><OpenError error={error} onRetry={() => void refetch()} retrying={isFetching} /></main>
+      </div>
+    );
+  }
   // One loading screen, shared with every ThreatReady app, until the session is known.
   if (isPending || (platform.isPending && !capped)) return <PlatformLoading />;
 

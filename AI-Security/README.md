@@ -23,19 +23,22 @@ npm run preview    # serve the build locally
 Tests:
 
 ```bash
-npm test           # 202 engine, routing + 30-scenario acceptance tests
+npm test           # engine, routing, progress, store + 30-scenario acceptance tests
+# Inside-ThreatReady browser checks (mocked /labs/api/me; Playwright from ../e2e/node_modules or PLAYWRIGHT_MODULE):
+npx vite build --base /labs/aisec/ --outDir /tmp/aisec && node tests/browser.e2e.mjs /tmp/aisec
+npm audit --omit=dev   # what ships to the browser: expected to report 0 vulnerabilities
 ```
 
 ## Deploy on Render
 
 This is a Vite SPA. It can run either way:
 
-**As a Web Service** (what this repo is set up for — a long-running Node process serves the built `dist/`):
+**Inside ThreatReady** (production): `deploy/build.sh` builds it with `--base /labs/aisec/` and the Labs app serves
+`dist/` behind the platform sign-in. Nothing here runs a server.
 
-- Build Command: `npm install && npm run build`
-- Start Command: `npm start`   ← runs `node server.js`, which serves `dist/` and binds to `$PORT`
-
-`npm start` must be the Start Command. If the Start Command is left as `npm run build`, the build just runs again and exits, so the deploy never comes up — that is the usual "it built but won't start" symptom. `server.js` (Express) is used instead of `vite preview` because `vite preview` blocks unknown hosts like `*.onrender.com`.
+**Local preview server:** `npm start` runs `node server.js`, which serves `dist/` on `$PORT` (`vite preview` blocks
+unknown hosts). It is a development convenience only: Express is a devDependency (so `npm audit --omit=dev` covers
+just what ships to the browser), and `server.js` refuses to start with `NODE_ENV=production`.
 
 **As a Static Site** (simpler, if your plan allows it):
 
@@ -55,6 +58,6 @@ All product/brand strings are centralised in `src/brand/brand.ts` (product name 
 
 ## Scoring (per the design doc)
 
-100 points/scenario — attack reproduced, evidence, detection rule (I/E), fix at correct layer, re-test pass, benign intact, expert report (E). Deductions for hints, wrong-layer fixes, over-blocking and repeated failed re-tests. Pass mark 70. Badges: **AI Security Foundations / Practitioner / Expert** (all 10 tasks at a level ≥ 70). A failed scenario still produces its result and report: after a failed re-test the learner can **Finish anyway**, and the attempt is recorded as not passed ("Re-test failed") whatever its points.
+100 points/scenario — attack reproduced, evidence, detection rule (I/E), fix at correct layer, re-test pass, benign intact, expert report (E). Deductions for hints, wrong-layer fixes, over-blocking and repeated failed re-tests. Pass mark 70. Badges: **AI Security Foundations / Practitioner / Expert** (all 10 tasks at a level ≥ 70). A failed scenario still produces its result and report: after a failed re-test the learner can **Finish anyway**, and the attempt is recorded as not passed ("Re-test failed") whatever its points. Only passed scenarios add to the accumulated score. Discarding an unfinished attempt that ran a re-test still counts as an attempt, and its re-tests count towards the re-test allowance of the next attempt at that scenario.
 
 See `IMPLEMENTATION_STATUS.md` for what is complete and what remains.

@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { config, checkConfig } from './config.js';
+import { config, checkConfig, stateDurable, limitFrom } from './config.js';
 import { store } from './store.js';
 import { repo, onWipe } from './repo.js';
 import { listScenarios } from './scenarios/index.js';
@@ -20,6 +20,7 @@ import {
   levelState, levelDetail, startAttempt, abandonAttempt, ownAttempt, publicAttempt, heartbeat, aliasAttempt, publicBadge,
 } from './attempts.js';
 import { buildFinalReport } from './report/final.js';
+import { userSummary } from './summary.js';
 
 for (const w of checkConfig()) console.warn(w);
 
@@ -27,6 +28,9 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const VERSION = JSON.parse(fs.readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version;
 const app = express();
 app.disable('x-powered-by');
+// Before the first route: /API/... must not reach the API under another spelling (the ThreatReady host
+// counts API calls against its rate limits by path).
+app.set('case sensitive routing', true);
 app.use(express.json({ limit: '256kb' }));
 app.use('/api', sessionMiddleware);
 
@@ -166,31 +170,54 @@ app.get('/api/cases/:id/export', wrap((req, res) => {
 // Every "logs" message carries the last sequence number as its SSE id, so a
 // browser that reconnects (Last-Event-ID) or a client that reopens the stream
 // (?after=<seq>) receives the lines it missed instead of a silent gap.
-const MAX_SSE_PER_USER = 3;
-const sseOpen = new Map(); // uid -> open connections
-export const openStreamsOf = (uid) => sseOpen.get(uid) || 0;
+// A connection opened with ?tab=<key> holds that tab's slot: when the same tab reconnects before the
+// server has noticed the old connection is gone (a half-open socket behind a proxy), the new one
+// replaces it instead of counting against the limit.
+// Unset, empty or not a whole number: the default. 0 = no limit (an explicit opt-out only).
+const MAX_SSE_PER_USER = limitFrom(process.env.SOC_MAX_STREAMS_PER_USER, 3);
+const SSE_RETRY_MS = 3000; // how long a browser waits before it reconnects on its own
+const MAX_RESUME_LINES = 400; // LogStream.since() looks back this far; older resume points start there
+const sseOpen = new Map(); // uid -> Map(connection key -> { end })
+export const openStreamsOf = (uid) => sseOpen.get(uid)?.size || 0;
+// Why a stream was refused (EventSource cannot read a 429's body): the client asks here.
+app.get('/api/streams', (req, res) => {
+  const open = openStreamsOf(req.user.uid);
+  const full = MAX_SSE_PER_USER > 0 && open >= MAX_SSE_PER_USER;
+  res.json({ open, max: MAX_SSE_PER_USER || null, full, retryAfter: full ? 5 : 0 });
+});
 app.get('/api/cases/:id/stream', wrap((req, res) => {
   const c = load(req);
   const uid = req.user.uid;
-  if (openStreamsOf(uid) >= MAX_SSE_PER_USER) throw new HttpError(429, 'too_many_streams', { message: `At most ${MAX_SSE_PER_USER} live consoles can be open at once. Close another tab and retry.`, retryAfter: 5 });
+  const tab = typeof req.query.tab === 'string' && /^[\w-]{8,64}$/.test(req.query.tab) ? req.query.tab : null;
+  const key = tab ? `tab:${tab}` : `conn:${crypto.randomUUID()}`;
+  sseOpen.get(uid)?.get(key)?.end('replaced');
+  if (MAX_SSE_PER_USER > 0 && openStreamsOf(uid) >= MAX_SSE_PER_USER) throw new HttpError(429, 'too_many_streams', { message: `At most ${MAX_SSE_PER_USER} live consoles can be open at once. Close another tab, then retry in a few seconds.`, retryAfter: 5 });
   const stream = streamFor(c);
   const alias = A(c);
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();
-  sseOpen.set(uid, openStreamsOf(uid) + 1);
-  const resume = Number(req.get('Last-Event-ID') ?? req.query.after);
+  // Strict resume point: digits only ("?after=" is no resume point), and at most MAX_RESUME_LINES back.
+  const given = String(req.get('Last-Event-ID') ?? req.query.after ?? '');
+  const resume = /^\d{1,15}$/.test(given) ? Number(given) : NaN;
   // A resume point from before a restart may be ahead of this stream: start live then.
-  let seq = Number.isInteger(resume) && resume >= 0 && resume <= stream.seq ? resume : stream.seq;
+  let seq = Number.isInteger(resume) && resume <= stream.seq ? Math.max(resume, stream.seq - MAX_RESUME_LINES) : stream.seq;
   let rev = c.rev;
   let done = false;
   const send = (event, data, id) => res.write(`${id != null ? `id: ${id}\n` : ''}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  const conn = {};
   const finish = () => {
     if (done) return;
     done = true;
     clearInterval(timer);
-    const n = openStreamsOf(uid) - 1;
-    if (n > 0) sseOpen.set(uid, n); else sseOpen.delete(uid);
+    const mine = sseOpen.get(uid);
+    if (mine?.get(key) === conn) mine.delete(key);
+    if (mine && !mine.size) sseOpen.delete(uid);
   };
+  // Ended by a newer connection from the same tab: say so (a live client then stops instead of reconnecting).
+  conn.end = (why) => { if (done) return; try { send(why, {}); } catch { /* socket gone */ } finish(); res.end(); };
+  if (!sseOpen.has(uid)) sseOpen.set(uid, new Map());
+  sseOpen.get(uid).set(key, conn);
+  res.write(`retry: ${SSE_RETRY_MS}\n\n`);
   send('hello', { time: Date.now(), rev });
   const timer = setInterval(() => {
     try {
@@ -235,7 +262,7 @@ app.get('/api/attempts/:id', wrap((req, res) => {
 app.post('/api/attempts/:id/abandon', wrap((req, res) => res.json(publicAttempt(abandonAttempt(req.user, req.params.id)))));
 
 app.get('/api/awards', (req, res) => res.json({ badges: repo.listAwards(req.user.uid).map(publicBadge) }));
-app.get('/api/report', (req, res) => res.json(buildFinalReport(req.user)));
+app.get('/api/report', (req, res) => res.json(buildFinalReport(req.user, Date.now(), { hosted: !!req.hostedIdentity, durable: stateDurable() })));
 
 app.get('/api/me/export', (req, res) => {
   const attempts = repo.listAttempts(req.user.uid).map((a) => {
@@ -266,6 +293,19 @@ app.get('/api/export/attempts', (req, res) => {
 app.use('/api/demo', demoRouter);
 app.use('/api/tour', tourRouter);
 
+// Profile and admin summary for a ThreatReady-style host (same numbers the labs server folds in
+// process). Off unless SOC_INTERNAL_TOKEN (32+ characters) is set; outside /api, so no session applies.
+app.get('/internal/v1/users/:uid/summary', (req, res) => {
+  const want = Buffer.from(config.internalToken);
+  const given = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  if (want.length < 32) return res.status(404).json({ error: 'not_found', message: 'Not found.' });
+  if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) return res.status(401).json({ error: 'unauthorized', message: 'Internal token required.' });
+  const uid = String(req.params.uid || '');
+  if (!uid || uid.length > 100) return res.status(400).json({ error: 'bad_user', message: 'Invalid user.' });
+  return res.json(userSummary(uid));
+});
+app.use('/internal', (req, res) => res.status(404).json({ error: 'not_found', message: 'Not found.' }));
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'not_found', message: 'Not found.' }));
 
 const dist = path.join(here, '..', 'client', 'dist');
@@ -284,6 +324,12 @@ app.use((err, req, res, next) => {
     return res.status(err.status).json({ error: err.message, message: err.extra?.message ?? err.message, ...(err.extra || {}), ...(code ? {} : {}) });
   }
   if (err?.type === 'entity.parse.failed') return res.status(400).json({ error: 'bad_request', message: 'Malformed JSON.' });
+  // Requests the parsers refuse (a body too large or in an unsupported encoding, an undecodable URL parameter)
+  // are the client's fault: their own 4xx, not a 500 with a stack in the log.
+  if (err?.type === 'entity.too.large') return res.status(413).json({ error: 'payload_too_large', message: 'The request is too large.' });
+  if (err?.type === 'encoding.unsupported' || err?.type === 'charset.unsupported') return res.status(415).json({ error: 'unsupported_media_type', message: 'The request body encoding is not supported.' });
+  const status = Number(err?.status ?? err?.statusCode);
+  if (status >= 400 && status < 500) return res.status(status).json({ error: 'bad_request', message: 'The request could not be read.' });
   console.error(err);
   return res.status(500).json({ error: 'internal', message: 'Internal error.' });
 });
@@ -311,4 +357,4 @@ if (process.env.SOC_SIM_NO_LISTEN !== '1') {
   app.listen(port, () => console.log(`SOC simulation running at http://localhost:${port}${config.devUser ? ` (DEV_USER=${config.devUser})` : ''}`));
 }
 
-export { app };
+export { app, userSummary };

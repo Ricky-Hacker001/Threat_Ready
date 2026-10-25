@@ -59,3 +59,33 @@ test('built client has no certificate feature, only "not a certification" discla
   assert.deepEqual(bad, []);
   assert.ok(!/download certificate|certificate id|verify certificate|\/api\/verify/i.test(text));
 });
+
+// Inside ThreatReady the client is served under /labs/soc/: an absolute "/api/..." in a link, a download
+// or the live stream would reach the platform's own /api instead (TR-12). Such URLs go through apiUrl().
+const ABSOLUTE_API = [
+  [/new EventSource\(\s*[`'"]\/api/, 'EventSource on an absolute /api path'],
+  [/\bhref\s*[:=]\s*\{?\s*[`'"]\/api/, 'link to an absolute /api path'],
+  [/location(?:\.href)?\s*=\s*[`'"]\/api/, 'navigation to an absolute /api path'],
+  [/window\.open\(\s*[`'"]\/api/, 'window.open on an absolute /api path'],
+];
+function sources(dir, re) {
+  const out = [];
+  for (const f of fs.readdirSync(dir)) {
+    const p = path.join(dir, f);
+    if (fs.statSync(p).isDirectory()) out.push(...sources(p, re));
+    else if (re.test(f)) out.push([path.relative(root, p), fs.readFileSync(p, 'utf8')]);
+  }
+  return out;
+}
+
+test('client source builds stream, link and download URLs under the base path', () => {
+  const bad = [];
+  for (const [file, text] of sources(path.join(root, 'client', 'src'), /\.(jsx?|tsx?)$/)) for (const [re, what] of ABSOLUTE_API) if (re.test(text)) bad.push(`${file}: ${what}`);
+  assert.deepEqual(bad, []);
+});
+
+test('built client has no absolute /api stream, link or download', { skip: !built && 'client not built' }, () => {
+  const text = bundleText();
+  assert.deepEqual(ABSOLUTE_API.filter(([re]) => re.test(text)).map(([, what]) => what), []);
+  assert.match(text, /\/api\/cases\/\$\{[^}]+\}\/stream/, 'the stream path is in the bundle');
+});

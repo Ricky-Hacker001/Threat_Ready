@@ -39,7 +39,7 @@ export class AccountController {
   @HttpCode(202)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   async forgotUsername(@Body(ZodBody(forgotUsernameRequestSchema)) body: { email: string }, @Req() req: Request): Promise<GenericAccepted> {
-    const ip = clientIp(req, this.config.CLIENT_IP_HEADER);
+    const ip = clientIp(req);
     await this.captcha.assertHuman(req.header("x-captcha-response") ?? undefined, ip);
 
     const email = body.email;

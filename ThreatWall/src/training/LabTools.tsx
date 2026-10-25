@@ -9,13 +9,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { ChevronDown, ChevronUp, Cable, FlaskConical, Send, X } from 'lucide-react';
 import { useStore } from '../state/store';
 import { ui, useDraft, useUi } from '../state/ui';
-import type { Proto, RootState } from '../state/types';
+import type { LocalUser, Proto, RootState } from '../state/types';
 import { HOSTS, APPS, SITES, hostById } from '../engine/world';
 import { hostNet, pcLease, ifaceUp, hostIface, haActiveUnit } from '../engine/network';
 import { evaluate, VERDICT_LABEL, type FlowResult, type FlowSpec } from '../engine/traffic';
 import { DAY_NAMES, labNow, localTime, tsAt, findAddress } from '../engine/objects';
 import { isIPv4, isMask, inSubnet } from '../lib/ip';
 import { labTotp, verifyPassword } from '../lib/hash';
+import { upgradeUserHash } from '../services/userService';
 import { LAB } from '../state/baseline';
 
 export const LAB_TABS = [
@@ -439,7 +440,7 @@ function Card({ title, children, guide }: { title: string; children: ReactNode; 
 }
 
 function LabControlsTab() {
-  const { state, lab, patchLab, emit, config } = useStore();
+  const { state, lab, patchLab, emit, config, update } = useStore();
   const tz = config.system.timezone;
   const [nx, setNx] = useState({ user: '', pw: '', otp: '' });
   const [nxMsg, setNxMsg] = useState('');
@@ -454,13 +455,25 @@ function LabControlsTab() {
     emit('lab', { action: 'isp', iface, state: v });
   };
 
+  // The user's password is right: a hash from an older save is replaced by a salted one (see lib/hash.ts).
+  const checkUser = async (u: LocalUser | undefined, pw: string): Promise<boolean> => {
+    if (!u) return false;
+    const v = await verifyPassword(pw, u.passwordHash);
+    const upgraded = v.rehash;
+    if (v.ok && upgraded) update((s) => {
+      const c = upgradeUserHash(s.config, u.id, u.passwordHash, upgraded);
+      return c === s.config ? s : { ...s, config: c };
+    });
+    return v.ok;
+  };
+
   const nxConnect = async (e: FormEvent) => {
     e.preventDefault();
     const fail = (m: string) => { setNxMsg(m); emit('lab', { action: 'netextender', ok: false, reason: m }); };
     const portal = evaluate(state, { from: 'remote-user', to: LAB.wanIp, proto: 'TCP', port: config.sslvpn.port }).result;
     if (!portal.ok) return fail(`Cannot reach the SSL VPN portal on ${LAB.wanIp}:${config.sslvpn.port} — ${portal.reason}`);
     const u = config.users.local.find((x) => x.name === nx.user.trim());
-    if (!u || !(await verifyPassword(nx.pw, u.passwordHash)).ok) return fail('Authentication failed: wrong username or password.');
+    if (!u || !(await checkUser(u, nx.pw))) return fail('Authentication failed: wrong username or password.');
     if (!u.groups.includes('SSLVPN Services')) return fail(`${u.name} is not a member of SSLVPN Services, so SSL VPN access is refused.`);
     if (u.otp && nx.otp.trim() !== labTotp(u.name, Date.now())) return fail('One-time code required or incorrect. Use the code shown under “Authenticator”.');
     if (!config.sslvpn.pool || !findAddress(config, config.sslvpn.pool)) return fail('Connected, but the firewall has no client address pool to hand out.');
@@ -474,7 +487,7 @@ function LabControlsTab() {
     const u = config.users.local.find((x) => x.name === au.user.trim());
     const h = hostById(au.host);
     if (!h) return;
-    if (!u || !(await verifyPassword(au.pw, u.passwordHash)).ok) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
+    if (!u || !(await checkUser(u, au.pw))) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
     const net = hostNet(state, h);
     if (!net) { setAuMsg(`${h.name} has no network address, so it cannot reach the login page.`); return; }
     patchLab({ authSessions: [...lab.authSessions.filter((a) => a.host !== h.id), { user: u.name, host: h.id, since: Date.now() }] }, [{ category: 'Users', action: 'User login', detail: `${u.name} on ${h.name} (${net.ip})` }]);

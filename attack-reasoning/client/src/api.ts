@@ -11,7 +11,22 @@ export const signUp = () => location.assign(`${onboard('/', location.href)}&mode
 export const signOut = () => location.assign(onboard('/signout', location.origin + BASE));
 export const onboardLinks = { home: `${ONBOARD_URL}/app`, profile: `${ONBOARD_URL}/app/profile` };
 
-export class ApiError extends Error { constructor(public status: number, message: string, public code?: string) { super(message); } }
+/** A failed call. `retryAfterSec` comes from Retry-After (429/503); `details` from the error body (e.g. a reset time). */
+export class ApiError extends Error {
+  constructor(public status: number, message: string, public code?: string, public extra: { retryAfterSec?: number; details?: unknown } = {}) { super(message); }
+  get retryAfterSec() { return this.extra.retryAfterSec; }
+  get details() { return this.extra.details; }
+}
+
+/** Seconds from a Retry-After header (delta-seconds or an HTTP date); undefined when absent or unreadable. */
+export function retryAfterOf(res: Response): number | undefined {
+  const v = res.headers.get('retry-after');
+  if (!v) return undefined;
+  const n = Number(v);
+  if (Number.isFinite(n) && n >= 0) return Math.ceil(n);
+  const at = Date.parse(v);
+  return Number.isFinite(at) ? Math.max(0, Math.ceil((at - Date.now()) / 1000)) : undefined;
+}
 
 export async function api<T = any>(path: string): Promise<T> {
   let res: Response;
@@ -28,6 +43,10 @@ export async function api<T = any>(path: string): Promise<T> {
   if (res.ok && !isJson) throw new ApiError(res.status, 'Unexpected response from the server. Retry in a moment.', 'BAD_RESPONSE');
   if (res.status === 401) { signIn(); throw new ApiError(401, 'Signing you in…', 'AUTH_REQUIRED'); }
   if (res.status === 403 && json.code === 'AUTH_ACCOUNT_REQUIRED') { signUp(); throw new ApiError(403, json.error, json.code); }
-  if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.code);
+  if (res.status === 429 || res.status === 503) {
+    const wait = retryAfterOf(res);
+    throw new ApiError(res.status, typeof json.error === 'string' ? json.error : res.status === 429 ? `Too many requests. Try again in ${wait ?? 60} s.` : 'This part of ThreatReady is briefly unavailable. Try again in a moment.', json.code, { retryAfterSec: wait });
+  }
+  if (!res.ok) throw new ApiError(res.status, typeof json.error === 'string' ? json.error : 'Something went wrong on our side. Try again in a moment.', json.code);
   return json as T;
 }

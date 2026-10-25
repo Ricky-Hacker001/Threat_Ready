@@ -14,6 +14,15 @@ npm run dev        # http://localhost:5180
 npm run build      # type-check + production build into dist/
 ```
 
+Tests use Node's own runner (no extra dependencies; Node 22.15+ or 24):
+
+```bash
+node --import ./tests/setup.mjs --test 'tests/*.test.mjs'   # sandbox, identity lookup, storage, scoring
+# Browser checks of a build served as ThreatReady serves it (gateway CSP, sandbox.html policy, mocked /labs/api/me);
+# Playwright from ../e2e/node_modules, or PLAYWRIGHT_MODULE=<path to playwright/index.mjs>:
+npx vite build --base /labs/devsecops/ --outDir /tmp/dso && node tests/browser.e2e.mjs /tmp/dso
+```
+
 ## Learner flow
 
 Welcome page → **Let's get started** → choose a mode → lab dashboard → lab workspace.
@@ -58,6 +67,16 @@ files, so results change when the code changes:
 - `lab.ts`: lab state, seeding, `settle()` (triggers CI on push and grades objectives) and scoring
 
 Labs live in `src/content/labs/`, one file per lab. Each lab defines its seed history, tests and
-objective checks. Progress is stored in `localStorage` only.
+objective checks. Progress is stored in `localStorage` only (practice progress; it is not recorded on the
+ThreatReady profile). Inside ThreatReady the keys are per signed-in account (`devsecops-lab:u:<id>:…`); if
+`/labs/api/me` can't confirm the account (one short retry on 429/503), progress is kept in this tab only and the lab
+says so; the shared keys are never read or written there. Pre-namespacing progress moves once, to the first
+confirmed account, and only if no account has namespaced progress on that browser (marker `devsecops-lab:legacy-migrated`).
+
+The learner's `cart.js` runs only in `public/sandbox.html`, framed with `sandbox="allow-scripts"` (an opaque origin:
+no cookies, storage or network), in a fresh Worker per run with a 2 s limit. One frame serves the page; edits are
+evaluated once typing pauses. Where the frame cannot start a Worker, a run happens on the frame's own thread and the
+frame is replaced afterwards, so one version's globals never reach the next. In Expert mode the speed bonus is measured on wall-clock time from the start of the
+attempt; active time (time away excluded) is shown for information.
 
 All companies, people, credentials and data are fictional training material.

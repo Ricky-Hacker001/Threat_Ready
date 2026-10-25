@@ -1,12 +1,23 @@
 // Thin fetch wrapper. Errors carry the server's message and any extra
 // fields (validation problems, confirmation prompts).
 
+// 429 and 503 always read as a person would say them, with when to retry (the server's own message
+// when it sent one; a proxy's or gateway's page may carry none).
+const waitText = (s) => (s > 0 ? `Try again in ${s >= 120 ? `${Math.ceil(s / 60)} minutes` : `${s} second${s === 1 ? '' : 's'}`}.` : 'Try again in a moment.');
+function messageOf(status, body, retryAfter) {
+  if (body?.message) return body.message;
+  if (status === 429) return `Too many requests. ${waitText(retryAfter)}`;
+  if (status === 503) return `The SOC simulation is briefly unavailable. ${waitText(retryAfter)}`;
+  return body?.error || `Request failed (${status})`;
+}
+
 export class ApiError extends Error {
-  constructor(status, body) {
-    super(body?.message || body?.error || `Request failed (${status})`);
+  constructor(status, body, retryAfter = 0) {
+    super(messageOf(status, body, retryAfter));
     this.status = status;
     this.code = body?.error;
     this.body = body || {};
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -32,8 +43,10 @@ async function call(method, url, body) {
   let data = null;
   try { data = await res.json(); } catch { /* empty body */ }
   if (!res.ok) {
-    if (res.status === 401 && data?.error === 'no_session') emit('noSession', data);
-    throw new ApiError(res.status, data);
+    // no_session: this app's own sign-in ended; auth_required: the ThreatReady session ended (hosted).
+    if (res.status === 401 && (data?.error === 'no_session' || data?.error === 'auth_required')) emit('noSession', data);
+    const wait = Number(res.headers.get('Retry-After'));
+    throw new ApiError(res.status, data, Number.isFinite(wait) && wait > 0 ? Math.ceil(wait) : 0);
   }
   if (data && Array.isArray(data.awards) && data.awards.length) emit('awards', data.awards);
   return data;
@@ -82,6 +95,8 @@ export const api = {
   submit: (id, body) => call('POST', `/api/cases/${id}/submit`, body),
   hint: (id, stageId, fieldId) => call('POST', `/api/cases/${id}/hint`, { stageId, fieldId }),
   heartbeat: (id, visible) => call('POST', `/api/cases/${id}/heartbeat`, { visible }),
+  // How many live log streams this analyst has open, and the limit (why a stream was refused).
+  streams: () => call('GET', '/api/streams'),
 };
 
 // Newbie Demo Mode and the homepage walkthrough. Separate from the case API.
@@ -99,4 +114,6 @@ export const demoApi = {
 };
 
 // The signed-in analyst, set at start-up or sign-in (App.jsx).
-export const session = { me: null, homeUrl: null, dailyWipe: true };
+// `hosted`: signed in through ThreatReady (records belong to the platform account); `durable`: they are
+// kept across restarts too, so they are saved with that account.
+export const session = { me: null, homeUrl: null, dailyWipe: true, hosted: false, durable: false };

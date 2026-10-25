@@ -1,10 +1,24 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { AiUsageTotals, AppAiUsage, AppSummary } from '@threatready/contracts';
-import { llmCallLog } from '@threatready/db';
-import { and, eq, notLike, sql } from 'drizzle-orm';
+import {
+  interviewSessions,
+  jobDescriptions,
+  llmCallLog,
+  reasoningAttempts,
+  reasoningItems,
+  reasoningServed,
+  reports,
+  resumes,
+  skillEvidence,
+  skillScores,
+  users,
+} from '@threatready/db';
+import { and, eq, isNotNull, notLike, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../../platform/authz/principal.js';
 import { Database } from '../../platform/db/database.js';
+import { logger } from '../../platform/logging/logger.js';
+import { STORAGE_PORT, type StoragePort } from '../../platform/ports/storage.port.js';
 import { SkillsService } from '../skills/skills.service.js';
 
 const STATE_LABEL: Record<string, string> = {
@@ -59,7 +73,54 @@ export class PlatformService {
     @Inject(Database) private readonly db: Database,
     @Inject(SkillsService) private readonly skills: SkillsService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    @Inject(STORAGE_PORT) private readonly storage: StoragePort,
   ) {}
+
+  /**
+   * Account erasure, called by onboard when the account is deleted (POST /internal/v1/users/:id/erase).
+   * Deletes everything the learner wrote or that was derived from it: documents and their files,
+   * profiles, interviews with transcripts, reports and PDFs, skill evidence, Attack Reasoning attempts.
+   * The AI-usage ledger stays (tokens and cost only, no text) so spend caps and the admin totals stay
+   * true, and the mirrored user row is kept only as an anonymous key for it. Idempotent.
+   */
+  async erase(userId: string): Promise<{ erased: Record<string, number> }> {
+    const { keys, erased } = await this.db.system(async ({ db }) => {
+      const keys: string[] = [];
+      for (const table of [resumes, jobDescriptions]) {
+        const rows = await db.select({ key: table.objectKey }).from(table).where(and(eq(table.userId, userId), isNotNull(table.objectKey)));
+        keys.push(...rows.map((r) => r.key!));
+      }
+      const pdfs = await db.select({ key: reports.objectKey }).from(reports).where(and(eq(reports.userId, userId), isNotNull(reports.objectKey)));
+      keys.push(...pdfs.map((r) => r.key!));
+      const count = async (q: Promise<unknown[]>) => (await q).length;
+      const erased = {
+        // Sessions first: turns, evaluations and reports cascade from them.
+        interviews: await count(db.delete(interviewSessions).where(eq(interviewSessions.userId, userId)).returning({ id: interviewSessions.id })),
+        resumes: await count(db.delete(resumes).where(eq(resumes.userId, userId)).returning({ id: resumes.id })),
+        jobDescriptions: await count(db.delete(jobDescriptions).where(eq(jobDescriptions.userId, userId)).returning({ id: jobDescriptions.id })),
+        skillEvidence: await count(db.delete(skillEvidence).where(eq(skillEvidence.userId, userId)).returning({ id: skillEvidence.id })),
+        skillScores: await count(db.delete(skillScores).where(eq(skillScores.userId, userId)).returning({ skillId: skillScores.skillId })),
+        // Reasoning evaluations cascade from the attempts; shared pool items are not the learner's and stay.
+        reasoningAttempts: await count(db.delete(reasoningAttempts).where(eq(reasoningAttempts.userId, userId)).returning({ id: reasoningAttempts.id })),
+        reasoningServed: await count(db.delete(reasoningServed).where(eq(reasoningServed.userId, userId)).returning({ itemId: reasoningServed.itemId })),
+        reasoningItems: await count(db.delete(reasoningItems).where(eq(reasoningItems.userId, userId)).returning({ id: reasoningItems.id })),
+      };
+      await db
+        .update(users)
+        .set({ name: 'Deleted user', email: `erased+${userId}@invalid`, image: null, emailVerified: false, updatedAt: sql`now()` })
+        .where(eq(users.id, userId));
+      return { keys, erased };
+    });
+    let files = 0;
+    for (const key of keys) {
+      await this.storage
+        .delete(key)
+        .then(() => files++)
+        .catch((err: unknown) => logger.warn({ err: { message: (err as Error).message } }, 'erase: object delete failed'));
+    }
+    logger.info({ user_id: userId, ...erased, files }, 'user data erased');
+    return { erased: { ...erased, files } };
+  }
 
   async summary(userId: string): Promise<AppSummary> {
     // Only userId is read on these paths; RLS scopes every query to it.

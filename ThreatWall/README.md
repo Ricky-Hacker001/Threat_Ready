@@ -21,8 +21,9 @@ npm run dev        # http://localhost:5173
 | Command | What it does |
 | --- | --- |
 | `npm run build` then `npm run preview` | production build on http://localhost:4173 |
-| `npm test` | 46 unit/verification tests (incl. notebook coverage): engine + every task's checks against an answer key, including "no later task makes an earlier one stale" |
-| `npm run e2e` | browser walkthrough of all 30 tasks through the GUI (needs `npm run preview` running and `npx playwright install chromium` once) |
+| `npm test` | unit/verification tests (incl. notebook coverage): engine + every task's checks against an answer key, including "no later task makes an earlier one stale"; per-account storage and the tab-only fallback; lab password hashing |
+| `npm run e2e` | browser walkthrough of all 30 tasks through the GUI (needs `npm run preview` running and `npx playwright install chromium` once; `TW_URL` points it elsewhere) |
+| `node e2e/platform.mjs <dir>` | inside-ThreatReady checks against a `npx vite build --base /labs/threatwall/ --outDir <dir>` build with a mocked `/labs/api/me`: tab-only progress and notice when the account can't be confirmed, the one short retry, no sideways scroll on phones |
 | `npm run lint` | oxlint |
 
 **Screens:** `#/start` home (levels, badges, continue, reset) · lab (any appliance route) · `#/record` training record · `#/notebook[/task]` learning notebook.
@@ -76,7 +77,8 @@ docs/         IMPLEMENTATION.md (task inventory, page inventory, dependency map,
 - **One state.** Every page validates through a service and calls `commit(next, audit)`. Every change is audited and emits an event the task engine can see.
 - **Verification never trusts UI flags.** A task's checks are pure functions over the saved configuration and the lab. Traffic checks re-run the engine (`evaluate`) with no side effects, so a task becomes *Re-verify* the moment a later change breaks it.
 - **Evidence:** a test you send through Lab Tools updates hit counters, logs and the packet-monitor buffer. Actions that leave no configuration behind (exports, notes) are recorded as completed steps.
-- **Persistence:** browser localStorage (`threatwall:lab-state`, versioned). With no backend a learner could edit it. Verification is pure and portable, so it can move server-side later.
+- **Persistence:** browser localStorage (`threatwall:lab-state`, versioned). Inside ThreatReady the keys are per signed-in account (`threatwall:lab-state:u:<id>`, `tw-last-route:u:<id>`); if `/labs/api/me` can't confirm the account (one short retry on 429/503), the lab keeps progress in this tab only and says so, and never reads or writes the shared keys. Pre-namespacing progress moves once, to the first confirmed account, and only if no account has namespaced progress on that browser (marker `threatwall:legacy-migrated`). With no backend a learner could edit it; it is practice progress and is not recorded on the ThreatReady profile. Verification is pure and portable, so it can move server-side later.
+- **Lab passwords:** the appliance administrator and local-user passwords are stored as salted PBKDF2-SHA256 (600,000 iterations, Web Crypto). Older FNV / unsalted SHA-256 saves still verify and are re-hashed on that account's next successful login: the administrator's on the appliance login page, a local user's on a simulated NetExtender or user login in Lab Tools.
 
 ## Learning notebook PDF
 

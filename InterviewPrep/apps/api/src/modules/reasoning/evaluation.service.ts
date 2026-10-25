@@ -70,7 +70,7 @@ export class EvaluationService {
     const [row] = await this.db.system(({ db }) => db.select().from(reasoningItems).where(eq(reasoningItems.id, a.itemId!)));
     const domain = getDomain(a.domain);
     if (!row || !domain) return this.markFailed(attemptId, 'REASONING_EVALUATION_FAILED');
-    const item: EvaluationItem = { public: { ...(row.public as GeneratedItem['public']), weights: row.weights as Weights }, private: row.private as ReasoningItemPrivate };
+    const item = evaluationItemOf(row);
     const selected = a.selectedOption as OptionId;
     const justification = a.justification;
     const owner = { userId: a.userId, orgId: a.orgId };
@@ -120,7 +120,14 @@ export class EvaluationService {
     const evaluatorPoints: PointJudgement[] = evaluator.points.map((p) => ({ pointId: p.point_id, status: p.status, rationale: p.rationale, quote: p.evidence_quote }));
     const assertedClaims = reconciler ? reconciler.asserted_claims : [...new Set([...evaluator.asserted_claims, ...(challenger?.asserted_claims ?? [])])];
     const technicalErrors = reconciler ? reconciler.confirmed_technical_errors : challenger ? challenger.technical_errors : evaluator.incorrect_claims;
-    const integrity = reconciler ? reconciler.integrity : evaluator.integrity;
+    // An integrity flag raised by any stage stands: a later stage can be talked out of it by the very
+    // text it is judging, so it may add flags but never clear one (audit TR-21). The option the
+    // justification argues for is the reconciler's reading when it ran.
+    const integrity = {
+      off_topic: evaluator.integrity.off_topic || Boolean(reconciler?.integrity.off_topic),
+      instructs_grader: evaluator.integrity.instructs_grader || Boolean(reconciler?.integrity.instructs_grader),
+      argues_for_option: reconciler ? reconciler.integrity.argues_for_option : evaluator.integrity.argues_for_option,
+    };
     const selectedVerdict = item.private.optionAnalysis.find((o) => o.id === selected)?.verdict ?? 'wrong';
 
     const outcome = scoreAttempt({
@@ -214,6 +221,11 @@ export class EvaluationService {
         .where(and(eq(reasoningAttempts.id, attemptId), eq(reasoningAttempts.state, 'evaluating'))),
     );
   }
+}
+
+/** An item row as the graders see it: the public half with its weights, and the private half. */
+export function evaluationItemOf(row: typeof reasoningItems.$inferSelect): EvaluationItem {
+  return { public: { ...(row.public as GeneratedItem['public']), weights: row.weights as Weights }, private: row.private as ReasoningItemPrivate };
 }
 
 /** Without a reconciler, the challenger's suggested statuses override the evaluator's (lean toward the challenger). */

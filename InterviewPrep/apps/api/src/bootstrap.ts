@@ -74,7 +74,11 @@ export async function createApiApp(cfg: AppConfig): Promise<NestExpressApplicati
 
   // Sign-in lives on onboard.threatready.io (the platform identity provider); there is no
   // /api/auth here. Requests carry the shared session cookie, resolved by IdentityAdapter.
-  http.use(express.json({ limit: '64kb' }));
+  // 200 KB: a contract-valid 30,000-character document in any script (up to 4 bytes per character,
+  // plus JSON escapes) must fit; the schema's character limit stays the real bound (TR-36).
+  // Compressed request bodies are refused (400): browsers never send them, and the inflate path is where
+  // body-parser <= 2.3.0 can be held by trailing bytes after the compressed data (GHSA-27r3-jxmh-p828).
+  http.use(express.json({ limit: '200kb', inflate: false }));
 
   await app.get(ContentService).seed(app.get(Database));
   if (cfg.LLM_VERIFY_MODELS_ON_BOOT) {

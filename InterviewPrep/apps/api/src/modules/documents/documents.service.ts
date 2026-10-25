@@ -2,15 +2,18 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   LIMITS,
+  type CandidateProfile,
   type CreateTextDocumentRequest,
   type CreateUploadRequest,
   type CreateUploadResponse,
   type DocumentKind,
+  type DocumentList,
+  type DocumentSummary,
   type DocumentView,
 } from '@threatready/contracts';
 import { interviewSessions, jobDescriptions, resumes } from '@threatready/db';
 import { DomainError, opaqueObjectKey, PortError, type ErrorCode } from '@threatready/shared';
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 import { Database, type Tx } from '../../platform/db/database.js';
 import { logger } from '../../platform/logging/logger.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
@@ -23,6 +26,12 @@ import { normaliseText, redact } from './redaction.js';
 type DocRow = typeof resumes.$inferSelect;
 const UPLOAD_TTL_SEC = 300;
 const MIN_TEXT_CHARS = 200;
+/** Uploaded files are deleted this long after analysis (ADD §9); the redacted text stays until the learner deletes it. */
+export const FILE_RETENTION_DAYS = 30;
+/** Rows the retention and upload sweeps handle per table per run, so one sweep stays short. */
+const SWEEP_BATCH = 200;
+/** Sessions that still need their documents: deleting one is refused until the interview ends. */
+const ACTIVE_SESSION_STATES = ['parsing', 'profiled', 'planned', 'asking', 'awaiting_answer', 'evaluating', 'paused', 'completed', 'scoring'] as const;
 
 export const tableFor = (kind: DocumentKind) => (kind === 'resume' ? resumes : jobDescriptions);
 
@@ -53,6 +62,26 @@ function failure(kind: DocumentKind, f: 'TOO_LARGE' | 'UNSUPPORTED' | 'UNREADABL
   return ({ TOO_LARGE: 'RESUME_TOO_LARGE', UNSUPPORTED: 'RESUME_UNSUPPORTED_TYPE', UNREADABLE: 'JD_UNREADABLE', NOT_FOUND: 'JD_NOT_FOUND', TOO_SHORT: 'JD_TOO_SHORT' } as const)[f];
 }
 
+/**
+ * What survives of a candidate profile once its resume is deleted: skill ids and claimed levels (the
+ * interview history and skill progress refer to them). Quotes and every free-text field go.
+ */
+export function scrubCandidateProfile(p: CandidateProfile): CandidateProfile {
+  return {
+    ...p,
+    headline: null,
+    current_role: null,
+    roles: [],
+    education: [],
+    projects: [],
+    certifications: [],
+    accomplishments: [],
+    unmapped_skills: [],
+    parse_warnings: [],
+    skills: p.skills.map((sk) => ({ ...sk, evidence: [] })),
+  };
+}
+
 /** Turns raw extracted text into stored text: normalise, length-check, redact. */
 export function prepareText(kind: DocumentKind, raw: string): { text: string; redactions: Record<string, number>; warnings: string[] } {
   const { text, truncated } = normaliseText(raw, LIMITS.documentTextMaxChars);
@@ -60,7 +89,8 @@ export function prepareText(kind: DocumentKind, raw: string): { text: string; re
   const r = redact(text, { redactNameLine: kind === 'resume' });
   const warnings: string[] = [];
   if (truncated) warnings.push(`Only the first ${LIMITS.documentTextMaxChars.toLocaleString('en-IN')} characters were kept.`);
-  if (Object.keys(r.counts).length) warnings.push('Contact details and personal identifiers were removed before analysis.');
+  // Pattern redaction is best effort (final review UI-3): say what was found, and point to the preview and Correct text.
+  if (Object.keys(r.counts).length) warnings.push('Contact details and personal identifiers we detected were removed before analysis. Check the text below and use Correct text to remove anything we missed.');
   return { text: r.text, redactions: r.counts, warnings };
 }
 
@@ -135,6 +165,44 @@ export class DocumentsService {
     throw new DomainError('RESUME_NOT_FOUND', { message: 'Document not found' });
   }
 
+  /** The caller's documents, newest first, without their text (GET /v1/documents). Abandoned uploads are not listed. */
+  async list(p: Principal): Promise<DocumentList> {
+    return this.db.user(p, async (tx) => {
+      const items: DocumentSummary[] = [];
+      for (const kind of ['resume', 'jd'] as const) {
+        const table = tableFor(kind);
+        // Qualified by hand: drizzle leaves columns unqualified in a single-table select.
+        const docTable = sql.identifier(kind === 'resume' ? 'resumes' : 'job_descriptions');
+        const col = sql.identifier(kind === 'resume' ? 'resume_id' : 'job_description_id');
+        const rows = await tx.db
+          .select({
+            row: table,
+            inUse: sql<boolean>`exists (select 1 from interview_sessions s where s.${col} = ${docTable}.id and s.state in (${sql.join(ACTIVE_SESSION_STATES.map((x) => sql`${x}`), sql`, `)}))`,
+          })
+          .from(table)
+          .where(and(eq(table.userId, p.userId), ne(table.status, 'awaiting_upload')))
+          .orderBy(desc(table.createdAt))
+          .limit(100);
+        for (const { row, inUse } of rows) {
+          items.push({
+            id: row.id,
+            kind,
+            status: row.status,
+            source: row.source,
+            contentType: row.contentType,
+            sizeBytes: row.sizeBytes,
+            pageCount: row.pageCount,
+            fileDeleted: row.source === 'pasted' || Boolean(row.fileDeletedAt) || !row.objectKey,
+            inUse: Boolean(inUse),
+            createdAt: row.createdAt.toISOString(),
+          });
+        }
+      }
+      items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return { items };
+    });
+  }
+
   async get(p: Principal, id: string): Promise<DocumentView> {
     return this.db.user(p, async (tx) => {
       const { row, kind } = await this.find(tx, p, id);
@@ -189,6 +257,12 @@ export class DocumentsService {
     });
   }
 
+  /**
+   * Deletes the document row (its redacted text), its file, and the cached profile built from it.
+   * Finished interviews keep their transcript and report, but a resume's derived profile in them is
+   * reduced to skill ids and levels, and the claims and quotes taken from it are dropped (audit
+   * 2026-10-23 TR-22).
+   */
   async delete(p: Principal, id: string): Promise<void> {
     const key = await this.db.user(p, async (tx) => {
       const { row, kind } = await this.find(tx, p, id);
@@ -196,14 +270,44 @@ export class DocumentsService {
       const active = await tx.db
         .select({ id: interviewSessions.id })
         .from(interviewSessions)
-        .where(
-          and(
-            eq(col, id),
-            inArray(interviewSessions.state, ['parsing', 'profiled', 'planned', 'asking', 'awaiting_answer', 'evaluating', 'paused', 'completed', 'scoring']),
-          ),
-        )
+        .where(and(eq(col, id), inArray(interviewSessions.state, [...ACTIVE_SESSION_STATES])))
         .limit(1);
       if (active.length) throw new DomainError('INTERVIEW_INVALID_STATE', { message: 'This document is used by an interview in progress' });
+      if (kind === 'resume') {
+        const used = await tx.db
+          .select({ id: interviewSessions.id, analysis: interviewSessions.analysis, plan: interviewSessions.plan })
+          .from(interviewSessions)
+          .where(and(eq(interviewSessions.resumeId, id), eq(interviewSessions.userId, p.userId)));
+        for (const s of used) {
+          const analysis = s.analysis as { candidate?: CandidateProfile; gaps?: { claims_to_verify?: { claim?: string; evidence_quote?: string }[]; gaps?: { reason?: string }[] } } | null;
+          const plan = s.plan as { items?: { claim?: string; evidenceQuote?: string }[] } | null;
+          await tx.db
+            .update(interviewSessions)
+            .set({
+              analysis: analysis
+                ? {
+                    ...analysis,
+                    ...(analysis.candidate ? { candidate: scrubCandidateProfile(analysis.candidate) } : {}),
+                    // Gap reasons are the model's free text about the resume: only skill ids and levels stay.
+                    ...(analysis.gaps
+                      ? {
+                          gaps: {
+                            ...analysis.gaps,
+                            claims_to_verify: (analysis.gaps.claims_to_verify ?? []).map((c) => ({ ...c, claim: '', evidence_quote: '' })),
+                            gaps: (analysis.gaps.gaps ?? []).map((g) => ({ ...g, reason: '' })),
+                          },
+                        }
+                      : {}),
+                  }
+                : null,
+              // A claim-verification item also names the claim in its intent (planner.ts): that goes too.
+              plan: plan?.items
+                ? { ...plan, items: plan.items.map(({ evidenceQuote: _quote, claim, ...item }) => (claim ? { ...item, intent: 'Verify a resume claim' } : item)) }
+                : plan,
+            })
+            .where(eq(interviewSessions.id, s.id));
+        }
+      }
       const table = tableFor(kind);
       await tx.db.delete(table).where(eq(table.id, id));
       return row.objectKey;
@@ -289,7 +393,11 @@ export class DocumentsService {
     );
   }
 
-  /** Retention (ADD §9): uploaded files are deleted 30 days after parsing; text and profiles stay. */
+  /**
+   * Retention (ADD §9): uploaded files are deleted FILE_RETENTION_DAYS after parsing; the redacted text
+   * stays until the learner deletes the document. One bounded query per table per run (index from
+   * migration 0011); the next sweep continues where this one stopped.
+   */
   async purgeOldFiles(olderThan: Date): Promise<number> {
     let purged = 0;
     for (const table of [resumes, jobDescriptions]) {
@@ -297,18 +405,44 @@ export class DocumentsService {
         db
           .select({ id: table.id, objectKey: table.objectKey })
           .from(table)
-          .where(and(or(eq(table.status, 'extracted'), eq(table.status, 'failed')))),
+          .where(and(inArray(table.status, ['extracted', 'failed']), lt(table.updatedAt, olderThan), isNull(table.fileDeletedAt), isNotNull(table.objectKey)))
+          .orderBy(asc(table.updatedAt))
+          .limit(SWEEP_BATCH),
       );
       for (const r of rows) {
-        if (!r.objectKey) continue;
-        const [doc] = await this.db.system(({ db }) => db.select({ updatedAt: table.updatedAt, fileDeletedAt: table.fileDeletedAt }).from(table).where(eq(table.id, r.id)));
-        if (!doc || doc.fileDeletedAt || doc.updatedAt > olderThan) continue;
-        await this.storage.delete(r.objectKey).catch(() => undefined);
+        await this.storage.delete(r.objectKey!).catch(() => undefined);
         await this.db.system(({ db }) => db.update(table).set({ objectKey: null, fileDeletedAt: new Date() }).where(eq(table.id, r.id)));
         purged++;
       }
     }
     return purged;
+  }
+
+  /**
+   * Uploads that were never completed: the signed link died after UPLOAD_TTL_SEC, so anything still
+   * awaiting its file after `olderThan` is abandoned. The quarantine object (if the browser uploaded
+   * but never called complete) and the row are deleted.
+   */
+  async sweepAbandonedUploads(olderThan: Date): Promise<number> {
+    let removed = 0;
+    for (const table of [resumes, jobDescriptions]) {
+      const rows = await this.db.system(({ db }) =>
+        db
+          .select({ id: table.id, objectKey: table.objectKey })
+          .from(table)
+          .where(and(eq(table.status, 'awaiting_upload'), lt(table.updatedAt, olderThan)))
+          .orderBy(asc(table.updatedAt))
+          .limit(SWEEP_BATCH),
+      );
+      for (const r of rows) {
+        if (r.objectKey) await this.storage.delete(r.objectKey).catch(() => undefined);
+        await this.db.system(({ db }) => db.delete(table).where(and(eq(table.id, r.id), eq(table.status, 'awaiting_upload'))));
+        removed++;
+      }
+    }
+    // Local storage: bodies cut off before they were moved into place (a refused or dropped upload).
+    removed += (await this.storage.sweepIncoming?.(olderThan).catch(() => 0)) ?? 0;
+    return removed;
   }
 }
 

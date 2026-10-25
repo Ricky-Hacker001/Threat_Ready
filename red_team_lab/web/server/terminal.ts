@@ -173,62 +173,139 @@ function headTail(ts: TermState, args: string[], stdin: string, head: boolean): 
 function wcCmd(text: string): string { const lines = text ? text.split('\n').length - 1 : 0; const words = text.split(/\s+/).filter(Boolean).length; return `  ${lines}  ${words}  ${text.length}\n`; }
 // Learner-typed patterns are compiled and run in this process (the same one that serves every lab),
 // so anything that lets V8's backtracking regex engine go super-linear is refused up front, the way
-// real grep refuses a malformed expression. Measured on 1000-character lines: one `.*` costs ~4 ms a
-// line, two cost ~0.5 s a line, `(a+)+$` or a run of `a?` is exponential. Hence: no quantified groups,
-// no backreferences or lookarounds, one unbounded quantifier at most (two variable-width ones counting
-// `?`), and a cap on the text scanned.
+// real grep refuses a malformed expression. Linear-time matching needs the automaton to stay (near-)
+// deterministic, so the rule is about *runs* of variable-width quantifiers that are not separated by a
+// mandatory token the preceding quantifier cannot also match:
+//  - a quantified group whose body can repeat (`(a+)+`, `(a|aa)*`) — the classic exponential — is out;
+//  - within one such run, at most one unbounded (`*`, `+`, `{n,}`) and two bounded (`{n,m}`) quantifiers
+//    are allowed, because adjacent/overlapping variable quantifiers are what go polynomial or worse
+//    (`.*.*`, `x.+x.+`, `a{1,9}a{1,9}a{1,9}…`);
+//  - a *disjoint* mandatory literal between two variable quantifiers ends the run and starts a fresh one,
+//    so each stays independent and linear (`\d+\.\d+`, `[0-9]{1,3}\.[0-9]{1,3}…` — the `\.` is not a
+//    digit, so the runs can't overlap across it);
+//  - a run of optionals (`a?a?a?…`) is exponential on a miss, so their total is capped low.
+// Everything a learner reaches for in a pentest terminal stays accepted: an IPv4 class pattern, separated
+// unbounded quantifiers, an optional group (`pass(word)?`, `(https?://)?admin`) and alternation
+// (`admin|root`). A leading/trailing `.*` is a no-op for an unanchored test() and is stripped so it never
+// counts. The text scanned is also capped. (UX-REG6.)
 export const GREP_MAX_PATTERN = 128;
 export const GREP_MAX_LINES = 2000;
 export const GREP_MAX_CHARS = 16 * 1024;
 const LINE_MAX = 1000;
-const MAX_VARIABLE_QUANTIFIERS = 2;
-const MAX_UNBOUNDED_QUANTIFIERS = 1;
+const MAX_OPTIONAL_QUANTIFIERS = 4;   // total `?` (atoms/classes/optional groups); a long run is exponential on a miss
+const MAX_UNBOUNDED_PER_RUN = 1;      // `*`, `+`, `{n,}` between two disjoint separators; two can go polynomial
+const MAX_BOUNDED_PER_RUN = 2;        // `{n,m}` between two disjoint separators; stacking them is polynomial (9^k)
+const MAX_UNBOUNDED_TOTAL = 8;        // backstop over the whole (length-capped) pattern
+const MAX_BOUNDED_TOTAL = 10;         // backstop over the whole pattern
+
+/**
+ * A leading or trailing `.*` (optionally anchored) matches the same set of lines as the rest under an
+ * unanchored test() and, once removed, cannot drive backtracking. grep compiles and runs the stripped
+ * form, so `.*password.*` costs the same as `password` (UX-REG6).
+ */
+export function stripRedundantStar(pattern: string): string {
+  return pattern.replace(/^(\^)?\.\*/, '').replace(/\.\*(\$)?$/, '');
+}
+
+type CharMatch = (ch: string) => boolean;
+const MATCH_ANY: CharMatch = () => true;
+/** Conservative membership test for a `[...]` class body: broad (matches anything) when it contains a shorthand or is negated, so such a class is never treated as a safe separator-preceder. */
+function classMatcher(body: string): CharMatch {
+  if (body[0] === '^') return MATCH_ANY;              // negated class is broad; don't reason about it
+  const set = new Set<string>(); const ranges: [number, number][] = [];
+  for (let k = 0; k < body.length; k++) {
+    if (body[k] === '\\') { if (/[dDwWsS]/.test(body[k + 1] ?? '')) return MATCH_ANY; set.add(body[k + 1] ?? ''); k++; continue; }
+    if (body[k + 1] === '-' && k + 2 < body.length && body[k + 2] !== ']') { ranges.push([body.charCodeAt(k), body.charCodeAt(k + 2)]); k += 2; continue; }
+    set.add(body[k]);
+  }
+  return (ch) => { if (set.has(ch)) return true; const cc = ch.charCodeAt(0); return ranges.some(([a, z]) => cc >= a && cc <= z); };
+}
+/** Matcher for an escaped atom `\x`: the shorthand's set, or the escaped character as a literal. */
+function escapeMatcher(n: string): CharMatch {
+  if (n === 'd') return (ch) => ch >= '0' && ch <= '9';
+  if (n === 'w') return (ch) => /[A-Za-z0-9_]/.test(ch);
+  if (n === 's') return (ch) => /\s/.test(ch);
+  if (n === 'D' || n === 'W' || n === 'S') return MATCH_ANY;   // broad negations: never a safe separator-preceder
+  return (ch) => ch === n;                                     // \. \/ \- … : an ordinary literal
+}
 
 /** Structural check of a regex source: null when safe, else why not. Exported for tests. */
 export function regexHazard(pattern: string): string | null {
   if (pattern.length > GREP_MAX_PATTERN) return 'pattern too long';
-  let variable = 0, unbounded = 0;
-  let prev = '';            // what the previous token was: 'atom' | 'group-close' | 'class' | 'quant' | ''
-  for (let i = 0; i < pattern.length; i++) {
-    const c = pattern[i];
+  const p = stripRedundantStar(pattern);
+  let optional = 0, unboundedTotal = 0, boundedTotal = 0;
+  // Current run: variable quantifiers since the last disjoint mandatory separator.
+  let runUnbounded = 0, runBounded = 0;
+  let lastVarMatch: CharMatch | null = null;   // what the run's most recent variable atom can match (for the separator test)
+  // The atom most recently scanned (so a quantifier knows what it applies to, and a following *mandatory*
+  // literal can be tested as a run-ending separator).
+  let atomLiteral: string | null = null;       // the atom's literal char, when it is a single literal
+  let atomMatch: CharMatch = MATCH_ANY;         // what the atom matches
+  let prev = '';                                // previous token: 'atom' | 'class' | 'group-close' | 'quant' | ''
+  // Called as a new unit starts: the previous atom is mandatory iff it was not quantified (prev is an
+  // atom kind, not 'quant'). A single mandatory literal the run's last variable atom cannot match ends
+  // the run, so the quantifiers on either side are independent and stay linear.
+  const breakRun = () => {
+    if (prev !== 'atom' && prev !== 'class' && prev !== 'group-close') return;
+    if (!runUnbounded && !runBounded) return;
+    if (atomLiteral !== null && lastVarMatch && !lastVarMatch(atomLiteral)) { runUnbounded = 0; runBounded = 0; lastVarMatch = null; }
+  };
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
     if (c === '\\') {
-      const n = pattern[i + 1] ?? '';
+      const n = p[i + 1] ?? '';
       if (/[1-9]/.test(n) || n === 'k') return 'backreferences are not supported';
-      i++; prev = 'atom'; continue;
+      breakRun(); atomMatch = escapeMatcher(n); atomLiteral = /[dDwWsSbB]/.test(n) ? null : n; i++; prev = 'atom'; continue;
     }
     if (c === '[') {                                   // character class: skip to its closing bracket
-      let j = i + 1; if (pattern[j] === '^') j++; if (pattern[j] === ']') j++;
-      for (; j < pattern.length && pattern[j] !== ']'; j++) if (pattern[j] === '\\') j++;
-      i = j; prev = 'class'; continue;
+      breakRun();
+      let j = i + 1; if (p[j] === '^') j++; if (p[j] === ']') j++;
+      for (; j < p.length && p[j] !== ']'; j++) if (p[j] === '\\') j++;
+      atomMatch = classMatcher(p.slice(i + 1, j)); atomLiteral = null; i = j; prev = 'class'; continue;
     }
     if (c === '(') {
-      if (pattern.startsWith('(?=', i) || pattern.startsWith('(?!', i) || pattern.startsWith('(?<=', i) || pattern.startsWith('(?<!', i)) return 'lookarounds are not supported';
-      if (pattern.startsWith('(?:', i)) i += 2;                                                        // non-capturing group
-      else if (pattern.startsWith('(?<', i)) { const close = pattern.indexOf('>', i); if (close === -1) return 'invalid group'; i = close; } // named group
-      prev = ''; continue;
+      if (p.startsWith('(?=', i) || p.startsWith('(?!', i) || p.startsWith('(?<=', i) || p.startsWith('(?<!', i)) return 'lookarounds are not supported';
+      breakRun();
+      if (p.startsWith('(?:', i)) i += 2;                                                        // non-capturing group
+      else if (p.startsWith('(?<', i)) { const close = p.indexOf('>', i); if (close === -1) return 'invalid group'; i = close; } // named group
+      atomMatch = MATCH_ANY; atomLiteral = null; prev = ''; continue;
     }
-    if (c === ')') { prev = 'group-close'; continue; }
-    let quant: string | null = null;
-    if (c === '*' || c === '+' || c === '?') quant = c;
-    else if (c === '{') { const m = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i)); if (m) { quant = m[0]; i += m[0].length - 1; if (m[2] === undefined) quant = 'fixed'; } }
+    if (c === ')') { atomMatch = MATCH_ANY; atomLiteral = null; prev = 'group-close'; continue; }
+    let quant: 'optional' | 'bounded' | 'unbounded' | 'fixed' | null = null;
+    if (c === '*' || c === '+') quant = 'unbounded';
+    else if (c === '?') quant = 'optional';
+    else if (c === '{') {
+      const m = /^\{(\d+)(,(\d*))?\}/.exec(p.slice(i));
+      if (m) { i += m[0].length - 1; quant = m[2] === undefined ? 'fixed' : (m[3] ? 'bounded' : 'unbounded'); } // {n} fixed, {n,m} bounded, {n,} unbounded
+    }
     if (quant) {
-      if (prev === 'quant') { if (c === '?' && quant === '?') { continue; } return 'a quantifier cannot follow a quantifier'; } // `*?` / `+?` / `??` are lazy forms
-      if (prev === 'group-close') return 'quantified groups are not supported';
-      if (prev === '' && !(c === '{' )) return 'nothing to repeat';
-      if (quant !== 'fixed') variable++;
-      if (quant !== 'fixed' && quant !== '?') unbounded++;
-      if (variable > MAX_VARIABLE_QUANTIFIERS) return `at most ${MAX_VARIABLE_QUANTIFIERS} variable-width quantifiers (*, +, ?, {n,m})`;
-      if (unbounded > MAX_UNBOUNDED_QUANTIFIERS) return `at most ${MAX_UNBOUNDED_QUANTIFIERS} unbounded quantifier (*, +, {n,})`;
+      if (prev === 'quant') { if (c === '?') continue; return 'a quantifier cannot follow a quantifier'; }  // `*?` / `+?` / `??` / `{n,m}?` are lazy forms
+      // Only an OPTIONAL group `(…)?` is allowed; a repeated group is the classic exponential shape.
+      if (prev === 'group-close' && quant !== 'optional') return 'quantified groups are not supported (use ? for an optional group)';
+      if (prev === '' && c !== '{') return 'nothing to repeat';
+      if (quant === 'fixed') { prev = 'quant'; continue; }      // `{n}` has a fixed width: no variability to bound
+      lastVarMatch = atomMatch;                                 // this atom is now the run's most recent variable atom
+      if (quant === 'optional') { if (++optional > MAX_OPTIONAL_QUANTIFIERS) return `at most ${MAX_OPTIONAL_QUANTIFIERS} optional quantifiers (?)`; }
+      else if (quant === 'bounded') {
+        boundedTotal++; runBounded++;
+        if (runBounded > MAX_BOUNDED_PER_RUN) return `too many bounded quantifiers ({n,m}) without a separator between them`;
+        if (boundedTotal > MAX_BOUNDED_TOTAL) return `at most ${MAX_BOUNDED_TOTAL} bounded quantifiers ({n,m})`;
+      } else { // unbounded
+        unboundedTotal++; runUnbounded++;
+        if (runUnbounded > MAX_UNBOUNDED_PER_RUN) return `unbounded quantifiers (*, +, {n,}) must be separated by a literal they cannot both match`;
+        if (unboundedTotal > MAX_UNBOUNDED_TOTAL) return `at most ${MAX_UNBOUNDED_TOTAL} unbounded quantifiers (*, +, {n,})`;
+      }
       prev = 'quant'; continue;
     }
-    prev = 'atom';
+    breakRun(); atomMatch = (ch) => ch === c; atomLiteral = c; if (c === '.') { atomMatch = MATCH_ANY; atomLiteral = null; } prev = 'atom';
   }
   return null;
 }
 /** The compiled pattern, or null when it is too long, structurally unsafe, or not valid regex syntax. */
 export function safeRegex(pattern: string, flags = ''): RegExp | null {
   if (regexHazard(pattern) !== null) return null;
-  try { return new RegExp(pattern, flags); } catch { return null; }
+  // Compile the stripped form so the redundant edge `.*` never runs (it was proven safe above).
+  try { return new RegExp(stripRedundantStar(pattern), flags); } catch { return null; }
 }
 /** Shell glob match (`*` any run, `?` one character, everything else literal), anchored, linear two-pointer scan: no regex. */
 export function globMatch(glob: string, name: string): boolean {

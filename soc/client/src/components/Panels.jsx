@@ -6,7 +6,7 @@ import { clock, stamp, SourceTag, SOURCE_LABEL, Severity, Empty, ErrorNote } fro
 // ---------------------------------------------------------------------------
 // Live feed
 // ---------------------------------------------------------------------------
-const STREAM_TEXT = { connecting: 'Connecting…', reconnecting: 'Reconnecting…', failed: 'Stream stopped', ended: 'Stream ended with the ticket' };
+const STREAM_TEXT = { connecting: 'Connecting…', reconnecting: 'Reconnecting…', failed: 'Stream stopped, refreshing every few seconds', busy: 'Not live: too many consoles open, refreshing every few seconds', ended: 'Stream ended with the ticket', signedout: 'Not live: signed out' };
 
 export function LiveFeed({ live, paused, setPaused, held, ctx, sources, stream, closed }) {
   const connected = stream === 'live';

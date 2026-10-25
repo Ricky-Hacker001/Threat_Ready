@@ -5,17 +5,33 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { Request, Response } from 'express';
+import { CLIENT_IP_HEADER } from './ratelimit';
 
 export interface ProxyOptions {
   /** Where this server reaches the monolith's API (in-VPC in AWS), e.g. http://localhost:3100 */
   target: string;
-  /** Header the gateway sets with the visitor's IP, when one is configured (deploy/gateway.mjs). */
+  /** Header the monolith reads the visitor's IP from (its CLIENT_IP_HEADER), when it reads one. */
   clientIpHeader?: string;
+  /** The visitor's IP as this app decided it (the rate limiter's key). Default: req.ip. */
+  ipOf?: (req: Request) => string;
+  /** Largest request body forwarded, declared or chunked (default 256 KiB; the engine itself accepts 200 kB of JSON). */
+  maxBodyBytes?: number;
+  /**
+   * The path this handler is mounted at in the engine's API (e.g. '/v1'): the request goes upstream as
+   * mountPath + its path below the mount, so it works wherever this app is mounted (under /ar on the
+   * single-origin gateway). Default: the request's full original URL.
+   */
+  mountPath?: string;
 }
 
+const MAX_BODY_BYTES = 256 * 1024;
+const engineError = (code: string, message: string, retryable = false) => ({ error: { code, message, retryable, request_id: 'req_gateway' } });
+
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
-/** Headers never copied from the browser's request: hop-by-hop, any Proxy-*, and the trusted client-IP header (set below). */
-const dropIncoming = (name: string, clientIpHeader?: string) => HOP_BY_HOP.has(name) || name.startsWith('proxy-') || name === clientIpHeader;
+/** Headers never copied from the browser's request: hop-by-hop, any Proxy-*, and any client-IP header (written below from what this app decided). */
+const dropIncoming = (name: string, clientIpHeader?: string) => HOP_BY_HOP.has(name) || name.startsWith('proxy-') || name === clientIpHeader || name === CLIENT_IP_HEADER;
+/** Methods that carry no request body here: a body sent with one is never forwarded. */
+const BODYLESS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE']);
 
 /**
  * True when the request path, once percent-decoded and dot-segment-normalised, could reach the
@@ -33,23 +49,42 @@ export function reachesInternal(originalUrl: string): boolean {
   return /(^|\/)internal(\/|$)/.test(path);
 }
 
-/** Express handler that streams a request to the monolith and the response back, without buffering (SSE-safe). */
+/**
+ * Express handler that streams a request to the monolith and the response back, without buffering
+ * (SSE-safe). Framing is decided here, never inherited: a body is forwarded only for methods that
+ * carry one, with the Content-Length Node already enforced on the way in (or chunked), so bytes the
+ * browser sent after a bodyless request can never reach the monolith as a second request (audit OPS-REG0).
+ * A body is counted on the way through: past `maxBodyBytes` (declared or chunked) the request is
+ * answered 413 here and the upstream request is dropped, because the gateway in front caps only
+ * declared lengths.
+ */
 export function proxyToApi(opts: ProxyOptions) {
   const target = new URL(opts.target);
   const client = target.protocol === 'https:' ? https : http;
   const ipHeader = opts.clientIpHeader?.toLowerCase();
+  const maxBody = opts.maxBodyBytes ?? MAX_BODY_BYTES;
   return (req: Request, res: Response) => {
-    if (reachesInternal(req.originalUrl)) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found.', retryable: false, request_id: 'req_gateway' } }); return; }
+    const upstreamPath = opts.mountPath !== undefined ? `${opts.mountPath}${req.url}` : req.originalUrl;
+    if (reachesInternal(req.originalUrl) || reachesInternal(upstreamPath)) { res.status(404).json(engineError('NOT_FOUND', 'Not found.')); return; }
+    const declared = req.headers['content-length'];
+    // Node's parser already refuses both framings at once; this keeps the rule explicit here.
+    if (declared !== undefined && req.headers['transfer-encoding'] !== undefined) { res.status(400).set('Connection', 'close').json(engineError('BAD_REQUEST', 'Conflicting request framing.')); req.resume(); return; }
+    const tooLarge = () => { res.status(413).set('Connection', 'close').json(engineError('PAYLOAD_TOO_LARGE', 'The request is too large.')); req.resume(); };
+    if (declared !== undefined && Number(declared) > maxBody) { tooLarge(); return; }
     const headers: http.OutgoingHttpHeaders = {};
     // The cookie header goes through: the monolith resolves the ThreatReady session from it.
     for (const [k, v] of Object.entries(req.headers)) if (!dropIncoming(k, ipHeader) && v !== undefined) headers[k] = v;
     headers['x-forwarded-host'] = req.headers.host ?? '';
     headers['x-forwarded-proto'] = req.headers['x-forwarded-proto'] ?? req.protocol;
-    // The visitor's IP is always written here from the connection (req.ip honours Express's
-    // `trust proxy` setting): a learner-supplied value in this header is never forwarded.
-    if (ipHeader) headers[ipHeader] = req.ip ?? '';
+    // The visitor's IP is what this app decided (the trusted gateway's header, or the connection):
+    // a learner-supplied value is never forwarded.
+    if (ipHeader) headers[ipHeader] = opts.ipOf?.(req) ?? req.ip ?? '';
+    const withBody = !BODYLESS.has(req.method) && (req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined);
+    // Node checked an incoming Content-Length against the bytes it delivers; a chunked body is re-chunked by Node.
+    if (withBody && req.headers['content-length'] !== undefined) headers['content-length'] = req.headers['content-length'];
+    if (!withBody && !BODYLESS.has(req.method)) headers['content-length'] = '0';
     const upstream = client.request(
-      { protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, method: req.method, path: req.originalUrl, headers },
+      { protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, method: req.method, path: upstreamPath, headers },
       (up) => {
         const out: http.OutgoingHttpHeaders = {};
         for (const [k, v] of Object.entries(up.headers)) if (!HOP_BY_HOP.has(k) && v !== undefined) out[k] = v;
@@ -58,12 +93,29 @@ export function proxyToApi(opts: ProxyOptions) {
       },
     );
     upstream.setTimeout(0);
+    let refused = false;
     upstream.on('error', () => {
-      if (!res.headersSent) res.status(502).json({ error: { code: 'UPSTREAM_UNAVAILABLE', message: 'The assessment service is restarting. Try again shortly.', retryable: true, request_id: 'req_gateway' } });
+      if (refused) return;
+      if (!res.headersSent) res.status(502).json(engineError('UPSTREAM_UNAVAILABLE', 'The assessment service is restarting. Try again shortly.', true));
       else res.end();
     });
     req.on('aborted', () => upstream.destroy());
-    req.pipe(upstream);
+    if (withBody) {
+      let seen = 0;
+      req.on('data', (chunk: Buffer) => {
+        seen += chunk.length;
+        if (seen <= maxBody || refused) return;
+        // Past the cap: nothing more goes upstream, and the rest of the body is read and discarded.
+        refused = true;
+        req.unpipe(upstream);
+        upstream.destroy();
+        if (!res.headersSent) tooLarge(); else res.end();
+      });
+      req.pipe(upstream);
+    } else {
+      req.resume(); // discard anything sent with a bodyless request
+      upstream.end();
+    }
   };
 }
 

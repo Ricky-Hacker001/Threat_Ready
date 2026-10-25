@@ -312,6 +312,8 @@ export interface AttemptState {
   wrongLayerApplied: number;
   retestHistory: RetestResult[];
   retests: number;
+  /** Re-tests run in attempts at this scenario that were discarded unfinished; they count towards this attempt's allowance. */
+  carriedRetests?: number;
 
   score: ScoreBreakdown | null;
   completed: boolean;

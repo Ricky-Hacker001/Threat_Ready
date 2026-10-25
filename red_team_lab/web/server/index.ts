@@ -4,6 +4,7 @@ import express from 'express';
 import { Store } from './store';
 import { createApp } from './app';
 import { devIdentity, onboardIdentity } from './identity';
+import { CLIENT_IP_HEADER } from './ratelimit';
 
 const root = path.resolve(import.meta.dirname, '..');
 try { process.loadEnvFile(path.join(root, '.env')); } catch { /* no .env: use the real environment */ }
@@ -39,6 +40,13 @@ const lab = createApp(new Store(process.env.DATA_FILE || path.join(root, 'data',
 
 const server = express();
 server.disable('x-powered-by');
+// The client-IP header (per-IP rate limits, identity per-client cap) is set by the ThreatReady gateway
+// in production; the hosted mount runs behind it. This standalone server is not behind that gateway, so
+// a client-supplied header is not trusted and is stripped — unless REDTEAM_TRUST_CLIENT_IP_HEADER=1 says
+// a trusted proxy in front sets it. Otherwise clientIp() falls back to the socket address (cross-unit
+// client-IP policy, mirrors the labs hub).
+const trustIpHeader = process.env.REDTEAM_TRUST_CLIENT_IP_HEADER === '1';
+server.use((req, _res, next) => { if (!trustIpHeader) delete req.headers[CLIENT_IP_HEADER]; next(); });
 server.use('/lab', lab);
 server.get('/', (_req, res) => res.redirect(302, '/lab/'));
 server.listen(port, () => console.log(`ThreatReady Web Pentest Lab — http://localhost:${port}/lab/  (dev login: ${devLogin})`));

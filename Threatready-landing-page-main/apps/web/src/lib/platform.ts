@@ -24,6 +24,11 @@ export function captureNext(): void {
   if (next) storage()?.setItem(KEY, next);
 }
 
+/** Return here after the next sign-in (an expired session inside onboard itself). */
+export function rememberNext(url: string): void {
+  storage()?.setItem(KEY, url);
+}
+
 export function pendingNext(): string | null {
   return storage()?.getItem(KEY) ?? null;
 }
@@ -33,14 +38,19 @@ export function clearNext(): void {
 }
 
 /**
- * The validated return target, or null. Refuses a target we just sent the
- * browser to within the last few seconds: if that app bounced straight back,
- * redirecting again would loop forever.
+ * The validated return target, or null: an allowed origin and, with
+ * `allowedPrefixes`, inside an app's home or onboard's /app (never /signout or
+ * /api/… on a shared origin). Refuses a target we just sent the browser to
+ * within the last few seconds: if that app bounced straight back, redirecting
+ * again would loop forever.
  */
-export function takeNext(allowedOrigins: readonly string[]): { url: string | null; bounced: string | null } {
+export function takeNext(
+  allowedOrigins: readonly string[],
+  allowedPrefixes?: readonly string[],
+): { url: string | null; bounced: string | null } {
   const raw = pendingNext();
   clearNext();
-  const url = safeNext(raw, allowedOrigins);
+  const url = safeNext(raw, allowedOrigins, allowedPrefixes);
   if (!url) return { url: null, bounced: null };
   const s = storage();
   try {
@@ -59,4 +69,28 @@ export function takeNext(allowedOrigins: readonly string[]): { url: string | nul
 /** The app a URL belongs to: the registered app with the longest matching base URL. */
 export function appForUrl<T extends { url: string }>(apps: T[], url: string): T | undefined {
   return apps.filter((a) => url.startsWith(a.url) || url === a.url.replace(/\/$/, "")).sort((a, b) => b.url.length - a.url.length)[0];
+}
+
+/**
+ * The browser came to /signout from a ThreatReady page: an app's own "Sign out" (InterviewPrep, Labs,
+ * Attack Reasoning and Red Team all link to /signout?next=…). From another ThreatReady host the
+ * referrer carries only its origin (Referrer-Policy strict-origin-when-cross-origin), so a registered
+ * app origin is enough. On onboard's own origin (one host serving every app) the page must also be
+ * inside an app's home or /app, never the sign-in page or /signout itself. A cross-site page can
+ * only hide its referrer, which reads as "not from the platform".
+ */
+export function cameFromPlatform(
+  referrer: string,
+  here: string,
+  appOrigins: readonly string[],
+  homes: readonly string[],
+): boolean {
+  let from: URL;
+  try {
+    from = new URL(referrer);
+  } catch {
+    return false;
+  }
+  if (from.origin !== new URL(here).origin) return appOrigins.includes(from.origin);
+  return safeNext(referrer, [from.origin], homes) !== null;
 }

@@ -46,7 +46,7 @@ export function validateWan(cfg: FirewallConfig, i: SetupInput): { errors: Recor
   return validateInterface(cfg, wanDraft(cfg, i));
 }
 
-/** `passwordHash` is the SHA-256 digest from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
+/** `passwordHash` is the salted hash from hashPasswordSecure (the caller awaits it); the legacy digest is only a fallback. */
 export function applySetup(cfg: FirewallConfig, i: SetupInput, passwordHash: string = hashPassword(i.password)): { next: FirewallConfig; audit: AuditInput[] } {
   const x1 = wanDraft(cfg, i);
   const next: FirewallConfig = {

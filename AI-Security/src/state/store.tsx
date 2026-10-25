@@ -30,6 +30,7 @@ import {
   loadSession,
   saveSession,
   recordResult,
+  recordDiscarded,
   resetProgress as resetProgressStore,
   scenarioId as sid,
   BADGE_CATALOG,
@@ -104,7 +105,7 @@ export function attemptInProgress(at: ActiveAttempt | null): at is ActiveAttempt
   return !!at && !at.state.completed && at.state.phase !== "briefing";
 }
 
-type Action =
+export type Action =
   | { t: "enter"; name: string }
   | { t: "resetProgress" }
   | { t: "setUnlockMode"; mode: UnlockMode }
@@ -144,7 +145,8 @@ function pushToast(state: AppState, kind: Toast["kind"], text: string): Toast[] 
   return [...state.toasts, { id: toastId++, kind, text }].slice(-4);
 }
 
-function reducer(state: AppState, a: Action): AppState {
+/** Exported for the unit tests (store.test.ts); the app uses it through AppProvider. */
+export function reducer(state: AppState, a: Action): AppState {
   switch (a.t) {
     case "enter": {
       const store = browserStorage();
@@ -187,7 +189,7 @@ function reducer(state: AppState, a: Action): AppState {
     case "route":
       return applyRoute(state, a.route);
     case "discardAttempt":
-      return { ...state, attempt: null };
+      return { ...withDiscarded(state), attempt: null };
     case "setTab":
       return { ...state, tab: a.tab };
     case "openScenario": {
@@ -201,12 +203,14 @@ function reducer(state: AppState, a: Action): AppState {
           view: cur.state.phase === "briefing" ? "briefing" : "workspace",
         };
       }
-      const prevNo = state.progress?.results[a.scenarioId]?.attempts ?? 0;
-      const attemptNo = prevNo + 1;
+      // Starting afresh drops the attempt in progress: record it first if it had run a re-test.
+      const s0 = withDiscarded(state);
+      const rec = s0.progress?.results[a.scenarioId];
+      const attemptNo = (rec?.attempts ?? 0) + 1;
       const { state: attemptState, customers } = createAttempt(scenario, attemptNo);
       const attempt: ActiveAttempt = {
         scenario,
-        state: attemptState,
+        state: { ...attemptState, carriedRetests: rec?.carriedRetests ?? 0 },
         customers,
         detectionRule: null,
         chat: [],
@@ -214,7 +218,7 @@ function reducer(state: AppState, a: Action): AppState {
         lastRetest: null,
         attemptNo,
       };
-      return { ...state, attempt, activeScenarioId: a.scenarioId, result: null, view: "briefing", tab: "target" };
+      return { ...s0, attempt, activeScenarioId: a.scenarioId, result: null, view: "briefing", tab: "target" };
     }
     case "startScenario": {
       if (!state.attempt) return state;
@@ -418,6 +422,18 @@ function handleGuardrail(
     return { ...s2, toasts: pushToast(s2, "amber", "That control is the wrong layer for this attack (−10).") };
   }
   return s2;
+}
+
+/**
+ * The attempt in progress is about to be dropped unfinished (Discard, or starting another attempt). One that ran a
+ * re-test is recorded as an attempt and its re-tests carry into the next attempt at that scenario (BIZ-08).
+ */
+function withDiscarded(state: AppState): AppState {
+  const at = state.attempt;
+  if (!attemptInProgress(at) || !state.progress || at.state.retests <= 0) return state;
+  const progress = recordDiscarded(state.progress, at.scenario.id, at.state.retests);
+  saveProgress(browserStorage(), progress);
+  return { ...state, progress };
 }
 
 function handleRetest(state: AppState): AppState {

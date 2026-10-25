@@ -5,6 +5,7 @@ import { GetStarted } from './pages/GetStarted';
 import { Dashboard } from './pages/Dashboard';
 import { LabPage } from './pages/LabPage';
 import { Brand } from './components/Brand';
+import { IdentityNotice } from './components/IdentityNotice';
 import { labById } from './content/labs';
 
 function useHashRoute(): [string, (r: string) => void] {
@@ -32,17 +33,26 @@ export function App() {
     });
   }, []);
 
-  if (route === '/start') return <GetStarted progress={progress} update={update} go={go} />;
-  if (route === '/labs') return progress.mode ? <Dashboard progress={progress} update={update} go={go} /> : <GetStarted progress={progress} update={update} go={go} />;
   const m = /^\/lab\/([\w-]+)$/.exec(route);
-  if (m) {
-    const def = labById(m[1]);
-    if (!def) return <NotFound go={go} what={`There is no lab called “${m[1]}”.`} />;
-    if (progress.mode) return <LabPage key={def.id} def={def} mode={progress.mode} progress={progress} update={update} go={go} />;
-    return <Welcome go={go} hasProgress={false} />;
-  }
-  if (route !== '/' && route !== '') return <NotFound go={go} what={`Nothing is published at “${route}”.`} />;
-  return <Welcome go={go} hasProgress={!!progress.mode} />;
+  const def = m ? labById(m[1]) : undefined;
+  const page = (() => {
+    if (route === '/start') return <GetStarted progress={progress} update={update} go={go} />;
+    if (route === '/labs') return progress.mode ? <Dashboard progress={progress} update={update} go={go} /> : <GetStarted progress={progress} update={update} go={go} />;
+    if (m) {
+      if (!def) return <NotFound go={go} what={`There is no lab called “${m[1]}”.`} />;
+      if (progress.mode) return <LabPage key={def.id} def={def} mode={progress.mode} progress={progress} update={update} go={go} />;
+      return <Welcome go={go} hasProgress={false} />;
+    }
+    if (route !== '/' && route !== '') return <NotFound go={go} what={`Nothing is published at “${route}”.`} />;
+    return <Welcome go={go} hasProgress={!!progress.mode} />;
+  })();
+  return (
+    <>
+      {/* The lab page places the account notice itself (inside its full-height workspace). */}
+      {!(def && progress.mode) && <IdentityNotice />}
+      {page}
+    </>
+  );
 }
 
 /** Unknown routes say so instead of silently showing the welcome page (UX-17). */

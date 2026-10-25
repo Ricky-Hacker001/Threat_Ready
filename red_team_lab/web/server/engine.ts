@@ -22,6 +22,10 @@ export interface LabEngine {
 }
 
 const SEVERITIES: Severity[] = ['Critical', 'High', 'Medium', 'Low'];
+/** How much hand-holding a guidance mode gives (beginner is the most assisted); for the "lowest mode reached" record. */
+const GUIDE_RANK: Record<GuideMode, number> = { beginner: 3, intermediate: 2, advanced: 1 };
+/** Actions still allowed once the report is delivered: the engagement is read-only, only guidance/inspection remain. */
+const ALLOWED_AFTER_REPORT = new Set(['settings.setMode', 'inspect']);
 const clone = <T>(x: T): T => structuredClone(x);
 const bad = (msg: string): never => { throw new LabError('VALIDATION_FAILED', msg); };
 const str = (v: any, name: string, max = 2000): string => { if (typeof v !== 'string' || v.length > max) bad(`Invalid value for "${name}".`); return v; };
@@ -79,7 +83,10 @@ function applySignals(s: any, req: HttpRequest, events: TargetEvent[]) {
 }
 
 // ---------- action handlers ----------
-type Ctx = { s: any; p: any };
+// `penalise` registers bookkeeping that must survive the failure the handler is about to raise (the
+// anti-brute-force counters, TR-28). A failed action commits the pre-action state plus only these, never
+// the handler's half-updated working copy (SEC-3).
+type Ctx = { s: any; p: any; penalise: (fn: (s: any) => void) => void };
 type Handler = { kind: 'nav' | 'test' | 'change' | 'meta'; run: (c: Ctx) => { message: string; result?: any } };
 
 const parseUrlArg = (url: string) => { let u = url || '/'; if (/^https?:\/\//i.test(u)) u = u.replace(/^https?:\/\/[^/]+/i, '') || '/'; if (!u.startsWith('/')) u = '/' + u; const qi = u.indexOf('?'); return { path: qi === -1 ? u : u.slice(0, qi), query: qi === -1 ? '' : u.slice(qi + 1) }; };
@@ -139,23 +146,31 @@ const H: Record<string, Handler> = {
 
   'inspect': { kind: 'meta', run: ({ s, p }) => { const key = str(p.key, 'key', 200); if (!lookup(s.sim.inspected, key) && key !== '__proto__' && Object.keys(s.sim.inspected).length < 500) s.sim.inspected[key] = simTime(s); if (/source|view-source|headers/i.test(key)) s.sim.recon.sourceSeen = true; return { message: 'noted' }; } },
 
-  'finding.report': { kind: 'meta', run: ({ s, p }) => {
+  'finding.report': { kind: 'meta', run: ({ s, p, penalise }) => {
     const f = lookup(FINDING, str(p.findingId, 'findingId', 40)); if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
     const fsr = s.sim.findings[f.id];
-    if (!fsr.confirmed) { s.sim.wrongReports++; throw new LabError('LAB_ACTION_UNSUPPORTED', 'Demonstrate (confirm) this vulnerability with the tools before documenting it.'); }
+    if (!fsr.confirmed) { penalise(st => { st.sim.wrongReports++; }); throw new LabError('LAB_ACTION_UNSUPPORTED', 'Demonstrate (confirm) this vulnerability with the tools before documenting it.'); }
+    // Severity is graded ("Severity accuracy") and the reference is revealed to the learner the moment
+    // they document (findingPublic), so a documented finding is committed: it cannot be re-rated once
+    // the reference is in hand (SEC-2/BIZ-02). This is a committed-answer refusal, not a wrong report.
+    if (fsr.reported) throw new LabError('LAB_ACTION_UNSUPPORTED', 'This finding is already documented; its severity is committed and cannot be changed.');
+    // Every input is validated before anything is committed: a too-long note or route must leave the
+    // finding undocumented so the learner can correct it and document it once (SEC-3).
     const severity = oneOf(p.severity, SEVERITIES, 'severity');
+    const affectedRoute = p.affectedRoute ? str(p.affectedRoute, 'affectedRoute', 120) : f.routes[0];
+    const note = p.note ? str(p.note, 'note', 2000) : '';
     fsr.reported = true; fsr.reportedSeverity = severity; fsr.reportedAt = simTime(s);
-    fsr.affectedRoute = p.affectedRoute ? str(p.affectedRoute, 'affectedRoute', 120) : f.routes[0];
-    fsr.note = p.note ? str(p.note, 'note', 2000) : '';
+    fsr.affectedRoute = affectedRoute;
+    fsr.note = note;
     timeline(s, 'info', `Documented finding ${f.id} as ${severity}.`);
     return { message: `Finding ${f.id} documented (${severity}).` };
   } },
 
-  'finding.remediate': { kind: 'change', run: ({ s, p }) => {
+  'finding.remediate': { kind: 'change', run: ({ s, p, penalise }) => {
     const f = lookup(FINDING, str(p.findingId, 'findingId', 40)); if (!f) throw new LabError('VALIDATION_FAILED', 'Unknown finding.');
     const opt = f.options.find(o => o.id === p.optionId); if (!opt) throw new LabError('VALIDATION_FAILED', 'Unknown remediation option.');
     const fsr = s.sim.findings[f.id];
-    if (!opt.correct) { s.sim.wrongFixes++; timeline(s, 'warn', `Remediation attempt on ${f.id} did not address the root cause.`); throw new LabError('LAB_ACTION_UNSUPPORTED', 'That change does not fix the root cause. Re-read the evidence and choose again.'); }
+    if (!opt.correct) { penalise(st => { st.sim.wrongFixes++; timeline(st, 'warn', `Remediation attempt on ${f.id} did not address the root cause.`); }); throw new LabError('LAB_ACTION_UNSUPPORTED', 'That change does not fix the root cause. Re-read the evidence and choose again.'); }
     if (s.target.fixes[f.klass]) return { message: `${f.id} is already remediated. Re-test to verify.` };
     s.target.fixes[f.klass] = true; fsr.remediated = true; fsr.remediatedAt = simTime(s);
     // A regression check: if a previously verified finding's fix was toggled off elsewhere it would reopen; not applicable here (fixes only turn on).
@@ -186,7 +201,22 @@ const H: Record<string, Handler> = {
 
   'settings.setMode': { kind: 'meta', run: ({ s, p }) => {
     const mode = oneOf(p.mode, ['beginner', 'intermediate', 'advanced'] as const, 'mode');
-    s.mode = mode;
+    if (s.mode !== mode && s.sim.report) {
+      // After delivery the mode is only a viewing preference (e.g. beginner, to read the walkthrough):
+      // the delivered report's assistance record stays as it was delivered (BIZ-05). Reports delivered
+      // before that record was frozen (dispatch, at delivery) get it here, before the first change.
+      s.sim.report.final ||= deliveryRecord(s);
+      s.mode = mode;
+    } else if (s.mode !== mode) {
+      // A mode switch is a free meta action, but it is no longer silent: beginner hands over the full
+      // walkthrough, so each change is timestamped and the most-assisted mode ever used is kept for the
+      // report (TR-28). A score cap for down-shifting mode is left to the owner (see output).
+      const prev = s.mode;
+      s.mode = mode;
+      s.sim.modeSwitches = (s.sim.modeSwitches || 0) + 1;
+      if (GUIDE_RANK[mode] > GUIDE_RANK[s.sim.lowestMode as GuideMode]) s.sim.lowestMode = mode;
+      timeline(s, 'info', `Guidance mode changed from ${prev} to ${mode}.`);
+    }
     return { message: `Guidance mode set to ${mode}.` };
   } },
 
@@ -204,10 +234,8 @@ const H: Record<string, Handler> = {
     if (s.sim.report) throw new LabError('LAB_ACTION_UNSUPPORTED', 'The report has already been submitted.');
     const summary = str(p.summary, 'summary', 6000);
     if (summary.trim().length < 80) bad('The executive summary must be at least 80 characters.');
-    // Optional per-finding severity selections (also settable at report time).
-    if (p.severities && typeof p.severities === 'object') {
-      for (const [id, sev] of Object.entries(p.severities)) { const fsr = lookup<any>(s.sim.findings, id); if (fsr && fsr.reported) fsr.reportedSeverity = oneOf(sev, SEVERITIES, 'severity'); }
-    }
+    // Each finding's severity is committed at finding.report time (and the reference is revealed then),
+    // so report.submit never overrides a documented severity — it only delivers the summary (SEC-2/BIZ-02).
     const input = { summary };
     s.sim.report = { input, score: scoreReport(s, input), at: simTime(s) };
     s.sim.completedAt = simTime(s);
@@ -227,6 +255,10 @@ function reqFromParams(r: any): HttpRequest {
   if (path.includes('?') && !query) { const qi = path.indexOf('?'); query = path.slice(qi + 1); path = path.slice(0, qi); }
   return { method, path, query, headers, cookies, body: r.body ? str(r.body, 'body', 16000) : '' };
 }
+
+/** How the engagement was run, as the report states it: the guidance mode, the most-assisted mode reached,
+ *  mode switches and the action count. Frozen into the report at delivery (BIZ-05). */
+const deliveryRecord = (s: any) => ({ guidanceMode: s.mode || 'beginner', lowestGuidanceMode: s.sim.lowestMode || s.mode || 'beginner', modeSwitches: s.sim.modeSwitches || 0, actions: s.events.length });
 
 const pubRes = (res: HttpResponse) => ({ status: res.status, statusText: res.statusText, headers: res.headers, body: res.body, contentType: res.contentType, timeMs: res.timeMs });
 
@@ -319,8 +351,9 @@ export const webLab: LabEngine = {
   }),
   createInitialState(mode?: string) {
     const target = fx.createTargetState();
+    const initialMode: GuideMode = (['beginner', 'intermediate', 'advanced'] as const).includes(mode as any) ? (mode as GuideMode) : 'beginner';
     const s: any = {
-      mode: (['beginner', 'intermediate', 'advanced'] as const).includes(mode as any) ? mode : 'beginner',
+      mode: initialMode,
       target,
       browser: { cookies: {}, url: '/', history: [] } as fx.BrowserState,
       proxy: { intercepting: false, held: null },
@@ -336,6 +369,7 @@ export const webLab: LabEngine = {
         recon: { robots: false, routes: 0, routeSet: {}, apiSeen: false, adminSeen: false, filesSeen: false, sourceSeen: false },
         evidence: [], hints: {}, signals: {}, inspected: {}, timeline: [],
         wrongReports: 0, wrongFixes: 0, failedActions: 0,
+        modeSwitches: 0, lowestMode: initialMode,
         report: null, completedAt: null,
       },
     };
@@ -345,22 +379,37 @@ export const webLab: LabEngine = {
   },
   dispatch(state, action) {
     const h = typeof action.type === 'string' && Object.prototype.hasOwnProperty.call(H, action.type) ? H[action.type] : undefined;
+    const delivered = !!state.sim.report;
+    // A failed action commits a fresh copy of the pre-action state, never the handler's working copy,
+    // so nothing a handler changed before its validation threw can persist (SEC-3). The only bookkeeping
+    // that survives is what the handler registered with penalise() — the anti-brute-force counters
+    // wrongReports/wrongFixes (TR-28).
+    const penalties: Array<(s: any) => void> = [];
     const fail = (code: string, message: string) => {
-      const s = clone(state); s.sim.failedActions++;
-      s.events.push({ seq: ++s.eventSeq, at: simTime(s), type: action.type, outcome: code, message });
-      if (s.events.length > 500) s.events.shift();
-      return { state: s, result: { ok: false, code, message } };
+      const f = clone(state);
+      for (const fn of penalties) fn(f);
+      // Refusals once the report is delivered are not engagement mistakes: the delivered record stays (BIZ-05).
+      if (!delivered) f.sim.failedActions++;
+      f.events.push({ seq: ++f.eventSeq, at: simTime(f), type: action.type, outcome: code, message });
+      if (f.events.length > 500) f.events.shift();
+      return { state: f, result: { ok: false, code, message } };
     };
     if (!h) return fail('LAB_ACTION_UNSUPPORTED', 'Unknown action.');
-    if (state.sim.report && (h.kind === 'change' || h.kind === 'nav' || h.kind === 'test')) return fail('LAB_ACTION_UNSUPPORTED', 'The engagement is complete. Reset the lab to start a new run.');
+    // Once the report is delivered the engagement is read-only (BIZ-02): only guidance/inspection stay,
+    // so findings, evidence, hints and the score cannot be edited after the fact.
+    if (delivered && !ALLOWED_AFTER_REPORT.has(action.type)) return fail('LAB_ACTION_UNSUPPORTED', 'The engagement is complete and the report is read-only. Reset the lab to start a new run.');
     const s = clone(state);
     let out;
-    try { out = h.run({ s, p: action.params && typeof action.params === 'object' ? action.params : {} }); }
+    try { out = h.run({ s, p: action.params && typeof action.params === 'object' ? action.params : {}, penalise: fn => { penalties.push(fn); } }); }
     catch (e) { if (e instanceof LabError) return fail(e.code, e.message); throw e; }
     s.rev++;
-    s.clock.minutes += h.kind === 'change' ? 3 : h.kind === 'test' || h.kind === 'nav' ? 1 : 1;
+    // The simulated clock stops at delivery, so the report's simulated time and duration stay final.
+    if (!delivered) s.clock.minutes += h.kind === 'change' ? 3 : 1;
     if (action.type !== 'inspect') { s.events.push({ seq: ++s.eventSeq, at: simTime(s), type: action.type, outcome: 'Success', message: out.message }); if (s.events.length > 500) s.events.shift(); }
     recompute(s, action.type);
+    // The action that delivered the report: freeze how the engagement was run, so viewing the delivered
+    // report afterwards (another guidance mode, inspection) never re-stamps it (BIZ-05).
+    if (!delivered && s.sim.report) s.sim.report.final = deliveryRecord(s);
     return { state: s, result: { ok: true, message: out.message, result: out.result } };
   },
   view(state) {
@@ -396,6 +445,7 @@ export const webLab: LabEngine = {
   },
   report(state, meta) {
     const s = state; const sc = score(s);
+    const rec = s.sim.report?.final || deliveryRecord(s); // frozen at delivery (BIZ-05)
     const ev = (id: string) => { const h = s.history.find((x: any) => x.id === id); return h ? { id, tool: h.tool, at: h.at, method: h.request.method, path: h.request.path + (h.request.query ? '?' + h.request.query : ''), status: h.response.status } : null; };
     return {
       meta: { ...meta, lab: 'TR-RED-001 — The Breach Files (AeroCart)', generatedAt: new Date().toISOString(), simulatedTime: simTime(s), final: !!s.sim.report, simulatedMinutes: s.clock.minutes, level: s.level },
@@ -423,7 +473,8 @@ export const webLab: LabEngine = {
       timeline: s.sim.timeline,
       remainingRisks: FINDINGS.filter(f => !s.sim.findings[f.id].verified).map(f => s.sim.findings[f.id].confirmed ? `${f.id} ${f.title}: ${s.sim.findings[f.id].remediated ? 'remediated but unverified' : 'open'}` : `${f.id} ${f.title}: not demonstrated`),
       reportAssessment: s.sim.report ? s.sim.report.score : null,
-      performance: { score: sc, hintsUsed: Object.values<number>(s.sim.hints).reduce((a, b) => a + b, 0), failedActions: s.sim.failedActions, unsupportedReports: s.sim.wrongReports, wrongFixes: s.sim.wrongFixes, actions: s.events.length },
+      performance: { score: sc, hintsUsed: Object.values<number>(s.sim.hints).reduce((a, b) => a + b, 0), failedActions: s.sim.failedActions, unsupportedReports: s.sim.wrongReports, wrongFixes: s.sim.wrongFixes, actions: rec.actions,
+        guidanceMode: rec.guidanceMode, lowestGuidanceMode: rec.lowestGuidanceMode, modeSwitches: rec.modeSwitches },
       limitations: ['A scripted simulation: it exercises the intended vulnerability classes only and cannot surface unscripted bugs or arbitrary exploit chains.', 'No real tooling engine runs; tools are faithful simulations of Burp-style and CLI workflows.'],
     };
   },

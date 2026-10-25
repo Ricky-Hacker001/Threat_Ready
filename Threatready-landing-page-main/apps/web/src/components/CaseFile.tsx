@@ -27,14 +27,17 @@ export function CaseFile() {
 
       <figure className="log" aria-label="Example authentication log from a Linux server">
         <figcaption className="log-title">auth.log on build-runner-02</figcaption>
-        <ol>
-          {LINES.map((l) => (
-            <li key={l.text} className={l.hit ? "hit" : undefined}>
-              {l.text}
-              {l.hit ? <span className="visually-hidden"> (marked as evidence)</span> : null}
-            </li>
-          ))}
-        </ol>
+        {/* The lines scroll sideways on a phone: focusable and named, so keyboard users can scroll it too. */}
+        <div className="log-scroll" tabIndex={0} role="region" aria-label="auth.log lines, scrollable">
+          <ol>
+            {LINES.map((l) => (
+              <li key={l.text} className={l.hit ? "hit" : undefined}>
+                {l.text}
+                {l.hit ? <span className="visually-hidden"> (marked as evidence)</span> : null}
+              </li>
+            ))}
+          </ol>
+        </div>
       </figure>
 
       <div className="annotation">

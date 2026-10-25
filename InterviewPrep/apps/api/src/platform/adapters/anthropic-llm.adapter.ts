@@ -46,27 +46,27 @@ export class AnthropicLlmAdapter implements LlmPort {
   }
 
   async generate(req: LlmRequest): Promise<LlmText> {
-    const msg = await this.createWithFallback(req, undefined);
-    return { text: textOf(msg), usage: usageOf(msg) };
+    const { msg, extra } = await this.createWithFallback(req, undefined);
+    return { text: textOf(msg), usage: usageOf(msg), ...(extra.length ? { extraUsage: extra } : {}) };
   }
 
   async generateStructured<T>(req: LlmRequest, schema: StructuredSchema<T>): Promise<LlmObject<T>> {
-    const msg = await this.createWithFallback(req, { type: 'json_schema', schema: schema.jsonSchema });
+    const { msg, extra } = await this.createWithFallback(req, { type: 'json_schema', schema: schema.jsonSchema });
     const usage = usageOf(msg);
     let raw: unknown;
     try {
       raw = JSON.parse(textOf(msg));
     } catch (cause) {
       // The provider billed this response: the usage travels with the error so the ledger charges it.
-      throw withUsage(new PortError('invalid_output', `${schema.name}: response was not JSON`, { retryable: true, cause }), usage);
+      throw withUsage(new PortError('invalid_output', `${schema.name}: response was not JSON`, { retryable: true, cause }), usage, extra);
     }
     const prepared = schema.prepare ? schema.prepare(raw) : raw;
     const parsed = schema.zod.safeParse(prepared);
     if (!parsed.success) {
       const paths = parsed.error.issues.slice(0, 5).map((i) => i.path.join('.')).join(', ');
-      throw withUsage(new PortError('invalid_output', `${schema.name}: schema validation failed at ${paths}`, { retryable: true }), usage);
+      throw withUsage(new PortError('invalid_output', `${schema.name}: schema validation failed at ${paths}`, { retryable: true }), usage, extra);
     }
-    return { value: parsed.data, usage };
+    return { value: parsed.data, usage, ...(extra.length ? { extraUsage: extra } : {}) };
   }
 
   async *stream(req: LlmRequest): AsyncIterable<LlmChunk> {
@@ -88,29 +88,42 @@ export class AnthropicLlmAdapter implements LlmPort {
       if (final.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'stream stopped with refusal', { retryable: false }), usageOf(final));
       yield { type: 'done', usage: usageOf(final) };
     } catch (err) {
-      throw toPortError(err);
+      throw withPartialUsage(toPortError(err), stream.currentMessage);
     }
   }
 
-  private async createWithFallback(req: LlmRequest, format: Anthropic.JSONOutputFormat | undefined): Promise<Anthropic.Message> {
+  /** The message, plus the usage of a refused first try when the fallback model answered (billed too). */
+  private async createWithFallback(req: LlmRequest, format: Anthropic.JSONOutputFormat | undefined): Promise<{ msg: Anthropic.Message; extra: LlmUsage[] }> {
     const model = this.modelFor(req.tier);
     const first = await this.create(this.params(req, model, format), req);
-    if (first.stop_reason !== 'refusal') return checkStop(first);
+    if (first.stop_reason !== 'refusal') return { msg: checkStop(first), extra: [] };
     const fallback = req.tier === 'LARGE' ? this.cfg.LLM_REFUSAL_FALLBACK_MODEL : undefined;
     logger.warn({ tier: req.tier, model, category: first.stop_details?.category ?? null, fallback: fallback ?? null }, 'llm refusal');
     if (!fallback) throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(first));
-    return checkStop(await this.create(this.params(req, fallback, format), req));
+    const extra = [usageOf(first)];
+    try {
+      return { msg: checkStop(await this.create(this.params(req, fallback, format), req)), extra };
+    } catch (err) {
+      const port = toPortError(err);
+      // The refused first message was billed whatever happens to the fallback.
+      const prior = (port as { usage?: LlmUsage }).usage;
+      throw prior ? withUsage(port, prior, extra) : withUsage(port, extra[0]!);
+    }
   }
 
   /**
    * Always streamed, then collected: the SDK refuses non-streaming requests whose max_tokens implies a
-   * long generation, and a stream keeps the connection alive for long structured outputs.
+   * long generation, and a stream keeps the connection alive for long structured outputs. A stream cut
+   * off part-way (timeout, dropped connection) was billed for what it produced: that usage goes with
+   * the error.
    */
   private async create(params: CreateParams, req: LlmRequest): Promise<Anthropic.Message> {
+    let stream: ReturnType<Anthropic['messages']['stream']> | undefined;
     try {
-      return await this.client.messages.stream(params, { timeout: this.timeout(req), signal: req.signal }).finalMessage();
+      stream = this.client.messages.stream(params, { timeout: this.timeout(req), signal: req.signal });
+      return await stream.finalMessage();
     } catch (err) {
-      throw toPortError(err);
+      throw withPartialUsage(toPortError(err), stream?.currentMessage);
     }
   }
 
@@ -141,6 +154,13 @@ function checkStop(msg: Anthropic.Message): Anthropic.Message {
   }
   if (msg.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(msg));
   return msg;
+}
+
+/** Adds the usage of a partly received message to an error that carries none (the provider billed those tokens). */
+function withPartialUsage(err: PortError, partial: Anthropic.Message | undefined): PortError {
+  if ((err as { usage?: unknown }).usage || !partial?.usage) return err;
+  const usage = usageOf(partial);
+  return usage.inputTokens + usage.outputTokens > 0 ? withUsage(err, usage) : err;
 }
 
 function textOf(msg: Anthropic.Message): string {

@@ -1,6 +1,6 @@
-import type { DocumentKind, DocumentView, UploadContentType } from '@threatready/contracts';
-import { AlertCircle, AlertTriangle, Check, CloudUpload, FileText, Pencil, RefreshCw, ShieldCheck } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { LIMITS, type DocumentKind, type DocumentView, type UploadContentType } from '@threatready/contracts';
+import { AlertCircle, AlertTriangle, Check, CloudUpload, FileText, Pencil, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useId, useRef, useState, type DragEvent } from 'react';
 import { api, ApiError, uploadToStorage } from '../../../lib/api';
 import { Busy, ErrorAlert, useToast } from '../../../ui/components';
 
@@ -28,6 +28,34 @@ export function validateFile(file: File): string | null {
 }
 
 const formatSize = (b: number | null) => (b == null ? '' : b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`);
+
+/** The uploaded file's name, remembered in this tab (the API stores none), so a reload still shows it. */
+const nameKey = (id: string) => `tr:doc-name:${id}`;
+const rememberName = (id: string, name: string) => {
+  try {
+    window.sessionStorage.setItem(nameKey(id), name);
+  } catch {
+    /* storage unavailable: the row shows "Your resume" instead */
+  }
+};
+export const recallName = (id: string | undefined) => {
+  if (!id) return null;
+  try {
+    return window.sessionStorage.getItem(nameKey(id));
+  } catch {
+    return null;
+  }
+};
+
+/** Deletes a document; one that is already gone counts as deleted. */
+async function deleteDocument(id: string): Promise<void> {
+  try {
+    await api.deleteDocument(id);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return;
+    throw e;
+  }
+}
 
 type Phase = { name: 'idle' } | { name: 'uploading'; pct: number } | { name: 'extracting' } | { name: 'done' } | { name: 'failed' };
 
@@ -62,15 +90,22 @@ export function DocumentStep({
 }) {
   const [phase, setPhase] = useState<Phase>(document?.status === 'extracted' ? { name: 'done' } : { name: 'idle' });
   const [error, setError] = useState<unknown>(null);
+  const [errorTitle, setErrorTitle] = useState('Upload failed');
   const [localError, setLocalError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<'delete' | 'replace' | null>(null);
+  const [fileName, setFileName] = useState<string | null>(() => recallName(document?.id));
   const input = useRef<HTMLInputElement>(null);
+  const uploadBtn = useRef<HTMLButtonElement>(null);
+  const refocus = useRef(false);
+  const helpId = useId();
   const toast = useToast();
   const label = kind === 'resume' ? 'resume' : 'job description';
+  const Label = kind === 'resume' ? 'Resume' : 'Job description';
+  const choose = () => input.current?.click();
 
   const poll = useCallback(async (id: string) => {
     for (let i = 0; i < 90; i++) {
@@ -98,10 +133,12 @@ export function DocumentStep({
       setPhase({ name: 'extracting' });
       await api.completeUpload(created.document.id);
       const doc = await poll(created.document.id);
+      rememberName(doc.id, file.name);
       onChange(doc);
       setPhase(doc.status === 'extracted' ? { name: 'done' } : { name: 'failed' });
-      if (doc.status === 'extracted') toast({ tone: 'ok', title: `${kind === 'resume' ? 'Resume' : 'Job description'} ready`, body: 'Check the extracted text below.' });
+      if (doc.status === 'extracted') toast({ tone: 'ok', title: `${Label} ready`, body: 'Check the extracted text below.' });
     } catch (e) {
+      setErrorTitle('Upload failed');
       setError(e);
       setPhase({ name: 'idle' });
     }
@@ -117,6 +154,50 @@ export function DocumentStep({
   useEffect(() => {
     if (document?.status === 'extracted') setPhase({ name: 'done' });
   }, [document?.status]);
+  // A document restored after a reload arrives after the first render.
+  useEffect(() => {
+    if (document?.id) setFileName((n) => n ?? recallName(document.id));
+  }, [document?.id]);
+
+  /**
+   * Delete removes the document (its file and its extracted text) for good; Replace
+   * does the same and shows the upload again. A document an interview in progress still uses is kept
+   * by the server: Delete says so, Replace just moves on to the new file.
+   */
+  async function remove(mode: 'delete' | 'replace') {
+    if (!document) return;
+    setRemoving(mode);
+    setError(null);
+    try {
+      await deleteDocument(document.id);
+      try {
+        window.sessionStorage.removeItem(nameKey(document.id));
+      } catch {
+        /* storage unavailable */
+      }
+      if (mode === 'delete') toast({ tone: 'ok', title: `${Label} deleted`, body: 'The file and its extracted text were removed.' });
+    } catch (e) {
+      if (mode === 'delete') {
+        setErrorTitle(`The ${label} was not deleted`);
+        setError(e);
+        setRemoving(null);
+        return;
+      }
+    }
+    setRemoving(null);
+    setEditing(false);
+    setFileName(null);
+    setPhase({ name: 'idle' });
+    refocus.current = true;
+    onChange(null);
+  }
+  // The buttons that were pressed are gone: keyboard focus moves to the upload control that replaced them.
+  useEffect(() => {
+    if (refocus.current && uploadBtn.current) {
+      refocus.current = false;
+      uploadBtn.current.focus();
+    }
+  });
 
   async function saveEdit() {
     if (!document) return;
@@ -127,6 +208,7 @@ export function DocumentStep({
       setEditing(false);
       toast({ tone: 'ok', title: 'Corrections saved', body: 'Personal details in your edits were removed again.' });
     } catch (e) {
+      setErrorTitle('Your corrections were not saved');
       setError(e);
     } finally {
       setSaving(false);
@@ -139,40 +221,52 @@ export function DocumentStep({
   return (
     <div className="stack lg">
       {(phase.name === 'idle' || failed) && (
-        <div
-          className={`dropzone ${over ? 'over' : ''}`}
-          role="button"
-          tabIndex={0}
-          aria-label={`Upload your ${label}: drag a PDF or DOCX here or press Enter to choose a file`}
-          onClick={() => input.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key !== 'Enter' && e.key !== ' ') return;
-            e.preventDefault(); // Space would otherwise also scroll the page
-            input.current?.click();
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={onDrop}
-        >
-          <span className="icon-tile accent"><CloudUpload className="icon lg" aria-hidden /></span>
-          <strong>{over ? 'Drop to upload' : `Drag your ${label} here, or click to browse`}</strong>
-          <span className="muted">Up to 5 MB. Files stay private and contact details are removed before analysis.</span>
-          <span className="formats"><span className="badge">PDF</span><span className="badge">DOCX</span></span>
+        // The zone takes drops and clicks anywhere; the one control inside is a real button named by its
+        // visible text. The file input sits outside the zone (its click must not bubble back into the
+        // zone's handler), hidden: not focusable, not announced, opened by the button.
+        <>
+          <div
+            className={`dropzone ${over ? 'over' : ''}`}
+            onClick={choose}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={onDrop}
+          >
+            <button
+              ref={uploadBtn}
+              type="button"
+              className="dropzone-btn"
+              aria-describedby={helpId}
+              onClick={(e) => {
+                e.stopPropagation();
+                choose();
+              }}
+            >
+              <span className="icon-tile accent"><CloudUpload className="icon lg" aria-hidden /></span>
+              <strong>{over ? 'Drop to upload' : `Drag your ${label} here, or click to browse`}</strong>
+            </button>
+            <span id={helpId} className="muted">PDF or DOCX, up to 5 MB. Files stay private, and the contact details we detect are removed before analysis; you can check the text before continuing.</span>
+            <span className="formats" aria-hidden="true"><span className="badge">PDF</span><span className="badge">DOCX</span></span>
+          </div>
           <input
             ref={input}
             type="file"
+            hidden
             accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            className="sr-only"
-            onChange={(e) => e.target.files?.[0] && void handleFile(e.target.files[0])}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = ''; // choosing the same file again still triggers a change
+              if (file) void handleFile(file);
+            }}
           />
-        </div>
+        </>
       )}
 
       {localError && <p className="error-text" role="alert"><AlertCircle className="icon sm" aria-hidden /> {localError}</p>}
-      {error != null && <ErrorAlert error={error} title="Upload failed" />}
+      {error != null && <ErrorAlert error={error} title={errorTitle} />}
       {failed && document && (
         <div className="alert warn" role="alert">
           <AlertTriangle className="icon" aria-hidden />
@@ -229,8 +323,11 @@ export function DocumentStep({
                   <Pencil className="icon sm" aria-hidden /> Correct text
                 </button>
               )}
-              <button className="btn ghost sm" type="button" onClick={() => { onChange(null); setPhase({ name: 'idle' }); setFileName(null); }}>
-                <RefreshCw className="icon sm" aria-hidden /> Replace
+              <button className="btn ghost sm" type="button" disabled={removing != null} onClick={() => void remove('replace')}>
+                {removing === 'replace' ? <Busy label="Replacing…" /> : <><RefreshCw className="icon sm" aria-hidden /> Replace</>}
+              </button>
+              <button className="btn danger sm" type="button" disabled={removing != null} onClick={() => void remove('delete')}>
+                {removing === 'delete' ? <Busy label="Deleting…" /> : <><Trash2 className="icon sm" aria-hidden /> Delete</>}
               </button>
             </div>
           </div>
@@ -243,11 +340,13 @@ export function DocumentStep({
                 <span>Extracted text — fix anything that came through wrong</span>
                 <textarea className="textarea mono" rows={16} value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={30000} />
               </label>
-              <div className="row">
-                <button className="btn primary sm" type="button" onClick={() => void saveEdit()} disabled={saving || draft.trim().length < 50}>
+              <div className="row wrap">
+                <button className="btn primary sm" type="button" onClick={() => void saveEdit()} disabled={saving || draft.trim().length < LIMITS.jdMinChars} aria-describedby={draft.trim().length < LIMITS.jdMinChars ? `${helpId}-min` : undefined}>
                   {saving ? <Busy label="Saving…" /> : 'Save corrections'}
                 </button>
                 <button className="btn ghost sm" type="button" onClick={() => setEditing(false)}>Cancel</button>
+                {/* The API's minimum (UpdateDocumentTextRequest): shorter text can't be analysed. */}
+                {draft.trim().length < LIMITS.jdMinChars && <span id={`${helpId}-min`} className="hint">At least {LIMITS.jdMinChars} characters.</span>}
               </div>
             </div>
           ) : (

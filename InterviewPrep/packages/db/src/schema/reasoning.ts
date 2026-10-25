@@ -90,8 +90,25 @@ export const reasoningAttempts = pgTable(
     justification: text('justification'),
     clientSubmissionId: uuid('client_submission_id'),
     submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    /**
+     * The first time a submission was refused by the daily evaluation quota or an AI budget (the
+     * learner's daily cap or the platform breaker), while the question was still open. The refusal is
+     * the platform's, so the question then stays open until REASONING_READY_TTL_HOURS after the next
+     * 00:00 UTC instead of expiring into a counted 0 (audit final review BIZ-07). Set once: the
+     * extension cannot be renewed.
+     */
+    submitRefusedAt: timestamp('submit_refused_at', { withTimezone: true }),
     /** Generation runs so far (validation or similarity rejections regenerate; the limit is configured). */
     generationTries: integer('generation_tries').notNull().default(0),
+    /** Manual retries of a failed generation and of a failed evaluation (each capped by REASONING_MAX_RETRIES). */
+    generationRetries: integer('generation_retries').notNull().default(0),
+    evaluationRetries: integer('evaluation_retries').notNull().default(0),
+    /**
+     * Whether skipping this question once shown (or leaving it to expire) counts as answered with 0
+     * (audit BIZ-09). Attempts opened before that rule are false: their learners were told a skip does
+     * not count. Migration 0014 adds the column as false for existing rows; new rows default to true.
+     */
+    skipCounts: boolean('skip_counts').notNull().default(true),
     failureCode: text('failure_code'),
     failureStage: text('failure_stage'),
     /** Optimistic concurrency for state transitions. */

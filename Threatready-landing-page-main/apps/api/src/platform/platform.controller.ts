@@ -8,6 +8,21 @@ import { CONFIG, type Config } from "../config.js";
 import { AppsClient } from "./apps.client.js";
 import { assertInternalCaller } from "./internal-token.js";
 
+/**
+ * Set-Cookie headers worth relaying to the browser. Reading the session without the cookie cache
+ * re-mints the session_data cache cookie on every call; relayed, it changes the browser's Cookie
+ * header after each lookup and defeats every app's identity cache (keyed on that header). Keep
+ * session_token refreshes and every expiry (sign-out, revoked session); drop session_data values,
+ * including Better Auth's chunks (`<name>.0`, `<name>.1`, …).
+ */
+export function relayedCookies(setCookies: string[], sessionDataName: string): string[] {
+  return setCookies.filter((c) => {
+    const name = c.slice(0, c.indexOf("=")).trim();
+    const isSessionData = name === sessionDataName || name.startsWith(`${sessionDataName}.`);
+    return !isSessionData || /;\s*max-age=0\b/i.test(c);
+  });
+}
+
 @Controller()
 export class PlatformController {
   constructor(
@@ -36,7 +51,7 @@ export class PlatformController {
       query: { disableCookieCache: true },
       returnHeaders: true,
     });
-    const setCookies = headers?.getSetCookie?.() ?? [];
+    const setCookies = relayedCookies(headers?.getSetCookie?.() ?? [], (await this.auth.$context).authCookies.sessionData.name);
     if (setCookies.length) res.setHeader("set-cookie", setCookies);
     if (!response) throw new UnauthorizedException({ code: "UNAUTHENTICATED", message: "Sign in to continue" });
 

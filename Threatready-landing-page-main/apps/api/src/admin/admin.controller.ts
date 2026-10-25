@@ -1,12 +1,13 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, HttpCode, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
-import type { AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList, AdminUserRow } from "@threatready/contracts";
-import { APP_KEYS, adminRoleChangeSchema } from "@threatready/contracts";
+import type { AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList } from "@threatready/contracts";
+import { adminRoleChangeSchema } from "@threatready/contracts";
 import { CurrentPrincipal, FreshSession, RequirePermission, type Principal } from "../authz/authz.js";
-import { ClientIpThrottlerGuard, clientIp } from "../common/throttle.js";
+import { UserThrottlerGuard, clientIp } from "../common/throttle.js";
 import { CONFIG, type Config } from "../config.js";
 import { AdminService, listQuerySchema, parseRange } from "./admin.service.js";
+import { toCsv } from "./csv.js";
 
 /**
  * Platform admin console. Read routes plus one write: changing a user's platform role. Every route
@@ -45,7 +46,7 @@ export class AdminController {
     if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Invalid filters" });
     const range = parseRange(query);
     const { rows } = await this.admin.allUserRows(range, parsed.data);
-    await this.admin.audit("users.export", me, null, { rows: rows.length, from: range.from.toISOString(), to: range.to.toISOString(), q: parsed.data.q ?? null, includeTrial: parsed.data.includeTrial }, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
+    await this.admin.audit("users.export", me, null, { rows: rows.length, from: range.from.toISOString(), to: range.to.toISOString(), q: parsed.data.q ?? null, includeTrial: parsed.data.includeTrial }, clientIp(req) ?? null);
     return toCsv(rows, range);
   }
 
@@ -54,7 +55,7 @@ export class AdminController {
   @RequirePermission("admin:read")
   async user(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminUserDetail> {
     const detail = await this.admin.userDetail(id, parseRange(query));
-    await this.admin.audit("user.view", me, { id: detail.user.id, email: detail.user.email }, {}, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
+    await this.admin.audit("user.view", me, { id: detail.user.id, email: detail.user.email }, {}, clientIp(req) ?? null);
     return detail;
   }
 
@@ -67,7 +68,7 @@ export class AdminController {
   @RequirePermission("admin:write")
   @FreshSession()
   @HttpCode(200)
-  @UseGuards(ClientIpThrottlerGuard)
+  @UseGuards(UserThrottlerGuard) // per admin, not per office IP
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   setRole(@Param("id") id: string, @Body() body: unknown, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminRoleChangeResult> {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
@@ -75,30 +76,6 @@ export class AdminController {
     if (!origin || origin !== new URL(this.config.WEB_ORIGIN).origin) throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
     const parsed = adminRoleChangeSchema.safeParse(body);
     if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "role must be admin or user; confirmEmail must be the user's email" });
-    return this.admin.setRole(me, id, parsed.data.role, parsed.data.confirmEmail, clientIp(req, this.config.CLIENT_IP_HEADER) ?? null);
+    return this.admin.setRole(me, id, parsed.data.role, parsed.data.confirmEmail, clientIp(req) ?? null);
   }
-}
-
-/** A spreadsheet must never evaluate a cell a user controls (names, emails): prefix formula starts. */
-const cell = (v: unknown): string => {
-  let t = v === null || v === undefined ? "" : String(v);
-  if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
-  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-};
-
-function toCsv(rows: AdminUserRow[], range: { from: Date; to: Date }): string {
-  const head = [
-    "Name", "Email", "Username", "Admin", "Trial", "Email verified", "Joined", "Last seen", "Active sessions",
-    "Hours used", "Country", "Time zone", "Last app", "Last area", "Last active",
-    "LLM calls", "Input tokens", "Output tokens", "Cache tokens", "AI cost (USD)",
-    ...APP_KEYS.map((k) => `AI cost ${k} (USD)`),
-  ];
-  const lines = rows.map((u) => [
-    u.name, u.email, u.username, u.isAdmin, u.isTrial, u.emailVerified, u.createdAt, u.lastSeenAt, u.activeSessions,
-    (u.seconds / 3600).toFixed(2), u.country, u.timeZone, u.lastApp?.app, u.lastApp?.area, u.lastApp?.at,
-    u.ai.calls, u.ai.inputTokens, u.ai.outputTokens, u.ai.cacheReadTokens + u.ai.cacheWriteTokens, u.ai.costUsd.toFixed(4),
-    ...APP_KEYS.map((k) => (u.aiByApp[k]?.costUsd ?? 0).toFixed(4)),
-  ].map(cell).join(","));
-  const note = `# ThreatReady users, ${range.from.toISOString()} to ${range.to.toISOString()}`;
-  return [note, head.map(cell).join(","), ...lines].join("\r\n") + "\r\n";
 }

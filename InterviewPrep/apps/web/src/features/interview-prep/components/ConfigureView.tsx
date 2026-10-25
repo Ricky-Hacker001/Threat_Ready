@@ -302,7 +302,7 @@ export function ConfigureView({ sessionId }: { sessionId: string }) {
           {confirmCancel ? (
             <div className="alert warn wrap" role="group" aria-labelledby="cancel-q">
               <p id="cancel-q" style={{ flex: '1 1 100%', fontSize: 13.5 }}>
-                <strong>Cancel this interview?</strong> This setup is discarded. To practise again you start a new interview.
+                <strong>Cancel this interview?</strong> This setup is discarded. It still counts as one of this month’s interviews, because your documents were already analysed. To practise again you start a new interview.
               </p>
               <button className="btn danger sm" type="button" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
                 {cancel.isPending ? <Busy label="Cancelling…" /> : 'Yes, cancel it'}

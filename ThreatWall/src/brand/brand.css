@@ -101,6 +101,9 @@
 .tr-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tr-table th { text-align: left; font-weight: 600; color: var(--tr-text-2); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; padding: 8px 10px; border-bottom: 1px solid var(--tr-line); }
 .tr-table td { padding: 8px 10px; border-bottom: 1px solid var(--tr-line); vertical-align: top; }
+/* UI-8: a table wider than the screen scrolls inside its card, which takes keyboard focus so the arrow keys scroll it. */
+.tr-scroll { padding: 0; overflow-x: auto; }
+.tr-scroll:focus-visible { outline: 2px solid var(--tr-teal); outline-offset: 2px; }
 .tr-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 500; }
 .tr-pill.pass { color: var(--tr-pass); }
 .tr-pill.fail { color: var(--tr-fail); }

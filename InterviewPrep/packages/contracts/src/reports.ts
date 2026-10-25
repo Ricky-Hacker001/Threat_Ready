@@ -77,6 +77,8 @@ export const InterviewReport = z
       }),
     }),
     integrityNotes: z.array(z.string()),
+    /** Pauses and tab switches during the interview, for the candidate's information. Absent on older reports. */
+    integrity: z.object({ pauseCount: z.number().int(), pausedSec: z.number().int(), tabHiddenCount: z.number().int() }).optional(),
     pdf: z.object({ available: z.boolean() }),
   })
   .openapi('InterviewReport');

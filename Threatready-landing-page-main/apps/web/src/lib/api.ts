@@ -19,6 +19,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /** Seconds until a 429 lifts (body retryAfter or Retry-After), for messageFor. */
+    readonly retryAfter?: number,
   ) {
     super(message);
   }
@@ -38,10 +40,12 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
   }
   const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   if (!res.ok) {
+    const retryAfter = Number(data?.retryAfter ?? res.headers.get("retry-after")) || undefined;
     throw new ApiError(
       res.status,
       typeof data?.code === "string" ? data.code : "ERROR",
       typeof data?.message === "string" ? data.message : "Request failed",
+      retryAfter,
     );
   }
   return data as T;
@@ -50,6 +54,8 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
 export interface PublicConfig {
   providers: { google: boolean; github: boolean };
   turnstileSiteKey: string | null;
+  /** "Continue as a guest" offered (server TRIAL_ENABLED); absent from older APIs = off. */
+  trialEnabled?: boolean;
   apps: AppInfo[];
   appOrigins: string[];
 }

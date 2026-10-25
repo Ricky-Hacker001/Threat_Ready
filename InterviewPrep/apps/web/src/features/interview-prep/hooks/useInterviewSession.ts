@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import type { InterviewerStatus, PracticeFeedback, SessionView, TurnStreamEvent } from '@threatready/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError, streamTurn } from '../../../lib/api';
+import { api, ApiError, retryAtFromSeconds, streamTurn } from '../../../lib/api';
 
 export interface StreamingQuestion {
   turnId: string;
@@ -98,7 +98,8 @@ export function useInterviewSession(initial: SessionView) {
           setStreaming(null);
           setReply(null);
           setPhase('idle');
-          setError(new ApiError(e.code, e.message, 0, e.retryable, e.request_id));
+          // A limit or outage says when to try again (retry_after_sec), as the HTTP errors do.
+          setError(new ApiError(e.code, e.message, 0, e.retryable, e.request_id, undefined, e.retry_after_sec ? retryAtFromSeconds(e.retry_after_sec) : null));
           break;
       }
     },

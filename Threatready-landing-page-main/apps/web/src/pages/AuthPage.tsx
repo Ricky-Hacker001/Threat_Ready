@@ -11,12 +11,12 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import type { ZodType } from "zod";
 import { CaseFile } from "../components/CaseFile";
-import { ThemeToggle } from "../components/Platform";
+import { appAt, ThemeToggle } from "../components/Platform";
 import { Brand, Button, Field, GitHubLogo, GoogleLogo, Notice, PasswordField } from "../components/ui";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
-import { messageFor, OAUTH_MESSAGES } from "../lib/errors";
-import { appForUrl, pendingNext } from "../lib/platform";
+import { messageFor, OAUTH_MESSAGES, type ErrorLike } from "../lib/errors";
+import { pendingNext } from "../lib/platform";
 import { useTurnstile } from "../lib/turnstile";
 
 type Flash = { tone: "ok" | "info" | "error"; text: string } | null;
@@ -28,7 +28,8 @@ type View =
   | { name: "forgot-username" }
   | { name: "forgot-password" };
 
-type AuthError = { code?: string; status?: number; message?: string } | null | undefined;
+/** Better Auth client errors carry the response body: code, message and, on a 429, retryAfter. */
+type AuthError = ErrorLike;
 
 function check<T>(schema: ZodType<T>, value: unknown): string | null {
   const r = schema.safeParse(value);
@@ -66,7 +67,9 @@ export function AuthPage() {
       username: params.get("username") ?? undefined,
       flash: oauthError
         ? { tone: "error", text: OAUTH_MESSAGES[oauthError] ?? "Sign-in with that provider didn't complete. Try again." }
-        : null,
+        : params.get("reason") === "expired"
+          ? { tone: "info", text: "Your session ended. Sign in again to pick up where you were." }
+          : null,
     };
   });
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -75,7 +78,7 @@ export function AuthPage() {
     api
       .config()
       .then(setConfig, () =>
-        setConfig({ providers: { google: false, github: false }, turnstileSiteKey: null, apps: [], appOrigins: [] }),
+        setConfig({ providers: { google: false, github: false }, turnstileSiteKey: null, trialEnabled: false, apps: [], appOrigins: [] }),
       );
   }, []);
 
@@ -84,7 +87,7 @@ export function AuthPage() {
   // this page is already open when the link is followed.
   useEffect(() => {
     if (params.get("mode") === "signup") setView((v) => (v.name === "signup" ? v : { name: "signup" }));
-    if (params.has("error") || params.has("username") || params.has("mode")) setParams({}, { replace: true });
+    if (params.has("error") || params.has("username") || params.has("mode") || params.has("reason")) setParams({}, { replace: true });
   }, [params, setParams]);
 
   // Move focus to the new heading when the view changes (screen readers,
@@ -162,7 +165,7 @@ export function AuthPage() {
   const returningTo = (() => {
     const next = pendingNext();
     if (!next || !config) return null;
-    return appForUrl(config.apps, next)?.title ?? null;
+    return appAt(config.apps, next)?.title ?? null;
   })();
 
   return (
@@ -240,7 +243,8 @@ export function AuthPage() {
               <>
                 <div className="divider">or</div>
                 <SocialButtons providers={config?.providers} />
-                {inTrial ? null : <TrialBlock siteKey={siteKey} />}
+                {/* Guest sessions only when the server offers them (TRIAL_ENABLED). */}
+                {inTrial || !config?.trialEnabled ? null : <TrialBlock siteKey={siteKey} />}
               </>
             ) : null}
           </div>

@@ -3,6 +3,7 @@ import express from 'express';
 import { Store } from './store';
 import { createApp, loadHostedLabs } from './app';
 import { onboardApps, onboardIdentity } from './identity';
+import { CLIENT_IP_HEADER } from './ratelimit';
 
 const root = path.resolve(import.meta.dirname, '..');
 try { process.loadEnvFile(path.join(root, '.env')); } catch { /* no .env: use the real environment */ }
@@ -33,6 +34,11 @@ const labs = createApp(new Store(process.env.DATA_FILE || path.join(root, 'data'
 if (hosted.length) console.log(`Hosted labs: ${hosted.map(h => h.slug).join(', ')}`);
 const server = express();
 server.disable('x-powered-by');
+// The client-IP header (rate limits, identity lookups) is trusted only from the ThreatReady gateway,
+// which overwrites it on every request (deploy/gateway.mjs). Standing alone, this server drops what a
+// client sent, unless LABS_TRUST_CLIENT_IP_HEADER=1 says a trusted proxy in front sets it.
+const trustIpHeader = process.env.LABS_TRUST_CLIENT_IP_HEADER === '1';
+server.use((req, _res, next) => { if (!trustIpHeader) delete req.headers[CLIENT_IP_HEADER]; next(); });
 server.use('/labs', labs);
 server.get('/', (_req, res) => res.redirect(302, '/labs/'));
 server.listen(port, () => console.log(`ThreatReady Labs — http://localhost:${port}/labs/`));

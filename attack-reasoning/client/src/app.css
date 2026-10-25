@@ -1,6 +1,7 @@
 /* Attack Reasoning page parts. Everything else comes from platform.css (threatready.io's design). */
 /* platform.css is written for border-box sizing, as in every other app (without it, width: 100% plus padding
-   pushes the account menu's items and the header container past their edges). */
+   pushes the account menu's items and the header container past their edges, and .tr-wrap is 64px wider
+   than in onboard, InterviewPrep and Labs, so the shared header shifts sideways between apps). */
 *, *::before, *::after { box-sizing: border-box; }
 body { margin: 0; }
 /* Diagram and status colours, from the platform tokens so both themes keep text at 4.5:1 and lines at 3:1.
@@ -38,6 +39,16 @@ html[data-theme="light"] .trp { --ar-teal: #17766d; --ar-teal-soft: rgba(23, 118
 .ar-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .ar-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 6px 8px 6px 0; }
 .ar-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); color: var(--text-2); vertical-align: middle; }
+/* Phones: each attempt becomes one block, the title on its own line and the rest beside each other with
+   their column names, instead of five columns crushed to one word per line. Headers stay for screen readers. */
+@media (max-width: 640px) {
+  .ar-table-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .ar-table-stack tr { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .ar-table-stack td { border-top: 0; padding: 0; }
+  .ar-table-stack td.ar-cell-title { flex-basis: 100%; order: -1; }
+  .ar-table-stack td.tr-small, .ar-table-stack td.tr-mono { white-space: nowrap; }
+  .ar-table-stack td.tr-mono[data-label]::before { content: attr(data-label) " "; color: var(--text-3); font-family: var(--font); }
+}
 .ar-link { font-size: 14px; font-weight: 600; color: var(--accent-text); }
 
 /* ---------------- Attack Reasoning assessment ---------------- */
@@ -96,6 +107,9 @@ html[data-theme="light"] .trp { --ar-teal: #17766d; --ar-teal-soft: rgba(23, 118
 .ar-diagram-side { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: start; }
 @media (max-width: 760px) { .ar-diagram-side { grid-template-columns: minmax(0, 1fr); } }
 .ar-flow { border: 1px solid var(--border); border-radius: var(--r2); overflow: hidden; background: var(--surface); }
+/* A grid item with an aspect ratio takes its width from the ratio and its min-height (2.4 x 340px = 816px),
+   not from the column: without an explicit width the canvas pushes the page sideways on phones. */
+.ar-diagram > .ar-flow { width: 100%; min-width: 0; }
 .ar-flow .react-flow__background { color: var(--border); }
 .ar-flow .react-flow__controls { box-shadow: none; border: 1px solid var(--border); border-radius: var(--r1); overflow: hidden; }
 .ar-flow .react-flow__controls button { background: var(--surface); border-bottom: 1px solid var(--border); fill: var(--text); color: var(--text); }
@@ -173,5 +187,8 @@ html[data-theme="light"] .trp { --ar-teal: #17766d; --ar-teal-soft: rgba(23, 118
 .ar-load-more { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
 .ar-planned { margin-bottom: 4px; }
 .ar-chip-list { list-style: none; margin: 0; padding: 0; }
+/* Technique chips carry the full name ("T1548.005 · Abuse Elevation Control Mechanism: …"): they wrap
+   inside their card instead of running past it and scrolling the page sideways. */
+.ar-chip-list .tr-chip { white-space: normal; overflow-wrap: anywhere; max-width: 100%; line-height: 1.35; }
 .ar-note-actions { display: inline-flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
 .tr-note-bad .ar-end { margin-left: 0; }

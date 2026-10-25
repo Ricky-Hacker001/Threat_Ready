@@ -163,8 +163,10 @@ export function useInterviewerAnimation(rig: InterviewerRig | null, inputs: Anim
 
   useFrame(({ camera }, delta) => {
     if (!rig) return;
-    const dt = Math.min(delta, 1 / 20);
     const inp = latest.current;
+    // Reduced motion renders on demand (InterviewerScene), seconds apart: take the real elapsed time so
+    // blinks keep their timing and the face settles in one frame instead of in slow motion.
+    const dt = Math.min(delta, inp.reducedMotion ? 10 : 1 / 20);
     const s = state;
     if (s.rig !== rig) {
       s.rig = rig;

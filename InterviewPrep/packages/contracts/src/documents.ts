@@ -18,8 +18,9 @@ export const CreateTextDocumentRequest = z
   .openapi('CreateTextDocumentRequest');
 export type CreateTextDocumentRequest = z.infer<typeof CreateTextDocumentRequest>;
 
+/** Same bounds as extraction and pasting: shorter text cannot be analysed (JD_TOO_SHORT / RESUME_UNREADABLE). */
 export const UpdateDocumentTextRequest = z
-  .object({ text: z.string().trim().min(50).max(LIMITS.documentTextMaxChars) })
+  .object({ text: z.string().trim().min(LIMITS.jdMinChars).max(LIMITS.documentTextMaxChars) })
   .openapi('UpdateDocumentTextRequest');
 export type UpdateDocumentTextRequest = z.infer<typeof UpdateDocumentTextRequest>;
 
@@ -42,6 +43,28 @@ export const DocumentView = z
   })
   .openapi('DocumentView');
 export type DocumentView = z.infer<typeof DocumentView>;
+
+/** One row of GET /v1/documents: no text, so the list stays small. */
+export const DocumentSummary = z
+  .object({
+    id: z.uuid(),
+    kind: DocumentKind,
+    status: DocumentStatus,
+    source: z.enum(['upload', 'pasted']),
+    contentType: z.string().nullable(),
+    sizeBytes: z.number().int().nullable(),
+    pageCount: z.number().int().nullable(),
+    /** The original file was deleted by the 30-day retention (or there never was one: pasted text). */
+    fileDeleted: z.boolean(),
+    /** Used by an interview that has not finished; it can be deleted once that interview ends. */
+    inUse: z.boolean(),
+    createdAt: z.iso.datetime(),
+  })
+  .openapi('DocumentSummary');
+export type DocumentSummary = z.infer<typeof DocumentSummary>;
+
+export const DocumentList = z.object({ items: z.array(DocumentSummary) }).openapi('DocumentList');
+export type DocumentList = z.infer<typeof DocumentList>;
 
 /** Presigned POST: the browser uploads straight to S3, into a quarantine prefix. */
 export const SignedUpload = z

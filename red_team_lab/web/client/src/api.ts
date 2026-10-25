@@ -11,7 +11,11 @@ async function req<T = any>(path: string, init?: RequestInit): Promise<T> {
   const isJson = (res.headers.get('content-type') ?? '').includes('application/json');
   let json: any = {};
   if (isJson) { try { json = await res.json(); } catch { if (res.ok) throw new ApiError(0, 'The response was interrupted.'); } }
-  if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.code, json);
+  // Prefer the human-readable `message` over `error` — the hosted-lab gate puts a machine code in
+  // `error` (e.g. "rate_limited", "auth_unavailable") and the readable text, with when to retry, in
+  // `message` (UX-REG5). This app's own limiter puts the readable text in `error` and has no message,
+  // so the fallback still reads well. We never surface a bare code or "Request failed (429)".
+  if (!res.ok) throw new ApiError(res.status, json.message || json.error || `Something went wrong (HTTP ${res.status}). Please try again.`, json.code, json);
   return json as T;
 }
 

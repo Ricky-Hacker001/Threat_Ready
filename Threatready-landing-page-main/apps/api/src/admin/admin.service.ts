@@ -36,6 +36,13 @@ const rangeSchema = z.object({
   to: z.iso.datetime({ offset: true }).optional(),
 });
 
+const utcMidnight = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+/**
+ * The console's range, widened to the whole UTC days it touches: `from` back to its midnight, `to` on
+ * to the next one (unless it is a midnight). Time and locations are stored per UTC day, so every
+ * figure (time, locations, AI cost and calls, new users) then covers the same [from, to).
+ */
 export function parseRange(query: Record<string, unknown>): Range {
   const parsed = rangeSchema.safeParse(query);
   if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "from/to must be ISO dates" });
@@ -45,7 +52,8 @@ export function parseRange(query: Record<string, unknown>): Range {
   if (to.getTime() - from.getTime() > MAX_RANGE_DAYS * DAY) {
     throw new BadRequestException({ code: "VALIDATION_FAILED", message: `Range is limited to ${MAX_RANGE_DAYS} days` });
   }
-  return { from, to };
+  const toDay = utcMidnight(to);
+  return { from: utcMidnight(from), to: toDay.getTime() === to.getTime() ? to : new Date(toDay.getTime() + DAY) };
 }
 
 export const listQuerySchema = z.object({

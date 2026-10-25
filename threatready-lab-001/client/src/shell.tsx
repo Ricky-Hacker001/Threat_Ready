@@ -101,7 +101,7 @@ export function PlatformHeader({ current, user }: { current: AppKey; user: any }
   useEffect(() => { let on = true; platformApps().then((list) => { if (on && list.length) setApps(list); }); return () => { on = false; }; }, []);
   const title = apps.find(a => a.key === current)?.title ?? FALLBACK_TITLE[current];
   return <header className="tr-nav"><div className="tr-wrap tr-nav-in">
-    <a className="tr-brand" href={BASE} aria-label={`ThreatReady ${title} home`}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady<small>{title}</small></a>
+    <a className="tr-brand" href={BASE} aria-label={`ThreatReady ${title} home`}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" />ThreatReady{' '}<small>{title}</small></a>
     <nav aria-label="ThreatReady apps"><ul className="tr-apps">
       <li><a className="tr-app-link" href={onboardLinks.home}>Home</a></li>
       {apps.map(a => <li key={a.key}>{a.status === 'live'

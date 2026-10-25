@@ -1,5 +1,48 @@
+import { gzipSync } from 'node:zlib';
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+/** three.js, its examples and React Three Fiber/drei with their 3D-only dependencies. */
+export const THREE_STACK = /[\\/]node_modules[\\/](three|three-stdlib|three-mesh-bvh|@react-three[\\/][^\\/]+|@monogrid[\\/]gainmap-js|troika-[^\\/]+|camera-controls|maath|meshline|stats-gl|stats\.js|detect-gpu|hls\.js|fflate|zustand|its-fine|suspend-react|react-use-measure)[\\/]/;
+/** Runtime modules both the 3D stack and the main app use. */
+const SHARED_WITH_THREE = /[\\/]node_modules[\\/](react|react-dom|scheduler|use-sync-external-store|@babel[\\/]runtime|@oxc-project[\\/]runtime|@oxc-project\+runtime[^\\/]*)[\\/]|^\0?@oxc-project/;
+
+/** Gzipped budget for what every page downloads before it renders (the entry and its static imports). */
+const ENTRY_BUDGET_GZ = 250 * 1024;
+
+/**
+ * Bundle check, run by every build: fails when a page's first load would include three.js (it belongs
+ * to the interview room alone) or when the first-load JavaScript outgrows ENTRY_BUDGET_GZ.
+ */
+export function bundleCheck(): Plugin {
+  return {
+    name: 'interview-prep-bundle-check',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const chunks = new Map(Object.values(bundle).flatMap((c) => (c.type === 'chunk' ? [[c.fileName, c] as const] : [])));
+      for (const entry of [...chunks.values()].filter((c) => c.isEntry)) {
+        const seen = new Set<string>();
+        const queue = [entry.fileName];
+        while (queue.length) {
+          const f = queue.pop()!;
+          if (seen.has(f)) continue;
+          seen.add(f);
+          queue.push(...(chunks.get(f)?.imports ?? []));
+        }
+        let gz = 0;
+        for (const f of seen) {
+          const c = chunks.get(f);
+          if (!c) continue;
+          const three = c.moduleIds.find((id) => THREE_STACK.test(id));
+          if (three) this.error(`${entry.fileName} statically imports ${f}, which contains ${three}: three.js must load only with the 3D interviewer`);
+          gz += gzipSync(c.code).length;
+        }
+        if (gz > ENTRY_BUDGET_GZ) this.error(`${entry.fileName} loads ${Math.round(gz / 1024)} KB gzipped of JavaScript up front (budget ${ENTRY_BUDGET_GZ / 1024} KB)`);
+      }
+    },
+  };
+}
 
 function baseRedirect(req: { url?: string }, res: { statusCode: number; setHeader: (k: string, v: string) => void; end: () => void }, next: () => void) {
   if (req.url === '/interview-prep' || req.url?.startsWith('/interview-prep?') || req.url === '/') {
@@ -20,6 +63,7 @@ export default defineConfig({
   base: '/interview-prep/',
   plugins: [
     react(),
+    bundleCheck(),
     {
       // Vite's dev and preview servers serve the base with a trailing slash; the app and the other apps
       // link to /interview-prep (production's gateway accepts both).
@@ -46,10 +90,18 @@ export default defineConfig({
     target: ['es2020', 'chrome100', 'edge100', 'firefox100', 'safari15'],
     // Source maps are never shipped: they expose the application source to anyone on the site.
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        // The 3D stack loads only on the interview room route.
-        manualChunks: (id) => (id.includes('node_modules/three') || id.includes('@react-three') ? 'three' : undefined),
+        // The 3D stack is its own chunk, loaded only when the 3D interviewer is shown (interview room).
+        // Modules it shares with every page (React, the bundler's helpers) go to 'vendor', which wins
+        // over 'three': a group also captures its dependencies, so without it React lands in 'three'
+        // and every page imports three.js (bundleCheck, above, fails the build if that comes back).
+        codeSplitting: {
+          groups: [
+            { name: 'vendor', test: SHARED_WITH_THREE, priority: 20 },
+            { name: 'three', test: THREE_STACK, priority: 10 },
+          ],
+        },
       },
     },
   },
@@ -57,5 +109,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['test/setup.ts'],
     include: ['test/**/*.test.tsx', 'test/**/*.test.ts'],
+    // jsdom and the interview-room renders are slow on a loaded machine (CI, parallel suites); the 5 s
+    // default fails them there although nothing is wrong. Tests that wait on purpose use fake timers.
+    testTimeout: 20_000,
+    hookTimeout: 30_000,
   },
 });

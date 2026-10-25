@@ -164,6 +164,9 @@ export function ownAttempt(user, id) {
   return a;
 }
 
+// Abandoned attempts keep only a short record (score 0, listed in the history); past this many per
+// user the oldest go, so a start-and-abandon loop cannot grow the store without bound.
+const MAX_ABANDONED_KEPT = 50;
 export function abandonAttempt(user, id) {
   const a = ownAttempt(user, id);
   if (a.status !== 'open') throw new HttpError(409, 'not_open', { message: 'Only an open attempt can be abandoned.' });
@@ -175,6 +178,7 @@ export function abandonAttempt(user, id) {
     removeCase(c);
   } catch { /* case already gone */ }
   pushToPortal(a);
+  for (const old of repo.listAttempts(user.uid).filter((x) => x.status === 'abandoned').slice(MAX_ABANDONED_KEPT)) repo.removeAttempt(old.attemptId);
   return a;
 }
 

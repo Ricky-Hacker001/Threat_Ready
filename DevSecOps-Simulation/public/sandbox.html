@@ -46,27 +46,33 @@
     '}',
   ].join('\n');
   var WORKER_SRC = RUNNER + '\nself.onmessage = function (ev) { runAll(ev.data, function (m) { self.postMessage(m); }); };';
-  // Same code, on this thread, used when a Worker is unavailable.
+  // Same code, on this thread, used when a Worker is unavailable. The learner's code then shares this frame's
+  // global object, so the final message says `inline` and the parent drops this frame after the job: the next
+  // cart.js version starts in a fresh realm, never with globals or prototype changes left by an earlier one.
   var inline = null;
   function runInline(d, post) {
+    var postInline = function (m) { post(m && m.done ? { nonce: m.nonce, done: true, inline: true } : m); };
     try {
       if (!inline) inline = new Function(RUNNER + '\nreturn runAll;')();
     } catch (e) {
       // eval is not permitted here at all: report that instead of hanging the caller
       for (var i = 0; i < d.cases.length; i++) post({ nonce: d.nonce, i: i, outcome: { ok: false, name: 'Error', message: 'unit-test sandbox cannot evaluate code: ' + String(e && e.message) } });
-      post({ nonce: d.nonce, done: true });
+      postInline({ nonce: d.nonce, done: true });
       return;
     }
-    inline(d, post);
+    inline(d, postInline);
   }
 
+  // The frame lives for the page and runs one job after another, each in a fresh Worker from the same script
+  // (an inline job ends the frame's life, see above).
+  var workerUrl = null;
   function run(d, post) {
     var worker = null;
     var started = false;
     try {
       if (typeof Worker === 'function' && typeof Blob === 'function' && typeof URL !== 'undefined' && URL.createObjectURL) {
-        var url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
-        worker = new Worker(url);
+        workerUrl = workerUrl || URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+        worker = new Worker(workerUrl);
         worker.onmessage = function (ev) {
           started = true;
           post(ev.data);

@@ -32,11 +32,14 @@ export interface LlmUsage {
 export interface LlmText {
   text: string;
   usage: LlmUsage;
+  /** Earlier billed messages this result also paid for (a refused first try before the fallback model answered). */
+  extraUsage?: LlmUsage[];
 }
 
 export interface LlmObject<T> {
   value: T;
   usage: LlmUsage;
+  extraUsage?: LlmUsage[];
 }
 
 export interface StructuredSchema<T> {
@@ -53,11 +56,12 @@ export type LlmChunk = { type: 'text'; text: string } | { type: 'done'; usage: L
 
 /**
  * Attaches the provider's usage to an error for a call the provider billed but the adapter must
- * reject (truncated at max_tokens, output that fails the schema, refusal after tokens). LlmService
- * records that cost against every budget; a failure without usage costs nothing.
+ * reject (truncated at max_tokens, output that fails the schema, refusal after tokens, a stream cut
+ * off part-way). `extraUsage` is any earlier message of the same call (the refused first try before a
+ * fallback). LlmService records that cost against every budget; a failure without usage costs nothing.
  */
-export function withUsage<E extends Error>(err: E, usage: LlmUsage): E & { usage: LlmUsage } {
-  return Object.assign(err, { usage });
+export function withUsage<E extends Error>(err: E, usage: LlmUsage, extraUsage?: LlmUsage[]): E & { usage: LlmUsage; extraUsage?: LlmUsage[] } {
+  return Object.assign(err, { usage }, extraUsage?.length ? { extraUsage } : {});
 }
 
 export interface LlmPort {

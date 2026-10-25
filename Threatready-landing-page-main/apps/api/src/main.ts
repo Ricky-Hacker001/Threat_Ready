@@ -6,14 +6,33 @@ import { toNodeHandler } from "better-auth/node";
 import express from "express";
 import type pg from "pg";
 import { AppModule } from "./app.module.js";
-import { AUTH, type Auth } from "./auth/auth.js";
-import { setClientIpHeader } from "./common/throttle.js";
+import { AUTH, authHttpHandler, type Auth } from "./auth/auth.js";
+import { initErrorReports, reportError } from "./common/error-report.js";
+import { stampClientIp } from "./common/throttle.js";
 import { loadConfig } from "./config.js";
 import { PG_POOL } from "./db/db.js";
 
+/** Report, then stop as Node would have: a crash must stay a crash (the launcher restarts the API). */
+function crashWith(kind: string) {
+  return (err: unknown) => {
+    console.error(`[${kind}]`, err);
+    const stop = setTimeout(() => process.exit(1), 2_000);
+    void reportError(err, kind).finally(() => {
+      clearTimeout(stop);
+      process.exit(1);
+    });
+  };
+}
+
 async function bootstrap() {
   const config = loadConfig();
-  setClientIpHeader(config.CLIENT_IP_HEADER);
+  initErrorReports({
+    dsn: config.SENTRY_DSN,
+    environment: config.SENTRY_ENVIRONMENT ?? config.NODE_ENV,
+    release: config.RELEASE ?? process.env.RENDER_GIT_COMMIT,
+  });
+  process.on("uncaughtException", crashWith("uncaughtException"));
+  process.on("unhandledRejection", crashWith("unhandledRejection"));
 
   // Body parsing off: Better Auth must read the raw request itself.
   const app = await NestFactory.create<NestExpressApplication>(AppModule.forRoot(config), {
@@ -22,6 +41,11 @@ async function bootstrap() {
   });
   const http = app.getHttpAdapter().getInstance() as express.Express;
   http.disable("x-powered-by");
+  // One client IP for every reader, set here before Better Auth and the routes run (common/throttle.ts).
+  http.use((req, _res, next) => {
+    stampClientIp(req, config.CLIENT_IP_HEADER);
+    next();
+  });
   // API responses are per-user (or auth state): never cached or revalidated by browsers or proxies.
   // The public config is the same for everyone and may be cached briefly.
   http.set("etag", false);
@@ -42,7 +66,7 @@ async function bootstrap() {
 
   // Better Auth handler mounted directly (ADD L6: skip the NestJS wrapper).
   const auth = app.get<Auth>(AUTH);
-  http.all("/api/auth/*splat", toNodeHandler(auth));
+  http.all("/api/auth/*splat", toNodeHandler(authHttpHandler(auth)));
 
   app.use(express.json({ limit: "64kb" }));
   app.setGlobalPrefix("api");
@@ -77,5 +101,10 @@ bootstrap().catch((err: NodeJS.ErrnoException) => {
   } else {
     console.error(err instanceof Error ? err.message : err);
   }
-  process.exit(1);
+  // A failed boot is reported when the configuration got far enough to enable reports.
+  const stop = setTimeout(() => process.exit(1), 2_000);
+  void reportError(err, "boot").finally(() => {
+    clearTimeout(stop);
+    process.exit(1);
+  });
 });

@@ -6,5 +6,7 @@ export default defineConfig({
   base: '/lab/',
   plugins: [react()],
   build: { outDir: '../dist', emptyOutDir: true, target: ['es2020', 'chrome100', 'edge100', 'firefox100', 'safari15'] },
-  server: { port: 5180, strictPort: true, proxy: { '/lab/api': process.env.API_PROXY_TARGET ?? 'http://localhost:4300' } },
+  // /lab/api and /lab/target-frame.html (the sandboxed XSS target document, served by the API with its own
+  // CSP) are proxied to the API server; everything else is served by Vite.
+  server: { port: 5180, strictPort: true, proxy: Object.fromEntries(['/lab/api', '/lab/target-frame.html'].map((p) => [p, process.env.API_PROXY_TARGET ?? 'http://localhost:4300'])) },
 });

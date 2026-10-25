@@ -1,10 +1,13 @@
 /**
- * Lab-only password hashing. This is a simulator: nothing leaves the browser, but we still avoid
- * storing a typed password in plain text in localStorage.
+ * Lab-only password hashing. This is a simulator: nothing leaves the browser, but a learner may still type a
+ * password they use elsewhere, and the lab state sits in localStorage on the shared ThreatReady origin. So the
+ * administrator and local-user passwords are stored as salted PBKDF2-SHA256 (Web Crypto,
+ * `pbkdf2-sha256$<iterations>$<salt hex>$<hash hex>`), which a copied save cannot cheaply reverse.
  *
- * The administrator password is stored as SHA-256 (`sha256$<hex>`, Web Crypto). `hashPassword` is
- * the original 32-bit FNV-1a: it still seeds the factory default and lab-internal values, and
- * verifies hashes stored before the upgrade, which are re-hashed on the next successful login.
+ * `hashPassword` is the original 32-bit FNV-1a: it still seeds the factory default and lab-internal values
+ * (task checks compare against it). Hashes stored before the upgrade (FNV, or unsalted `sha256$<hex>`) still
+ * verify and are re-hashed on that account's next successful login: the administrator's on the appliance login
+ * page, a local user's on a simulated NetExtender or user login (Lab Tools).
  */
 export function hashPassword(pw: string): string {
   let h = 0x811c9dc5;
@@ -17,22 +20,44 @@ export function hashPassword(pw: string): string {
 }
 
 const SHA_PREFIX = 'sha256$';
+const PBKDF2_PREFIX = 'pbkdf2-sha256$';
+/** OWASP's guidance for PBKDF2-HMAC-SHA256 (about a quarter of a second on a laptop). */
+export const PBKDF2_ITERATIONS = 600_000;
 const subtle = (): SubtleCrypto | null => (typeof crypto !== 'undefined' && crypto.subtle ? crypto.subtle : null);
+const toHex = (buf: ArrayBuffer | Uint8Array) => Array.from(buf instanceof Uint8Array ? buf : new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+const fromHex = (h: string) => new Uint8Array((h.match(/../g) ?? []).map((x) => parseInt(x, 16)));
 
-/** SHA-256 of the password; falls back to the legacy digest where Web Crypto is unavailable (plain-http dev hosts). */
-export async function hashPasswordSecure(pw: string): Promise<string> {
-  const s = subtle();
-  if (!s) return hashPassword(pw);
-  const buf = await s.digest('SHA-256', new TextEncoder().encode(`threatwall:${pw}`));
-  return SHA_PREFIX + Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
+async function pbkdf2(s: SubtleCrypto, pw: string, salt: Uint8Array, iterations: number): Promise<string> {
+  const key = await s.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  return toHex(await s.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: salt as BufferSource, iterations }, key, 256));
 }
 
-/** Compares against either hash format; `rehash` is set when a legacy hash matched and should be replaced. */
+/** Salted PBKDF2-SHA256 of the password; falls back to the legacy digest where Web Crypto is unavailable (plain-http dev hosts). */
+export async function hashPasswordSecure(pw: string, iterations = PBKDF2_ITERATIONS): Promise<string> {
+  const s = subtle();
+  if (!s) return hashPassword(pw);
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return `${PBKDF2_PREFIX}${iterations}$${toHex(salt)}$${await pbkdf2(s, pw, salt, iterations)}`;
+}
+
+/** Compares against any stored format; `rehash` is set when an older format (or fewer iterations) matched and should be replaced. */
 export async function verifyPassword(pw: string, stored: string): Promise<{ ok: boolean; rehash?: string }> {
-  if (stored.startsWith(SHA_PREFIX)) return { ok: (await hashPasswordSecure(pw)) === stored };
-  if (hashPassword(pw) !== stored) return { ok: false };
+  const s = subtle();
+  if (stored.startsWith(PBKDF2_PREFIX)) {
+    const [iter, salt, hash] = stored.slice(PBKDF2_PREFIX.length).split('$');
+    const n = Number(iter);
+    if (!s || !Number.isInteger(n) || n < 1 || n > 10_000_000 || !salt || !hash) return { ok: false };
+    if ((await pbkdf2(s, pw, fromHex(salt), n)) !== hash) return { ok: false };
+    return n < PBKDF2_ITERATIONS ? { ok: true, rehash: await hashPasswordSecure(pw) } : { ok: true };
+  }
+  let ok: boolean;
+  if (stored.startsWith(SHA_PREFIX)) {
+    if (!s) return { ok: false };
+    ok = SHA_PREFIX + toHex(await s.digest('SHA-256', new TextEncoder().encode(`threatwall:${pw}`))) === stored;
+  } else ok = hashPassword(pw) === stored;
+  if (!ok) return { ok: false };
   const next = await hashPasswordSecure(pw);
-  return { ok: true, rehash: next.startsWith(SHA_PREFIX) ? next : undefined };
+  return { ok: true, rehash: next.startsWith(PBKDF2_PREFIX) ? next : undefined };
 }
 
 export function passwordProblems(pw: string, user: string): string[] {

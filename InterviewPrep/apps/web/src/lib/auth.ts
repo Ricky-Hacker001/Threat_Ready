@@ -31,7 +31,12 @@ export const onboardLinks = {
   profile: `${ONBOARD_URL.replace(/\/+$/, '')}/app/profile`,
 };
 
-/** The signed-in user, or `data: null` when there is no session. */
+/**
+ * The signed-in user, or `data: null` when there is no session. The API client already retries a
+ * network failure twice, so the query itself does not retry, and a component mounting after a failure
+ * (RequireAuth) does not refetch it: the shell shows the error with "Try again" instead of a loader
+ * that keeps re-asking a server that is down.
+ */
 export function useMe() {
   return useQuery<Me | null>({
     queryKey: ['me'],
@@ -44,5 +49,7 @@ export function useMe() {
       }
     },
     staleTime: 60_000,
+    retry: false,
+    retryOnMount: false,
   });
 }

@@ -140,13 +140,14 @@ code { background: rgba(148, 163, 184, .12); padding: 1px 5px; border-radius: 4p
 
 /* ------------------------------------------------------------------ workspace */
 /* Fill the viewport below the ThreatReady strip when it is present (--tr-labnav-h is unset standalone). */
-.ws { height: calc(100vh - var(--tr-labnav-h, 0px)); height: calc(100dvh - var(--tr-labnav-h, 0px)); display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--bg2); }
+.ws { height: calc(100vh - var(--tr-labnav-h, 0px)); height: calc(100dvh - var(--tr-labnav-h, 0px)); display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); background: var(--bg2); }
 .wsbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 48px; padding: 6px 12px; border-bottom: 1px solid var(--line); background: #0c1326; min-width: 0; }
 .wsbar .title { font-size: 14px; margin: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .wsbar .spacer { flex: 1; }
 .ws > .wsbar { grid-row: 1; }
-.ws > .smallnote { grid-row: 2; }
-.ws > .wsmain { grid-row: 3; }
+.ws > .idnote { grid-row: 2; }
+.ws > .smallnote { grid-row: 3; }
+.ws > .wsmain { grid-row: 4; }
 .wsbar .timer { font-family: var(--mono); color: var(--muted); font-size: 13px; }
 .wsmain { display: grid; grid-template-columns: 360px 1fr; min-height: 0; }
 .task { border-right: 1px solid var(--line); overflow: auto; background: var(--bg2); }
@@ -173,6 +174,10 @@ code { background: rgba(148, 163, 184, .12); padding: 1px 5px; border-radius: 4p
 .concept div { color: var(--muted); font-size: 12.5px; }
 
 .center { display: grid; grid-template-rows: minmax(160px, 1fr) 6px var(--bottom, 42%); min-width: 0; min-height: 0; }
+/* Explicit tracks, so hiding one child (the splitter on phones) never moves the tool panel into its 6px track (UI-1). */
+.center > .editorarea { grid-row: 1; }
+.center > .splitter { grid-row: 2; }
+.center > .bottom { grid-row: 3; }
 .splitter { background: var(--line); cursor: row-resize; touch-action: none; }
 .splitter:hover, .splitter:focus-visible { background: var(--blue); }
 .splitter:focus-visible { outline-offset: 0; }
@@ -231,6 +236,7 @@ code { background: rgba(148, 163, 184, .12); padding: 1px 5px; border-radius: 4p
 .tabs .badge.green { background: #14532d; }
 .tabs .spacer { flex: 1; }
 .tabbody { overflow: auto; min-height: 0; }
+.tabbody:focus-visible { outline-offset: -2px; }
 
 .term { font-family: var(--mono); font-size: 12.8px; line-height: 1.5; padding: 10px 14px; min-height: 100%; cursor: text; }
 .term .ln { white-space: pre-wrap; word-break: break-word; min-height: 1.5em; }
@@ -242,7 +248,9 @@ code { background: rgba(148, 163, 184, .12); padding: 1px 5px; border-radius: 4p
 .a31 { color: #f87171; } .a32 { color: #4ade80; } .a33 { color: #fbbf24; } .a34 { color: #60a5fa; } .a35 { color: #e879f9; } .a36 { color: #22d3ee; } .a90 { color: #8391a7; } .a1 { font-weight: 700; }
 
 .findings { padding: 10px 14px; }
-.scanhdr { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; font-size: 13px; }
+.scanhdr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 12px 0 6px; font-size: 13px; }
+/* UI-8: on a phone the header wraps and a long chip (the origin URL) breaks, so the panel never scrolls sideways. */
+.scanhdr .chip { white-space: normal; overflow-wrap: anywhere; min-width: 0; }
 .scanhdr b { font-size: 13px; }
 .scanhdr .stale { color: var(--amber); font-size: 12px; }
 .scanhdr .fresh { color: var(--ok); font-size: 12px; }
@@ -301,6 +309,10 @@ button.gitrow:hover { background: rgba(255, 255, 255, .04); }
 .smallnote { display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px; background: rgba(251, 191, 36, .08); border-bottom: 1px solid #5b4a1f; color: #fde68a; font-size: 12.5px; }
 .smallnote p { margin: 0; flex: 1; }
 .smallnote .btn { color: #fde68a; flex: none; }
+/* Account not confirmed inside ThreatReady: progress is kept in this tab only (IdentityNotice). */
+.idnote { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; background: #2a2416; border-bottom: 1px solid #5b4a1f; color: #fde68a; font-size: 13px; }
+.idnote p { margin: 0; flex: 1 1 260px; min-width: 0; }
+.idnote .btn { flex: none; color: #fde68a; border-color: #8a6d2a; background: transparent; }
 
 @media (max-width: 1100px) {
   .hero { grid-template-columns: 1fr; }
@@ -319,7 +331,8 @@ button.gitrow:hover { background: rgba(255, 255, 255, .04); }
   .wsbar .title { flex: 1 1 100%; order: -1; white-space: normal; }
   .wsmain { display: block; }
   .task { max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--line); }
-  .center { grid-template-rows: 55vh 6px 70vh; }
+  /* The splitter is hidden, so its track is empty; the tool panel keeps a usable height on short screens. */
+  .center { grid-template-rows: 55vh 0 minmax(380px, 70vh); }
   .splitter { display: none; }
   .editorarea { grid-template-columns: 1fr; }
   .tree { display: none; }

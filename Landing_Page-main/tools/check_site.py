@@ -1,12 +1,22 @@
 #!/usr/bin/env python3
-"""Static checks for the public site. Run from the repo root:  python3 tools/check_site.py
+"""Static checks for the public site. Run from the repo root:  python3 tools/check_site.py [--offline]
 - every internal href/src resolves to a file (and #anchor to an id on that page)
 - no model answers from the demo pool appear in public HTML/JS
 - no unverified claims that were removed in the redesign creep back onto marketing pages
+- every link into the platform uses PLATFORM_URL (tools/sync_shell.py); a link to any other app host
+  (*.threatready.io subdomains, *.onrender.com) fails, and the platform host must resolve in DNS
+  (--offline skips only the DNS lookup)
+- plan and pricing copy promises nothing the platform does not offer (no trial, no in-app prices)
+- every wide-table scroll container is a focusable, named region
 Exit code 1 on any failure."""
-import pathlib, re, sys, html
+import pathlib, re, sys, html, socket
+from urllib.parse import urlparse
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+from sync_shell import APP_LINKS, PLATFORM_URL, SCROLL_WRAPS  # noqa: E402
+PLATFORM_HOST = urlparse(PLATFORM_URL).hostname
 PAGES = sorted(p for p in ROOT.glob("*.html"))
+OFFLINE = "--offline" in sys.argv[1:]
 fail = []
 
 ids = {}
@@ -73,19 +83,72 @@ for p in PAGES:
         if 'target="_blank"' not in a: fail.append(f"{p.name}: social link not new-tab")
     if 'data-theme-toggle' not in s: fail.append(f"{p.name}: header theme toggle missing")
 
-# Sign-in and sign-up live on onboard.threatready.io; the site has no /app (the old links looped through 404.html)
+# Sign-in and sign-up live on the platform (PLATFORM_URL); the site has no /app (the old links looped through 404.html)
 for p in PAGES:
     if "threatready.io/app" in re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S):
-        fail.append(f"{p.name}: links to threatready.io/app (use https://onboard.threatready.io/)")
+        fail.append(f"{p.name}: links to threatready.io/app (use {APP_LINKS['signin']}; run tools/sync_shell.py)")
 
-# Every external http(s) link (not threatready.io or one of its apps) opens in a new tab with noopener noreferrer
+# App links: one host, written by sync_shell.py. Anything that looks like an app host but is not the
+# platform (onboard.threatready.io, labs.threatready.io, another *.onrender.com service) is a dead or
+# wrong link. Sign-in / Start free / ?mode=signup links must carry data-app so sync keeps them current.
+SITE_HOSTS = {"threatready.io", "www.threatready.io"}
+APP_HOST = re.compile(r"^([a-z0-9-]+\.)+(threatready\.io|onrender\.com)$")
+for p in PAGES:
+    s = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)
+    for m in re.finditer(r"<a\b([^>]*)>(.*?)</a>", s, re.S):
+        tag, text = m.group(1), re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        href_m = re.search(r'\bhref="([^"]*)"', tag)
+        if not href_m: continue
+        href = html.unescape(href_m.group(1))
+        kind = re.search(r'\bdata-app="([^"]*)"', tag)
+        if kind:
+            want = APP_LINKS.get(kind.group(1))
+            if not want: fail.append(f"{p.name}: unknown data-app=\"{kind.group(1)}\" (signin, signup or labs)")
+            elif href != want: fail.append(f"{p.name}: app link {href} should be {want} (run tools/sync_shell.py)")
+            continue
+        host = urlparse(href).hostname or ""
+        if host and host not in SITE_HOSTS and (APP_HOST.match(host) or host == PLATFORM_HOST) and not href.startswith(PLATFORM_URL + "/"):
+            fail.append(f"{p.name}: link to unknown app host {host} ({href}); the platform is {PLATFORM_URL}")
+        if "mode=signup" in href or text in ("Sign in", "Start free") or text.startswith("Start free"):
+            fail.append(f"{p.name}: sign-in/sign-up link without data-app: {href} (run tools/sync_shell.py)")
+if not OFFLINE:
+    try:
+        socket.getaddrinfo(PLATFORM_HOST, 443)
+    except OSError as e:
+        fail.append(f"PLATFORM_URL host {PLATFORM_HOST} does not resolve ({e}); every sign-in link would be dead (--offline skips this lookup)")
+
+# Every external http(s) link (not threatready.io or the platform) opens in a new tab with noopener noreferrer
 for p in PAGES:
     s = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)
     for a in re.findall(r'<a\b[^>]*href="https?://[^"]+"[^>]*>', s):
         href = re.search(r'href="([^"]+)"', a).group(1)
-        if re.match(r"https?://([a-z0-9-]+\.)?threatready\.io(/|$)", href): continue
+        if re.match(r"https?://([a-z0-9-]+\.)?threatready\.io(/|$)", href) or href.startswith(PLATFORM_URL + "/"): continue
         if 'target="_blank"' not in a or "noopener" not in a or "noreferrer" not in a:
             fail.append(f"{p.name}: external link not new-tab: {href}")
+
+# Plan copy describes the platform as it is: free accounts with per-product limits, nothing on sale,
+# no guest trial (onboard TRIAL_ENABLED is off by default). Promises of the old app must not return.
+PLAN_PAGES = MARKETING + ["terms.html", "sample-report.html"]
+PLAN_BANNED = [r"two \(?2?\)?\s*(free\s+)?Beginner", r"two free Beginner", r"price in the app", r"shown in the app before you pay", r"free trial",
+               r"after your trial"]
+for name in PLAN_PAGES:
+    s = (ROOT / name).read_text(encoding="utf-8")
+    for pat in PLAN_BANNED:
+        if re.search(pat, s, re.I):
+            fail.append(f"{name}: plan claim the platform does not offer /{pat}/")
+
+# Wide tables: the scroll container is focusable and a named region (keyboard users can scroll it)
+for p in PAGES:
+    s = re.sub(r"<!--.*?-->", "", p.read_text(encoding="utf-8"), flags=re.S)
+    for m in re.finditer(r"<table\b", s):
+        opener = re.findall(r"<div\b[^>]*>", s[:m.start()])
+        last = opener[-1] if opener else ""
+        between = s[s.rfind(last, 0, m.start()) + len(last):m.start()] if last else ""
+        if not re.search(r'class="(%s)"' % "|".join(SCROLL_WRAPS), last) or re.search(r"<(table|/div)\b", between):
+            fail.append(f"{p.name}: <table> not inside a scroll region (wrap it in <div class=\"tscroll\" aria-label=\"...\">)")
+    for d in re.findall(r'<div class="(?:%s)"[^>]*>' % "|".join(SCROLL_WRAPS), s):
+        if 'tabindex="0"' not in d or 'role="region"' not in d or not re.search(r'aria-label="[^"]+"', d):
+            fail.append(f"{p.name}: scroll region needs tabindex=\"0\", role=\"region\" and an aria-label: {d}")
 
 # No stretched-link overlays (root cause of the click-anywhere bug)
 css = (ROOT / "assets/css/site.css").read_text(encoding="utf-8")

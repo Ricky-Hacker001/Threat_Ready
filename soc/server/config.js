@@ -28,12 +28,27 @@ export const config = {
   webhookUrl: env.TR_WEBHOOK_URL || '',
   webhookSecret: env.TR_WEBHOOK_SECRET || '',
   exportToken: env.TR_EXPORT_TOKEN || '',
+  // Profile summary for a platform host (GET /internal/v1/users/:uid/summary). Off unless 32+ characters.
+  internalToken: env.SOC_INTERNAL_TOKEN || '',
   sessionHours: 8,       // ThreatReady token sessions
   localSessionHours: 24, // name sign-in sessions (records are wiped daily anyway)
   // Test runs may pin a variant (no renaming, no jitter). Never honoured
   // outside the test harness.
   testMode: env.SOC_SIM_TEST === '1' && !production,
 };
+
+// A whole-number limit from the environment: unset, empty or invalid gives the default (an empty value
+// must not switch a limit off); 0 stays 0, which callers read as "no limit".
+export function limitFrom(raw, fallback) {
+  const v = String(raw ?? '').trim();
+  const n = Number(v);
+  return v !== '' && Number.isInteger(n) && n >= 0 ? n : fallback;
+}
+
+// Inside ThreatReady: whether the records outlive a restart of the server. The platform launcher
+// (deploy/start.mjs) sets TR_STATE_DURABLE=1 while it mirrors them to its database; read per request,
+// so it can say otherwise when the mirror stops saving.
+export const stateDurable = () => env.TR_STATE_DURABLE === '1';
 
 // Nothing is required: the simulation runs standalone with its own name
 // sign-in. Returns warnings to log at start-up.

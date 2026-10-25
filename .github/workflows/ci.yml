@@ -50,6 +50,10 @@ jobs:
       - run: pnpm build
       - name: Every route declares a permission (ADD L7)
         run: pnpm --filter @threatready/api test:routes
+      - name: Unit tests (API units on the build, web helpers, contracts)
+        run: |
+          (cd apps/api && node --test test/units.test.mjs)
+          node --test apps/web/test/errors.test.mjs apps/web/test/platform.test.mjs packages/contracts/test/platform.test.mjs
       - run: pnpm db:migrate
       - name: End-to-end against a live API
         run: |
@@ -63,3 +67,65 @@ jobs:
           pnpm test:e2e
       - if: failure()
         run: cat api.log
+
+  # Single-origin gateway and launcher (deploy/), publish guard (scripts/), marketing site checks.
+  deploy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      # CI-only disposable database for the lab-state mirror and migration-lock tests.
+      STATE_MIRROR_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: deploy/package-lock.json
+      - name: Nothing unpublishable is tracked (nested repos, licensed model, env files, audit notes)
+        run: node scripts/publish-check.mjs .
+      - run: node --test scripts/test/*.test.mjs
+      - run: npm ci --no-audit --no-fund
+        working-directory: deploy
+      - run: npm test
+        working-directory: deploy
+      - name: Marketing site links, anchors, claims and app host
+        run: |
+          python3 Landing_Page-main/tools/check_site.py
+          python3 -m unittest Landing_Page-main/tools/test_site_tools.py
+
+  # The browser labs served under /labs/<slug>/ (progress and grading run in the learner's browser).
+  browser-labs:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { lab: DevSecOps-Simulation, slug: devsecops, typecheck: "npx tsc --noEmit", test: "npm test" }
+          - { lab: ThreatWall, slug: threatwall, typecheck: "npx tsc -b", test: "npm test" }
+          - { lab: AI-Security, slug: aisec, typecheck: "npx tsc -b", test: "npm test" }
+    defaults:
+      run:
+        working-directory: ${{ matrix.lab }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ${{ matrix.lab }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: No known high or critical vulnerability in what ships to the browser (TR-20)
+        if: matrix.lab == 'AI-Security'
+        run: npm audit --omit=dev --audit-level=high
+      - run: ${{ matrix.typecheck }}
+      - run: ${{ matrix.test }}
+      - name: Builds for its path on the platform
+        run: npx vite build --base /labs/${{ matrix.slug }}/

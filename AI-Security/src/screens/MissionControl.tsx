@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { attemptInProgress, useApp } from "@/state/store";
 import { TASK_META, implementedTaskIds } from "@/scenarios";
-import { unlockStatus, scenarioId, levelProgress } from "@/engine/progress";
+import { unlockStatus, scenarioId, levelProgress, passedScore, totalScore as sumPassedScores } from "@/engine/progress";
 import type { Level } from "@/engine/types";
 import { LevelTag, Modal } from "@/components/common";
-import { platformIdentityProblem } from "@/platform";
+import { inPlatform, platformIdentityProblem } from "@/platform";
 
 const LEVELS: Level[] = ["foundation", "intermediate", "expert"];
 const LEVEL_LABEL: Record<Level, string> = {
@@ -25,7 +25,8 @@ export function MissionControl() {
   const totalScenarios = 30;
   const passed = Object.values(p.results).filter((r) => r.passed).length;
   const completion = Math.round((passed / totalScenarios) * 100);
-  const totalScore = Object.values(p.results).reduce((a, r) => a + r.bestScore, 0);
+  // Only passed scenarios count: a "Finish anyway" with a failed re-test adds nothing (BIZ-08).
+  const totalScore = sumPassedScores(p);
 
   /** Open a scenario: resumes its attempt in progress; starting another one asks first. */
   const open = (id: string) => {
@@ -39,6 +40,12 @@ export function MissionControl() {
         <div>
           <h1>Mission Control</h1>
           <p className="muted">Welcome back, {p.learnerName}. Pick a scenario to begin.</p>
+          {/* Where progress lives (TR-27), worded like the ThreatReady labs catalog. Tab-only: see the notice above. */}
+          {!platformIdentityProblem() && (
+            <p className="small muted">
+              Progress is kept in this browser{inPlatform ? " and is not recorded on your ThreatReady profile" : ""}.
+            </p>
+          )}
         </div>
         <div className="row wrap">
           <button className="btn ghost" onClick={() => dispatch({ t: "gotoLearning" })}>
@@ -68,7 +75,7 @@ export function MissionControl() {
               <LevelTag level={current.scenario.level} />
             </div>
             <div className="small muted">
-              {platformIdentityProblem() ? "Kept in this tab" : "Saved on this device"} at the {current.state.phase} stage
+              {platformIdentityProblem() ? "Kept in this tab" : "Kept in this browser"} at the {current.state.phase} stage
               {current.state.retests > 0 ? ` · ${current.state.retests} re-test(s) run` : ""}. Pick up where you left
               off.
             </div>
@@ -87,7 +94,7 @@ export function MissionControl() {
       {/* Stat row */}
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))" }}>
         <Stat label="Overall completion" value={`${completion}%`} sub={`${passed}/${totalScenarios} scenarios passed`} />
-        <Stat label="Accumulated score" value={String(totalScore)} sub="sum of best scores" />
+        <Stat label="Accumulated score" value={String(totalScore)} sub="sum of best passing scores" />
         {LEVELS.map((lv) => {
           const lp = levelProgress(p, lv);
           return <Stat key={lv} label={LEVEL_LABEL[lv]} value={`${lp.passed}/10`} sub="passed" />;
@@ -217,7 +224,9 @@ export function MissionControl() {
         >
           <p>
             Your unfinished attempt at <strong>{current.scenario.title}</strong> (evidence, guardrails and re-tests)
-            will be lost. It is not scored or recorded.
+            will be lost. It is not scored.
+            {current.state.retests > 0 &&
+              ` Because it ran ${current.state.retests} re-test(s), it still counts as an attempt, and those re-tests count towards the re-test allowance of your next attempt at this scenario.`}
           </p>
         </Modal>
       )}
@@ -245,7 +254,11 @@ export function MissionControl() {
         >
           <p>
             You have an unfinished attempt at <strong>{current.scenario.title}</strong>. Starting another scenario
-            discards it (it is not scored or recorded).
+            discards it (it is not scored
+            {current.state.retests > 0
+              ? `; because it ran ${current.state.retests} re-test(s), it still counts as an attempt and its re-tests carry into your next attempt at it`
+              : ""}
+            ).
           </p>
         </Modal>
       )}
@@ -299,7 +312,16 @@ function ScenarioCell({
   return (
     <div className="stack" style={{ gap: 6 }}>
       <span className={`pill ${statusCls}`}>{status}</span>
-      {rec && <div className="small muted">Best {rec.bestScore} · {rec.attempts} attempt(s)</div>}
+      {rec && (
+        <div className="small muted">
+          {rec.attempts > (rec.discarded ?? 0)
+            ? rec.passed
+              ? `Best ${passedScore(rec)}`
+              : `Best ${rec.bestScore} (not passed)`
+            : "No finished attempt"}{" "}
+          · {rec.attempts} attempt(s)
+        </div>
+      )}
       <button
         className="btn sm primary"
         aria-label={`${label} Task ${taskId} ${level}`}

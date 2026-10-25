@@ -267,7 +267,7 @@ export function ArchitectureCorner() {
   if (tab === 'behind' && cur) focus = new Set(cur.test ? cur.test.nodes : nodesFor(cur.event.text));
   const dim = (id: string) => !!focus && focus.size > 0 && !focus.has(id);
 
-  const fab = <button ref={fabRef} className="archfab" onClick={show} aria-label="Open the lab guide and architecture diagram" style={open ? { visibility: 'hidden' } : undefined} tabIndex={open ? -1 : 0}><span aria-hidden>⧉</span> What's happening?</button>;
+  const fab = <button ref={fabRef} className="archfab" onClick={show} aria-label="What's happening? Open the lab guide and architecture diagram" style={open ? { visibility: 'hidden' } : undefined} tabIndex={open ? -1 : 0}><span aria-hidden>⧉</span> What's happening?</button>;
   if (!open || !geo) return fab;
   const atkLines = intruderSeen ? [
     { key: 'iam', cls: contained ? 'blocked' : 'live', label: contained ? 'key disabled' : 'stolen key', tip: contained ? 'The stolen key has been disabled.' : 'The intruder signs requests with an old access key of the storefront app.' },

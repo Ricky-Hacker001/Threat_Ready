@@ -239,11 +239,14 @@ const CART_CASES: { call: string; name: string; spec: CaseSpec; expected: unknow
 ];
 const CART_SPECS = CART_CASES.map((c) => c.spec);
 
-/** Evaluate (once, cached) every cart.js the lab may test: the working tree and every commit. */
-export function prepareCartTests(sources: Iterable<string | undefined>): Promise<unknown> {
+/**
+ * Evaluate (once, cached) every cart.js the lab may test: the working tree and every commit. `pin` keeps the
+ * outcomes for good (the labs' seed versions, which a lab's first pipeline reads as it opens).
+ */
+export function prepareCartTests(sources: Iterable<string | undefined>, opts: { pin?: boolean } = {}): Promise<unknown> {
   const distinct = new Set<string>();
   for (const src of sources) if (typeof src === 'string') distinct.add(src);
-  return Promise.all([...distinct].map((src) => prepare(src, CART_SPECS)));
+  return Promise.all([...distinct].map((src) => prepare(src, CART_SPECS, opts)));
 }
 
 /** All cart.js versions a lab state can run tests against. */

@@ -90,8 +90,15 @@ export interface SessionProgress {
   directive: Directive;
   pendingTurn?: PendingTurn;
   askingLeaseUntil?: string;
+  /** While evaluating: after this the evaluation is presumed lost and the interview moves on (recovery.ts). */
+  evaluatingLeaseUntil?: string;
   integrityFlags: number;
+  /** Manual report retries that followed an attempt the provider billed (the cap counts only these). */
   retryReportCount?: number;
+  /** When the last manual report retry was queued. */
+  lastReportRetryAt?: string;
+  /** AI spend support added to this session's final-scoring ceiling (scripts/retry-report.ts --reset). */
+  finalizeExtraUsd?: number;
 }
 
 export const emptyProgress = (): SessionProgress => ({

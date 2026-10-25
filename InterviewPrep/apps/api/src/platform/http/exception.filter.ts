@@ -1,6 +1,6 @@
 import { Catch, HttpException, type ArgumentsHost, type ExceptionFilter } from '@nestjs/common';
 import * as Sentry from '@sentry/node';
-import { DomainError, ERROR_CATALOGUE, PortError, type ErrorEnvelope } from '@threatready/shared';
+import { DomainError, ERROR_CATALOGUE, PortError, secondsUntilUtcMidnight, type ErrorCode, type ErrorEnvelope } from '@threatready/shared';
 import type { Response } from 'express';
 import { logger, requestContext } from '../logging/logger.js';
 
@@ -17,9 +17,12 @@ export class EnvelopeExceptionFilter implements ExceptionFilter {
     const bodyParser = bodyParserStatus(exception);
     const status = bodyParser ?? (envelope.error.code === 'INTERNAL_ERROR' && exception instanceof HttpException ? exception.getStatus() : ERROR_CATALOGUE[envelope.error.code].http);
 
-    if (status >= 500) {
+    if (status >= 500 && !expectedOverload(exception)) {
       logger.error({ code: envelope.error.code, err: errInfo(exception) }, 'request failed');
       Sentry.captureException(exception, { tags: { code: envelope.error.code }, extra: { request_id: requestId } });
+    } else if (status >= 500) {
+      // Load shedding and the daily AI pause are expected states: one line, no stack, no Sentry event.
+      logger.warn({ code: envelope.error.code, status }, 'request shed');
     } else {
       logger.info({ code: envelope.error.code, status }, 'request rejected');
     }
@@ -28,18 +31,37 @@ export class EnvelopeExceptionFilter implements ExceptionFilter {
       res.end();
       return;
     }
+    if (envelope.error.retry_after_sec) res.setHeader('Retry-After', String(envelope.error.retry_after_sec));
     res.status(status).json(envelope);
   }
 }
 
 /**
- * express.json() rejections (malformed JSON, body over the 64 KB limit) arrive as plain errors with a
+ * express.json() rejections (malformed JSON, body over the JSON limit) arrive as plain errors with a
  * body-parser `type`. They are client errors: 400 / 413 envelopes, never 500s or Sentry events.
  */
 function bodyParserType(exception: unknown): string | null {
   const e = exception as { type?: unknown; status?: unknown; statusCode?: unknown } | null;
   const status = typeof e?.status === 'number' ? e.status : typeof e?.statusCode === 'number' ? e.statusCode : 0;
   return typeof e?.type === 'string' && /^(entity|charset|encoding|parameters|request)\./.test(e.type) && status >= 400 && status < 500 ? e.type : null;
+}
+
+/** Busy-shedding 503s (identity lookups, uploads) and AI_SERVICE_PAUSED: not faults. */
+function expectedOverload(exception: unknown): boolean {
+  if (!(exception instanceof DomainError)) return false;
+  return exception.code === 'AI_SERVICE_PAUSED' || (exception.details as { reason?: unknown } | undefined)?.reason === 'busy';
+}
+
+/**
+ * When to come back (Retry-After header and `retry_after_sec`): the error's own value on any status;
+ * and every 429 and 503 has one: else the next UTC midnight for the daily AI budgets, else a short default.
+ */
+export function retryAfterOf(exception: unknown, code: ErrorCode): number | undefined {
+  if (exception instanceof DomainError && exception.retryAfterSec) return exception.retryAfterSec;
+  const http = ERROR_CATALOGUE[code].http;
+  if (http !== 429 && http !== 503) return undefined;
+  if (code === 'AI_SERVICE_PAUSED' || code === 'LLM_BUDGET_EXCEEDED') return secondsUntilUtcMidnight();
+  return http === 503 ? 5 : 30;
 }
 
 function bodyParserStatus(exception: unknown): number | null {
@@ -51,13 +73,24 @@ function bodyParserStatus(exception: unknown): number | null {
 export function toEnvelope(exception: unknown, requestId: string): ErrorEnvelope {
   const parser = bodyParserType(exception);
   if (parser === 'entity.too.large') {
-    return { error: { code: 'RESUME_TOO_LARGE', message: 'The request body is too large', request_id: requestId, retryable: false } };
+    // Only document text can come near the JSON limit (an upload's file never goes through JSON).
+    return { error: { code: 'TEXT_TOO_LONG', message: ERROR_CATALOGUE.TEXT_TOO_LONG.message, request_id: requestId, retryable: false } };
   }
   if (parser) {
     return { error: { code: 'VALIDATION_FAILED', message: 'The request body could not be read as JSON', request_id: requestId, retryable: false } };
   }
   if (exception instanceof DomainError) {
-    return { error: { code: exception.code, message: exception.message, request_id: requestId, retryable: exception.retryable, details: exception.details } };
+    const retryAfter = retryAfterOf(exception, exception.code);
+    return {
+      error: {
+        code: exception.code,
+        message: exception.message,
+        request_id: requestId,
+        retryable: exception.retryable,
+        details: exception.details,
+        ...(retryAfter ? { retry_after_sec: retryAfter } : {}),
+      },
+    };
   }
   if (exception instanceof PortError) {
     const code = exception.retryable ? 'INTERNAL_ERROR' : 'INTERNAL_ERROR';

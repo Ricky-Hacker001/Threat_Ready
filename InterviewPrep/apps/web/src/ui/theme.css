@@ -135,6 +135,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .subnav-usage { display: none; }
   .subnav-link { padding: 0 8px; }
 }
+/* The smallest phones (320 px): tighter links and "New" for "New interview" (the full name stays for
+   screen readers), so the row fits without scrolling the page sideways. */
+@media (max-width: 400px) {
+  .subnav-in { gap: 0; }
+  .subnav-link { padding: 0 7px; gap: 6px; }
+  .subnav-end .btn.sm { padding: 0 10px; gap: 6px; }
+  .subnav-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 
 /* ---------- Page layout ---------- */
 .page { width: 100%; max-width: var(--wrap); margin: 0 auto; padding: 32px var(--gutter) 64px; animation: pageIn 0.4s var(--ease) both; }
@@ -157,9 +165,13 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .between { justify-content: space-between; }
 .section-title { display: flex; align-items: center; justify-content: space-between; margin: 34px 0 14px; }
 .section-title h2 { display: flex; align-items: center; gap: 9px; }
+/* A wide cell; in the one-column phone layout it is an ordinary cell (a span there adds a column and
+   pushes the page wider than the screen). */
+.grid > .span-2 { grid-column: span 2; }
 @media (max-width: 1180px) { .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .grid.cols-3 { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 760px) {
   .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  .grid > .span-2 { grid-column: auto; }
   .page { padding: 22px 16px 56px; }
   h1 { font-size: 25px; }
 }
@@ -370,6 +382,13 @@ a.list-item:hover .chev { transform: translateX(3px); color: var(--text); }
 .empty { text-align: center; padding: 40px 24px; color: var(--text-2); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); background: transparent; }
 .empty h3 { margin-bottom: 6px; color: var(--text); }
 .empty .icon-tile { margin: 0 auto 6px; width: 48px; height: 48px; border-radius: 14px; }
+/* The smallest phones: cards and empty states give their content the room, and a long call to action
+   wraps instead of widening the one-column layout past the screen. */
+@media (max-width: 400px) {
+  .card { padding: 18px; }
+  .empty { padding: 32px 14px; }
+  .empty .btn { white-space: normal; height: auto; min-height: 42px; padding-block: 8px; text-align: center; }
+}
 .skeleton { background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 37%, var(--surface-2) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease infinite; border-radius: var(--radius-sm); }
 .spinner { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--border-strong); border-top-color: currentColor; animation: spin 0.8s linear infinite; display: inline-block; flex: none; }
 
@@ -404,9 +423,13 @@ a.list-item:hover .chev { transform: translateX(3px); color: var(--text); }
 .dropzone:hover .icon-tile, .dropzone.over .icon-tile { transform: translateY(-3px); }
 .dropzone strong { font-size: 15.5px; }
 .dropzone .formats { display: flex; gap: 6px; margin-top: 10px; }
+/* The zone's one control: a plain button around the icon and the call to action (its accessible name). */
+.dropzone-btn { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 4px 10px; border: 0; border-radius: var(--radius); background: none; color: inherit; font: inherit; cursor: pointer; }
 .preview { max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 12.5px; line-height: 1.65; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; color: var(--text-2); }
-.file-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
-.file-row .grow { flex: 1; min-width: 0; }
+/* Wraps on narrow screens: the badges and buttons drop below the name instead of covering it, and a long
+   file name breaks rather than widening the page. */
+.file-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); }
+.file-row .grow { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .checklist { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .checklist li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-3); transition: color 0.3s; }
 .checklist li.done { color: var(--text-2); }

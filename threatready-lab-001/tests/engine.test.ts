@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Lab, steps, E, fx, arn, ANON, SVC, R_APP, R_ORDER, RAHUL, DOCS, APP_POLICY, KEY_POLICY, orderPolicy } from './helpers';
 import { authorize, glob, validatePolicy, cidrContains } from '../server/policy';
 import { reach } from '../server/sim';
+import { LIMITS } from '../server/engine';
 
 describe('policy evaluation', () => {
   const s = E.createInitialState();
@@ -159,5 +160,46 @@ describe('story, attacker and scoring', () => {
     const l = new Lab(); const out = JSON.stringify([E.view(l.state), E.status(l.state), E.definition()]);
     for (const leak of ['"truth"', 'remediated', 'ATTACKER', 'gateway":{', 'stolenValue', 'DenyAuditLogTampering to the', 'Access Advisor tab shows', 'Block Public Access is the guardrail']) expect(out).not.toContain(leak);
     expect(E.status(l.state).findings[3]).toEqual({ id: 'V4', title: 'Missing CloudTrail audit coverage', status: 'Not found' });
+  });
+});
+
+describe('bounded run state (long or scripted runs)', () => {
+  it('histories are ring buffers that keep what the run and its report depend on', () => {
+    const saved = { ...LIMITS };
+    Object.assign(LIMITS, { labEvents: 40, cloudtrail: 30, timeline: 20, outages: 5 });
+    try {
+      const l = new Lab(); steps.level1(l); steps.level2(l); steps.v4(l);
+      for (let i = 0; i < 60; i++) l.do('s3.deleteBucket', { bucket: DOCS }); // denied, and recorded in CloudTrail now that it logs again
+      // Breaking and restoring the storefront over and over: outages and timeline lines pile up.
+      for (let i = 0; i < 15; i++) { l.ok('iam.setAccessKeyStatus', { userName: 'svc-storefront-app', accessKeyId: fx.KEY_APP, status: 'Inactive' }); l.ok('iam.setAccessKeyStatus', { userName: 'svc-storefront-app', accessKeyId: fx.KEY_APP, status: 'Active' }); }
+      const s = l.state;
+      expect(s.labEvents.length).toBeLessThanOrEqual(40); expect(s.eventSeq).toBeGreaterThan(100);
+      // Failed actions go before successful ones, which the report's action lists are built from.
+      expect(s.labEvents.filter((e: any) => e.outcome !== 'Success').length).toBe(0);
+      expect(s.labEvents.filter((e: any) => e.outcome === 'Success').length).toBe(40);
+      // The scenario's own audit history and the evidence locker survive.
+      expect(s.cloudtrail.events.length).toBeLessThanOrEqual(30);
+      for (let i = 1; i <= 17; i++) expect(s.cloudtrail.events.some((e: any) => e.id === `evt-${String(i).padStart(4, '0')}`)).toBe(true);
+      for (const id of s.sim.evidence) expect(s.cloudtrail.events.some((e: any) => e.id === id)).toBe(true);
+      expect(s.sim.timeline.length).toBeLessThanOrEqual(20);
+      expect(s.sim.timeline.filter((t: any) => t.kind === 'story').length).toBeGreaterThanOrEqual(3); // chapters and level-ups are kept
+      expect(s.sim.outages.length).toBe(5); expect(l.status.score.categories.availability.awarded).toBe(0);
+      expect(E.report(s, { learner: 't' }).performance.actions).toBe(s.eventSeq);
+      expect(l.do('evidence.add', { eventId: 'evt-0005' }).ok).toBe(true);
+      // The intruder's own calls stay too (a handful per run): the learner's denied calls go first.
+      l.state.cloudtrail.events.splice(17, 0, { id: 'evt-9001', time: s.cloudtrail.events[16].time, name: 'GetObject', source: 's3.amazonaws.com', actor: 'svc-storefront-app', sourceIp: fx.ATTACKER_IP, resource: 'payroll.csv', region: 'ap-south-1', outcome: 'Success', readOnly: true, accessKeyId: fx.KEY_OLD });
+      for (let i = 0; i < 40; i++) l.do('s3.deleteBucket', { bucket: DOCS });
+      expect(l.state.cloudtrail.events.length).toBeLessThanOrEqual(30);
+      expect(l.state.cloudtrail.events.some((e: any) => e.id === 'evt-9001')).toBe(true);
+    } finally { Object.assign(LIMITS, saved); }
+  });
+  it('a completed run refuses every action and returns its state untouched', () => {
+    const l = new Lab(); steps.level1(l); steps.level2(l); steps.level3(l); steps.level4(l);
+    const before = JSON.stringify(l.state); const ref = l.state;
+    for (const [type, params] of [['inspect', { key: 'iam/policy/pol-app#permissions' }], ['hint.request', { objectiveId: 'L4.logs' }], ['evidence.remove', { eventId: 'evt-0017' }], ['l3.regression', {}], ['ec2.reachabilityTest', { source: 'internet', target: fx.I_APP, port: 22 }], ['l4.submitReport', {}], ['nope', {}]] as const) {
+      const r = E.dispatch(ref, { type, params });
+      expect(r.result).toMatchObject({ ok: false, code: 'LabComplete' }); expect(r.state).toBe(ref);
+    }
+    expect(JSON.stringify(ref)).toBe(before);
   });
 });

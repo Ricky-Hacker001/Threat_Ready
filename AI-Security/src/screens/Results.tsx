@@ -72,7 +72,7 @@ export function Results() {
             <strong className="small">Re-test failed — recorded as not passed.</strong>{" "}
             <span className="small">
               {r.retest.failureReason ?? "Not every attack was contained with legitimate traffic still working."} Retake
-              the scenario to prove a working fix.
+              the scenario to prove a working fix. Only passed scenarios add to your accumulated score.
             </span>
           </div>
         )}

@@ -2,6 +2,7 @@ import type { Mode } from '../engine/lab';
 import { LABS, LEVELS } from '../content/labs';
 import { loadLabState, resetAll, type Progress } from '../store';
 import { Brand } from '../components/Brand';
+import { progressNote } from '../components/IdentityNotice';
 
 const MODE_LABEL: Record<Mode, string> = { guided: 'Guided', standard: 'Standard', expert: 'Expert' };
 
@@ -48,7 +49,9 @@ export function Dashboard({ progress, update, go }: { progress: Progress; update
         <div className="dashhead">
           <div>
             <h1>My DevSecOps labs</h1>
-            <p style={{ color: 'var(--muted)', margin: '6px 0 0' }}>Each lab is a working repository with its own terminal, pipeline and staging environment. Your work is saved in this browser.</p>
+            <p style={{ color: 'var(--muted)', margin: '6px 0 0' }}>
+              Each lab is a working repository with its own terminal, pipeline and staging environment. {progressNote()}
+            </p>
           </div>
           <div className="stats">
             <div className="stat">

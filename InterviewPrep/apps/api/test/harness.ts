@@ -55,11 +55,17 @@ export interface StubIdentity {
 export const identities = new Map<string, StubIdentity>();
 let identityUrl: Promise<string> | null = null;
 export const identityCalls: { cookie?: string; authorization?: string }[] = [];
+/** Latency of the identity stub's answers, and the most lookups it saw at once, for in-flight cap tests. */
+export const identityStub = { delayMs: 0, active: 0, maxActive: 0 };
 
 function startIdentityStub(): Promise<string> {
   identityUrl ??= new Promise((resolve) => {
-    const server = http.createServer((req, res) => {
+    const server = http.createServer(async (req, res) => {
       identityCalls.push({ cookie: req.headers.cookie, authorization: req.headers.authorization });
+      identityStub.active += 1;
+      identityStub.maxActive = Math.max(identityStub.maxActive, identityStub.active);
+      res.on('close', () => (identityStub.active -= 1));
+      if (identityStub.delayMs) await new Promise((r) => setTimeout(r, identityStub.delayMs));
       if (req.url !== '/api/internal/identity/session') return void res.writeHead(404).end();
       if (req.headers.authorization !== `Bearer ${process.env.INTERNAL_API_TOKEN}`) return void res.writeHead(401).end();
       const token = /(?:^|;\s*)tr\.session_token=([^;]+)/.exec(req.headers.cookie ?? '')?.[1];
@@ -93,14 +99,23 @@ export async function startApp(overrides: Record<string, string> = {}): Promise<
 export type Agent = InstanceType<typeof TestAgent>;
 
 let userSeq = 0;
+
+/**
+ * A cookie value shaped like onboard's (`<token>.<44-char HMAC signature>`, URL-encoded), which the
+ * identity adapter requires before it asks onboard at all. `token` defaults to a random one.
+ */
+export function sessionCookieValue(token = randomBytes(24).toString('base64url')): string {
+  return encodeURIComponent(`${token}.${randomBytes(32).toString('base64')}`);
+}
+
 /**
  * A fresh signed-in user: registered with the identity stub (as if they had signed in on onboard)
  * and an agent carrying the shared session cookie.
  */
 export async function signUp(t: TestApp, name = 'Priya Sharma', extra: Partial<StubIdentity['user']> = {}): Promise<Agent> {
   userSeq += 1;
-  const token = randomBytes(24).toString('base64url');
-  identities.set(token, {
+  const token = sessionCookieValue();
+  identities.set(decodeURIComponent(token), {
     user: {
       id: randomUUID().replace(/-/g, '').slice(0, 32),
       name,
@@ -120,7 +135,7 @@ export async function signUp(t: TestApp, name = 'Priya Sharma', extra: Partial<S
 export function signOutEverywhere(agent: Agent): void {
   const header = (agent as unknown as { _defaults?: { fn: string; args: string[] }[] })._defaults?.find((d) => d.fn === 'set' && d.args[0] === 'Cookie');
   const token = header && /tr\.session_token=([^;]+)/.exec(header.args[1]!)?.[1];
-  if (token) identities.delete(token);
+  if (token) identities.delete(decodeURIComponent(token));
 }
 
 /**
@@ -162,6 +177,14 @@ export async function drainJobs(t: TestApp, opts: { only?: string[]; maxRounds?:
     }
   }
   return ran;
+}
+
+/** Starts the app's HTTP server on a loopback port (for raw-socket tests); returns the port. */
+export async function listen(t: TestApp): Promise<number> {
+  const server = t.app.getHttpServer() as http.Server;
+  server.setMaxListeners(0); // supertest adds listeners per request to an already-listening server
+  if (!server.listening) await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return (server.address() as AddressInfo).port;
 }
 
 /** Parses an SSE response body into events. */

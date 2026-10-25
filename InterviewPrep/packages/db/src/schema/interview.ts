@@ -55,11 +55,14 @@ const documentColumns = () => ({
 
 export const resumes = pgTable('resumes', documentColumns(), (t) => [
   index('resumes_user_idx').on(t.userId, t.createdAt),
+  // Retention and abandoned-upload sweeps (migration 0011).
+  index('resumes_status_updated_idx').on(t.status, t.updatedAt),
   ownerPolicy('resumes'),
 ]).enableRLS();
 
 export const jobDescriptions = pgTable('job_descriptions', documentColumns(), (t) => [
   index('job_descriptions_user_idx').on(t.userId, t.createdAt),
+  index('job_descriptions_status_updated_idx').on(t.status, t.updatedAt),
   ownerPolicy('job_descriptions'),
 ]).enableRLS();
 
@@ -105,6 +108,16 @@ export const jobProfiles = pgTable(
   ],
 ).enableRLS();
 
+export interface SessionIntegrity {
+  pauseCount?: number;
+  idlePauseCount?: number;
+  pausedMs?: number;
+  /** ISO time of the current pause, while paused. */
+  pausedAt?: string;
+  tabHiddenCount?: number;
+  tabHiddenMs?: number;
+}
+
 export const SESSION_STATES = [
   'parsing',
   'profiled',
@@ -139,6 +152,11 @@ export const interviewSessions = pgTable(
     plan: jsonb('plan'),
     /** Code-held progress: plan cursor, follow-up counters, running summary, performance trend. */
     progress: jsonb('progress').notNull().default({}),
+    /**
+     * Pauses and tab switches, for the report (migration 0011). Updated with atomic increments and
+     * without a version bump, so a tab-switch report never conflicts with a turn's state transition.
+     */
+    integrity: jsonb('integrity').$type<SessionIntegrity>().notNull().default({}),
     currentTurnId: uuid('current_turn_id'),
     activeElapsedMs: integer('active_elapsed_ms').notNull().default(0),
     runningSince: timestamp('running_since', { withTimezone: true }),

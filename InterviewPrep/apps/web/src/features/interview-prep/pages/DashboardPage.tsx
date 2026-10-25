@@ -15,16 +15,13 @@ import {
   TrendingUp,
   Upload,
 } from 'lucide-react';
-import { lazy, Suspense, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { useMe } from '../../../lib/auth';
 import { api } from '../../../lib/api';
 import { relativeTime, STATE_LABEL } from '../../../lib/format';
 import { CardSkeleton, CountUp, Empty, ErrorAlert, Meter, ScorePill, Skeleton, Sparkline, usePageTitle } from '../../../ui/components';
 import { AvatarFallback } from '../avatar/AvatarFallback';
-import { hasWebGL } from '../avatar/webgl';
-
-const InterviewerStage = lazy(() => import('../avatar/InterviewerStage'));
 
 /** Screen A. Every number shown here comes from persisted sessions and evaluations. */
 export default function DashboardPage() {
@@ -113,7 +110,7 @@ export default function DashboardPage() {
       {isNew && <HowItWorks />}
 
       <div className="grid cols-3" style={{ marginTop: 22, alignItems: 'start' }}>
-        <section className="card" style={{ gridColumn: 'span 2' }} aria-label="Recent interviews">
+        <section className="card span-2" aria-label="Recent interviews">
           <div className="card-title">
             <h2><MessagesSquare className="icon" aria-hidden /> Recent interviews</h2>
             <Link to="/interview-prep/history" className="btn ghost sm">View all <ChevronRight className="icon sm" aria-hidden /></Link>
@@ -153,7 +150,6 @@ export default function DashboardPage() {
 }
 
 function Hero({ firstName, returning }: { firstName: string; returning: boolean }) {
-  const [webgl] = useState(() => hasWebGL());
   return (
     <section className="hero fade-in" aria-label="InterviewPrep">
       <div className="hero-copy">
@@ -172,15 +168,11 @@ function Hero({ firstName, returning }: { firstName: string; returning: boolean 
           <span><ClipboardCheck className="icon sm" aria-hidden /> Rubric-based report</span>
         </div>
       </div>
+      {/* The photographed (2D) Alex: decorative here, so the 3D stack (three.js, the model, a WebGL
+          render loop) loads only in the interview room. */}
       <div className="hero-art" aria-hidden>
         <div className="stage-mini">
-          {webgl ? (
-            <Suspense fallback={<AvatarFallback status="listening" />}>
-              <InterviewerStage status="listening" speaking={false} />
-            </Suspense>
-          ) : (
-            <AvatarFallback status="listening" />
-          )}
+          <AvatarFallback status="listening" />
         </div>
       </div>
     </section>
@@ -205,7 +197,7 @@ function Kpi({ icon: Icon, tone, label, value, note, extra }: { icon: typeof Awa
 
 function HowItWorks() {
   const steps = [
-    { icon: Upload, title: 'Upload your resume', text: 'PDF or DOCX. Contact details are removed before analysis.' },
+    { icon: Upload, title: 'Upload your resume', text: 'PDF or DOCX. Contact details we detect are removed before analysis.' },
     { icon: FileText, title: 'Add the job description', text: 'Paste it or upload it. We extract skills, level and responsibilities.' },
     { icon: MessagesSquare, title: 'Interview with Alex', text: 'Answer out loud or by typing. Questions adapt to what you say.' },
     { icon: ClipboardCheck, title: 'Get your report', text: 'Scores, gaps against the role and a practice plan.' },

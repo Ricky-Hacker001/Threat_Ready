@@ -20,6 +20,7 @@ import { Home } from './brand/Home';
 import { Record } from './brand/Record';
 import { Notebook } from './notebook/Notebook';
 import { SmallScreenNotice } from './components/SmallScreenNotice';
+import { IdentityNotice } from './components/IdentityNotice';
 
 /** Training-layer screens live outside the simulated appliance: #/start (home), #/record, #/notebook[/task]. Anything else is the lab. */
 type Screen = 'home' | 'record' | 'notebook' | 'lab';
@@ -80,6 +81,7 @@ function Layout() {
     <div className={`tw-root${progress.panelOpen ? ' panel-open' : ''}`}>
       <SmallScreenNotice />
       <div className="tw-stage">
+        <IdentityNotice variant="stage" />
         <BrowserChrome>
           <div className="tw-stage-body"><Gate /></div>
         </BrowserChrome>

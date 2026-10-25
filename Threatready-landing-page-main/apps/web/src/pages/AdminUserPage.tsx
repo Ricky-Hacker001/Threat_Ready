@@ -6,6 +6,7 @@ import { Avatar, displayName } from "../components/ProfileMenu";
 import { useMe } from "../components/AppShell";
 import { Button, Field, Notice } from "../components/ui";
 import { api, ApiError } from "../lib/api";
+import { messageFor } from "../lib/errors";
 import type { AdminRoleChangeResult } from "@threatready/contracts";
 import { fmtAgo, fmtCompact, fmtDate, fmtDateTime, fmtInt, fmtUsd } from "../lib/format";
 import { AppTag, RANGES, RangePicker, Tile, UsageTable, rangeFor, tokensOf } from "./AdminPage";
@@ -353,7 +354,7 @@ function RoleCard({ user, onChanged }: { user: AdminUserDetail["user"]; onChange
       const r = await api.admin.setRole(user.id, { role: promote ? "admin" : "user", confirmEmail: confirm });
       setDone(r); setOpen(false); setConfirm(""); onChanged();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn\'t change the role. Try again.");
+      setError(e instanceof ApiError ? (e.status === 429 ? messageFor(e) : e.message) : "Couldn\'t change the role. Try again.");
     } finally { setBusy(false); }
   };
 

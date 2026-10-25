@@ -6,13 +6,29 @@ The site is plain static HTML (no build step). Each page carries marker comments
     <!-- @footer --> ... <!-- /@footer -->
 Edit the templates below, then run:   python3 tools/sync_shell.py
 A page may set its active nav item with <body data-nav="pricing"> (product|teams|scoring|resources|pricing).
+
+Links into the platform, anywhere on any page (404.html too), carry data-app="signin|signup|labs" and
+get their href from PLATFORM_URL here, so the app host is written in one place. A pasted link to a
+known app host (old threatready.io/app, onboard./labs. subdomains, the Render URL) is adopted the same
+way. Scroll containers for wide tables (cmp-wrap, heat-wrap, tscroll) get tabindex="0" and
+role="region" so keyboard users can scroll them; each needs its own aria-label.
 """
-import pathlib, re, sys
+import os, pathlib, re, sys
+from urllib.parse import urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Sign-in and sign-up live on onboard (the identity provider); ?mode=signup opens the Create-account tab.
-APP = "https://onboard.threatready.io/"
-SIGNUP = "https://onboard.threatready.io/?mode=signup"
+# The live platform: one Render service, every app under one origin (deploy/README.md). Sign-in is at /,
+# ?mode=signup opens Create account, the labs catalog is /labs/. When the platform moves to a custom
+# domain, set it here (or TR_PLATFORM_URL for a one-off build) and re-run this script; the onboard
+# PUBLIC_URL and OAuth redirect URIs must move with it.
+PLATFORM_URL = os.environ.get("TR_PLATFORM_URL", "https://threatready.onrender.com").rstrip("/")
+APP = PLATFORM_URL + "/"
+SIGNUP = PLATFORM_URL + "/?mode=signup"
+LABS = PLATFORM_URL + "/labs/"
+APP_LINKS = {"signin": APP, "signup": SIGNUP, "labs": LABS}
+# Hosts that have meant "the app" on this site; links to them are rewritten to PLATFORM_URL.
+LEGACY_APP_HOSTS = {"onboard.threatready.io", "labs.threatready.io", "app.threatready.io", "threatready.onrender.com", urlparse(PLATFORM_URL).hostname}
+SCROLL_WRAPS = ("cmp-wrap", "heat-wrap", "tscroll")
 
 CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg>'
 
@@ -54,8 +70,8 @@ def nav(active):
         <svg class="icon i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
         <svg class="icon i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a class="nav-link nav-signin" href="{APP}">Sign in</a>
-      <a class="btn btn-primary btn-sm" href="{SIGNUP}">Start free</a>
+      <a class="nav-link nav-signin" href="{APP}" data-app="signin">Sign in</a>
+      <a class="btn btn-primary btn-sm" href="{SIGNUP}" data-app="signup">Start free</a>
       <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Open menu">
         <svg class="icon i-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
         <svg class="icon i-close" viewBox="0 0 24 24" aria-hidden="true" style="display:none"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -85,8 +101,8 @@ def nav(active):
       <li><a href="security.html">Security</a></li>
     </ul>
     <div class="drawer-cta">
-      <a class="btn btn-primary" href="{SIGNUP}">Start free</a>
-      <a class="btn btn-secondary" href="{APP}">Sign in</a>
+      <a class="btn btn-primary" href="{SIGNUP}" data-app="signup">Start free</a>
+      <a class="btn btn-secondary" href="{APP}" data-app="signin">Sign in</a>
     </div>
   </nav>
 </header>'''
@@ -138,6 +154,43 @@ def footer():
   </div>
 </footer>'''
 
+def app_kind(href):
+    """signin | signup | labs for a link into the platform (current or legacy host), else None."""
+    u = urlparse(href)
+    if u.scheme not in ("http", "https"): return None
+    legacy_app = u.hostname in ("threatready.io", "www.threatready.io") and (u.path == "/app" or u.path.startswith("/app/"))
+    if u.hostname not in LEGACY_APP_HOSTS and not legacy_app: return None
+    if "mode=signup" in u.query: return "signup"
+    if u.path.startswith("/labs") or u.hostname == "labs.threatready.io": return "labs"
+    return "signin" if u.path in ("", "/", "/app", "/app/") or u.path.startswith("/app/auth") else None
+
+def app_links(s):
+    """Every <a data-app> gets its href from APP_LINKS; known app links without the marker are adopted."""
+    def fix(m):
+        tag = m.group(0)
+        kind = re.search(r'\bdata-app="([a-z]+)"', tag)
+        href = re.search(r'\bhref="([^"]*)"', tag)
+        if not href: return tag
+        if not kind:
+            k = app_kind(href.group(1))
+            if not k: return tag
+            tag = tag.replace(href.group(0), f'{href.group(0)} data-app="{k}"', 1)
+            kind_name = k
+        else:
+            kind_name = kind.group(1)
+        if kind_name not in APP_LINKS: return tag
+        return re.sub(r'\bhref="[^"]*"', f'href="{APP_LINKS[kind_name]}"', tag, count=1)
+    return re.sub(r"<a\b[^>]*>", fix, s)
+
+def scroll_regions(s):
+    """A wide-table scroll container is focusable and a named region (keyboard scrolling, WCAG 2.1.1)."""
+    def fix(m):
+        tag = m.group(0)
+        if 'tabindex=' not in tag: tag = tag[:-1] + ' tabindex="0">'
+        if 'role=' not in tag: tag = tag[:-1] + ' role="region">'
+        return tag
+    return re.sub(r'<div class="(?:%s)"[^>]*>' % "|".join(SCROLL_WRAPS), fix, s)
+
 def sync(path):
     s = path.read_text(encoding="utf-8")
     m = re.search(r'<body[^>]*data-nav="([a-z]+)"', s)
@@ -145,6 +198,8 @@ def sync(path):
     n0 = s
     s = re.sub(r"<!-- @nav -->.*?<!-- /@nav -->", lambda _: "<!-- @nav -->\n" + nav(active) + "\n<!-- /@nav -->", s, flags=re.S)
     s = re.sub(r"<!-- @footer -->.*?<!-- /@footer -->", lambda _: "<!-- @footer -->\n" + footer() + "\n<!-- /@footer -->", s, flags=re.S)
+    s = app_links(s)
+    s = scroll_regions(s)
     if s != n0:
         path.write_text(s, encoding="utf-8")
         return True

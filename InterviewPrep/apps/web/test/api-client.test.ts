@@ -37,6 +37,12 @@ describe('API client error handling (ADD §10 frontend contract)', () => {
   it('uses friendly catalogue messages', () => {
     expect(messageFor(new ApiError('LLM_BUDGET_EXCEEDED', 'x', 429, false, null))).toMatch(/usage limit/);
     expect(messageFor(new Error('boom'))).toMatch(/Something went wrong/);
+    // Codes the API added in this patch round (never the raw server text).
+    expect(messageFor(new ApiError('STORAGE_UPLOAD_CONFLICT', 'server text', 409, false, null))).toMatch(/already sent\. Choose the file again/);
+    expect(messageFor(new ApiError('TEXT_TOO_LONG', 'server text', 413, false, null))).toMatch(/longer than 30,000 characters/);
+    // A busy shared network is not the learner's own limit.
+    expect(messageFor(new ApiError('RATE_LIMITED', 'x', 429, true, null, { reason: 'busy' }, Date.now() + 1000))).toBe('Many people on your network are signing in at once. Try again in a moment.');
+    expect(messageFor(new ApiError('RATE_LIMITED', 'x', 429, true, null, undefined, Date.now() + 40_000))).toMatch(/^You have reached the limit for this for now/);
   });
 });
 

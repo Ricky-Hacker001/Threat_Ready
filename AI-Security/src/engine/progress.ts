@@ -6,9 +6,20 @@ export type UnlockMode = "per-task" | "all-foundations-first";
 
 export interface ScenarioResultRecord {
   scenarioId: string;
+  /** Best score of any finished attempt, passed or not. */
   bestScore: number;
+  /** Best score of a passed attempt: what counts towards the total score. Absent in records saved before it existed. */
+  bestPassedScore?: number;
   passed: boolean;
+  /** Finished attempts, plus discarded ones that had run a re-test. */
   attempts: number;
+  /** Of those, attempts discarded unfinished (recorded because they had run a re-test). */
+  discarded?: number;
+  /**
+   * Re-tests run in attempts discarded since the last finished one. The next attempt starts with them, so they count
+   * towards its re-test allowance: discarding cannot wipe failed re-tests from the record.
+   */
+  carriedRetests?: number;
   lastAt: number;
   hintsUsed: number;
   wrongLayer: number;
@@ -168,6 +179,17 @@ export function unlockStatus(
     : { unlocked: false, reason: `Pass Task ${taskId} Intermediate first.` };
 }
 
+/** The points a scenario adds to the total: its best passed score (a not-passed attempt adds nothing). */
+export function passedScore(r: ScenarioResultRecord): number {
+  return r.bestPassedScore ?? (r.passed ? r.bestScore : 0);
+}
+
+/** Total score: the sum of each scenario's best passed score. */
+export function totalScore(p: ProgressState): number {
+  return Object.values(p.results).reduce((a, r) => a + passedScore(r), 0);
+}
+
+/** A finished attempt (its re-tests, including any carried from discarded attempts, are now scored). */
 export function recordResult(
   p: ProgressState,
   id: string,
@@ -177,17 +199,43 @@ export function recordResult(
   wrongLayer: number,
 ): ProgressState {
   const prev = p.results[id];
+  const prevPassed = prev ? passedScore(prev) : 0;
   const rec: ScenarioResultRecord = {
     scenarioId: id,
     bestScore: Math.max(prev?.bestScore ?? 0, score),
+    bestPassedScore: passed ? Math.max(prevPassed, score) : prevPassed,
     passed: (prev?.passed ?? false) || passed,
     attempts: (prev?.attempts ?? 0) + 1,
+    discarded: prev?.discarded ?? 0,
+    carriedRetests: 0,
     lastAt: Date.now(),
     hintsUsed,
     wrongLayer,
   };
   const next: ProgressState = { ...p, results: { ...p.results, [id]: rec } };
   return applyBadges(next);
+}
+
+/**
+ * An attempt discarded unfinished. If it ran any re-test it is recorded as an attempt (no score) and its re-tests
+ * carry into the next attempt at this scenario, so the re-test cannot be used as a free oracle and then wiped.
+ */
+export function recordDiscarded(p: ProgressState, id: string, retests: number): ProgressState {
+  if (retests <= 0) return p;
+  const prev = p.results[id];
+  const rec: ScenarioResultRecord = {
+    scenarioId: id,
+    bestScore: prev?.bestScore ?? 0,
+    bestPassedScore: prev ? passedScore(prev) : 0,
+    passed: prev?.passed ?? false,
+    attempts: (prev?.attempts ?? 0) + 1,
+    discarded: (prev?.discarded ?? 0) + 1,
+    carriedRetests: (prev?.carriedRetests ?? 0) + retests,
+    lastAt: Date.now(),
+    hintsUsed: prev?.hintsUsed ?? 0,
+    wrongLayer: prev?.wrongLayer ?? 0,
+  };
+  return { ...p, results: { ...p.results, [id]: rec } };
 }
 
 export interface BadgeDef {

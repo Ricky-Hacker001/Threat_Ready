@@ -69,7 +69,7 @@ export function Login() {
       setWizard(true);
       return;
     }
-    // A hash stored before the SHA-256 upgrade is replaced on the first successful login.
+    // A hash stored in an older format (FNV, unsalted SHA-256) is replaced by a salted one on the first successful login.
     if (v.rehash) commit({ ...config, system: { ...sys, adminPasswordHash: v.rehash } }, []);
     patchSession({ loggedIn: true, user: sys.adminUser, lastActivity: Date.now() });
     addAudit([{ category: 'Session', action: 'Administrator login', detail: `${sys.adminUser} from ${session.pc.ip} via ${session.connectedVia}` }]);

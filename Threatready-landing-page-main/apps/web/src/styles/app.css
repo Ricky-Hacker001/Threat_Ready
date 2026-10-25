@@ -471,6 +471,12 @@ a {
   display: grid;
   gap: 24px;
 }
+/* Sign-out confirmation: the two choices side by side, stacked when narrow. */
+.signout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
 
 /* The case file: one piece of real evidence, annotated. */
 .casefile {
@@ -515,6 +521,12 @@ a {
   font-family: var(--mono);
   border-bottom: 1px solid var(--border);
 }
+.log-scroll {
+  overflow-x: auto;
+}
+.log-scroll:focus-visible {
+  outline-offset: -2px; /* inside the card, which clips overflow */
+}
 .log ol {
   position: relative; /* contains the visually-hidden evidence labels */
   list-style: none;
@@ -523,7 +535,6 @@ a {
   font-family: var(--mono);
   font-size: 0.78rem;
   line-height: 1.7;
-  overflow-x: auto;
 }
 .log li {
   padding: 0 16px;

@@ -40,13 +40,18 @@ export async function transition(tx: Tx, a: AttemptRow, from: readonly Reasoning
 }
 
 /**
- * The only projection of an item the browser ever receives: the public column plus metadata.
- * The private column (answer key, rubric, option analysis, reference answer) is never read here.
+ * The only projection of an item the browser ever receives: the public column plus metadata, as part
+ * of one attempt. The private column (answer key, rubric, option analysis, reference answer) is never
+ * read here. A pool question is shared by many learners, so its stable id and exact creation time are
+ * never sent: the id is the attempt's and the date is the day only, so a cohort cannot match questions
+ * (and swap answer keys) by a machine key (audit TR-42).
  */
-export function publicOf(item: ItemRow): ReasoningItemPublic {
+export function publicOf(item: ItemRow, attempt: Pick<AttemptRow, 'id'>): ReasoningItemPublic {
   const p = item.public as GeneratedItem['public'];
+  const day = new Date(item.createdAt);
+  day.setUTCHours(0, 0, 0, 0);
   return {
-    id: item.id,
+    id: attempt.id,
     domain: p.domain,
     difficulty: p.difficulty,
     title: p.title,
@@ -60,23 +65,53 @@ export function publicOf(item: ItemRow): ReasoningItemPublic {
     concepts: p.concepts,
     weights: item.weights as Weights,
     generatorVersion: item.generatorVersion,
-    createdAt: item.createdAt.toISOString(),
+    createdAt: day.toISOString(),
   };
+}
+
+/** Wall-clock seconds from the moment the question could be read to the answer's submission (informational). */
+export function answerSecondsOf(a: Pick<AttemptRow, 'openedAt' | 'submittedAt'>): number | null {
+  if (!a.openedAt || !a.submittedAt) return null;
+  return Math.max(0, Math.round((a.submittedAt.getTime() - a.openedAt.getTime()) / 1000));
 }
 
 export const privateOf = (item: ItemRow): ReasoningItemPrivate => item.private as ReasoningItemPrivate;
 
-export function attemptView(a: AttemptRow, item: ItemRow | null, ev: EvaluationRow | null): ReasoningAttemptView {
+/**
+ * When an unanswered question is skipped automatically (REASONING_READY_TTL_HOURS after it was shown;
+ * null when the TTL is 0). After a submission the daily quota or an AI budget refused, never before
+ * REASONING_READY_TTL_HOURS past the next 00:00 UTC, when those reset (audit final review BIZ-07). The
+ * sweep in JobsService applies the same rule in SQL.
+ */
+export function readyDeadline(a: Pick<AttemptRow, 'openedAt' | 'submitRefusedAt'>, readyTtlHours: number): Date | null {
+  if (!a.openedAt || readyTtlHours <= 0) return null;
+  const ttl = readyTtlHours * 3600_000;
+  let at = a.openedAt.getTime() + ttl;
+  if (a.submitRefusedAt) {
+    const reset = new Date(a.submitRefusedAt);
+    reset.setUTCHours(24, 0, 0, 0);
+    at = Math.max(at, reset.getTime() + ttl);
+  }
+  return new Date(at);
+}
+
+/**
+ * The browser's view of one attempt. `readyTtlHours` (REASONING_READY_TTL_HOURS) dates the automatic
+ * skip of an unanswered question, so the learner is told before it happens (audit BIZ-09).
+ */
+export function attemptView(a: AttemptRow, item: ItemRow | null, ev: EvaluationRow | null, readyTtlHours = 0): ReasoningAttemptView {
   return {
     id: a.id,
     domain: a.domain as ReasoningAttemptView['domain'],
     difficulty: a.difficulty as ReasoningAttemptView['difficulty'],
     state: a.state,
     prefetched: a.itemId !== null && a.generationTries === 0,
-    item: item ? publicOf(item) : null,
-    answer: a.selectedOption && a.justification && a.submittedAt ? { selectedOption: a.selectedOption as 'A', justification: a.justification, submittedAt: a.submittedAt.toISOString() } : null,
+    item: item ? publicOf(item, a) : null,
+    answer: a.selectedOption && a.justification && a.submittedAt ? { selectedOption: a.selectedOption as 'A', justification: a.justification, submittedAt: a.submittedAt.toISOString(), answerSeconds: answerSecondsOf(a) } : null,
     result: ev ? { totalScore: ev.totalScore, correct: ev.correct, confidence: ev.confidence } : null,
     failure: a.failureCode ? { code: a.failureCode, stage: (a.failureStage === 'evaluation' ? 'evaluation' : 'generation') } : null,
+    skipCounts: a.skipCounts,
+    expiresAt: a.state === 'ready' ? (readyDeadline(a, readyTtlHours)?.toISOString() ?? null) : null,
     version: a.version,
     createdAt: a.createdAt.toISOString(),
     updatedAt: a.updatedAt.toISOString(),

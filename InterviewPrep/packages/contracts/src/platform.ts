@@ -47,6 +47,11 @@ export interface AppAiUsage {
 export const PlatformApps = z
   .object({
     apps: z.array(z.object({ key: z.enum(['interview', 'labs', 'reasoning']), title: z.string(), url: z.string(), status: z.string() })),
+    /**
+     * Facts for the consent notice, from configuration: where files and text are stored (null: not
+     * configured; say nothing about location) and how long an uploaded file is kept after analysis.
+     */
+    dataHandling: z.object({ storageLocation: z.string().nullable(), fileRetentionDays: z.number().int() }).optional(),
   })
   .openapi('PlatformApps');
 export type PlatformApps = z.infer<typeof PlatformApps>;

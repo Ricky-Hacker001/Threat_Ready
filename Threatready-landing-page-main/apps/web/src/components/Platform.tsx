@@ -1,6 +1,7 @@
 import type { AppInfo, AppKey } from "@threatready/contracts";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import { appForUrl } from "../lib/platform";
 
 /**
  * The ThreatReady platform shell (header and footer) in threatready.io's
@@ -36,11 +37,17 @@ export function ThemeToggle() {
 }
 
 export function BrandLink({ to = "/app", sub }: { to?: string; sub?: string }) {
+  // The accessible name starts with the visible text (WCAG 2.5.3, label in name).
   return (
-    <Link className="tr-brand" to={to} aria-label="ThreatReady home">
+    <Link className="tr-brand" to={to} aria-label={sub ? `ThreatReady ${sub} home` : "ThreatReady home"}>
       <img src="/logo-sm.png" width="26" height="25" alt="" />
       ThreatReady
-      {sub ? <small>{sub}</small> : null}
+      {sub ? (
+        <>
+          {" "}
+          <small>{sub}</small>
+        </>
+      ) : null}
     </Link>
   );
 }
@@ -80,6 +87,17 @@ const APP_PATH: Record<AppKey, string> = { interview: "interview-prep", labs: ""
 
 /** Where an app's own home page is. */
 export const appHref = (a: Pick<AppInfo, "key" | "url">) => new URL(APP_PATH[a.key], a.url).toString();
+
+/**
+ * Where ?next= may lead after signing in or out: inside an app's home (InterviewPrep's /interview-prep,
+ * /labs/, /ar/) or onboard's own /app. On a single origin the origin check alone would also accept
+ * /signout or /api/… (TR-41).
+ */
+export const nextPrefixes = (apps: Pick<AppInfo, "key" | "url">[]) => [...apps.map(appHref), new URL("/app", window.location.origin).toString()];
+
+/** The app whose home holds `url`, by home rather than base URL (on one origin InterviewPrep's base is "/"); onboard's pages belong to none. */
+export const appAt = <T extends Pick<AppInfo, "key" | "url">>(apps: T[], url: string): T | undefined =>
+  appForUrl(apps.map((a) => ({ ...a, url: appHref(a) })), url);
 
 export type ShellLocation = "home" | "profile" | "admin" | AppKey;
 

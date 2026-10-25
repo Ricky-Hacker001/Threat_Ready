@@ -2,6 +2,7 @@ import type { TurnStreamEvent } from '@threatready/contracts';
 import { DomainError, ERROR_CATALOGUE } from '@threatready/shared';
 import type { Response } from 'express';
 import { logger, requestContext } from '../logging/logger.js';
+import { retryAfterOf } from './exception.filter.js';
 
 /**
  * Server-Sent Events writer. Heartbeat comments every 20 s keep the stream under the ALB idle
@@ -52,7 +53,8 @@ export class SseStream {
   error(err: unknown): void {
     const requestId = requestContext.getStore()?.requestId ?? 'req_unknown';
     if (err instanceof DomainError) {
-      this.send({ type: 'error', code: err.code, message: err.message, retryable: err.retryable, request_id: requestId });
+      const retryAfter = retryAfterOf(err, err.code);
+      this.send({ type: 'error', code: err.code, message: err.message, retryable: err.retryable, request_id: requestId, ...(retryAfter ? { retry_after_sec: retryAfter } : {}) });
     } else {
       logger.error({ err: { name: (err as Error)?.name, message: (err as Error)?.message, stack: (err as Error)?.stack } }, 'stream failed');
       this.send({ type: 'error', code: 'INTERNAL_ERROR', message: ERROR_CATALOGUE.INTERNAL_ERROR.message, retryable: true, request_id: requestId });
@@ -77,6 +79,12 @@ export const MAX_SSE_STREAMS_PER_USER = 3;
 /** How often a long-lived stream re-checks that its session is still valid. */
 export const SSE_IDENTITY_RECHECK_MS = 30_000;
 
+/**
+ * State-stream timing: the first database poll after 2 s, then backing off by half up to 10 s, so a
+ * long analysis or report costs a few queries a minute per stream, not thirty. Mutable for tests.
+ */
+export const SSE_TIMING = { firstPollMs: 2_000, maxPollMs: 10_000, identityRecheckMs: SSE_IDENTITY_RECHECK_MS };
+
 const openStreams = new Map<string, number>();
 
 /**
@@ -86,7 +94,7 @@ const openStreams = new Map<string, number>();
  */
 export function acquireStreamSlot(userId: string, max = MAX_SSE_STREAMS_PER_USER): () => void {
   const open = openStreams.get(userId) ?? 0;
-  if (open >= max) throw new DomainError('RATE_LIMITED', { message: 'Too many open event streams; close one and retry' });
+  if (open >= max) throw new DomainError('RATE_LIMITED', { message: 'Too many open event streams; close one and retry', retryAfterSec: 10, details: { scope: 'event_streams', retryAfterSec: 10 } });
   openStreams.set(userId, open + 1);
   let released = false;
   return () => {

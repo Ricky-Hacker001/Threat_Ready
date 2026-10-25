@@ -1,8 +1,23 @@
 import { ArgumentsHost, Catch, HttpException, HttpStatus, Logger, type ExceptionFilter } from "@nestjs/common";
 import { ThrottlerException } from "@nestjs/throttler";
-import type { Response } from "express";
+import type { Request, Response } from "express";
+import { reportError } from "./error-report.js";
 
-/** One error shape for the SPA: { statusCode, code, message }. Never leaks internals. */
+/** 429 from a limit enforced in code (not the throttler guard): carries when to retry. */
+export class TooManyRequestsException extends HttpException {
+  constructor(
+    readonly retryAfter: number,
+    message = "Too many requests. Try again later.",
+    code = "RATE_LIMITED",
+  ) {
+    super({ code, message }, HttpStatus.TOO_MANY_REQUESTS);
+  }
+}
+
+/**
+ * One error shape for the SPA: { statusCode, code, message }, plus retryAfter (seconds, also sent as
+ * Retry-After) on every 429 so clients can say when to try again. Never leaks internals.
+ */
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger("Http");
@@ -10,7 +25,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost): void {
     const res = host.switchToHttp().getResponse<Response>();
     if (exception instanceof ThrottlerException) {
-      res.status(429).json({ statusCode: 429, code: "RATE_LIMITED", message: "Too many requests. Try again shortly." });
+      // The throttler guard has already set Retry-After (seconds until the block ends).
+      const retryAfter = Math.max(1, Number(res.getHeader("Retry-After")) || 60);
+      res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).json({ statusCode: 429, code: "RATE_LIMITED", message: "Too many requests. Try again shortly.", retryAfter });
+      return;
+    }
+    if (exception instanceof TooManyRequestsException) {
+      const retryAfter = Math.max(1, Math.ceil(exception.retryAfter));
+      const body = exception.getResponse() as { code: string; message: string };
+      res.setHeader("Retry-After", String(retryAfter));
+      res.status(429).json({ statusCode: 429, code: body.code, message: body.message, retryAfter });
       return;
     }
     if (exception instanceof HttpException) {
@@ -24,6 +49,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
     this.logger.error(exception instanceof Error ? exception.stack ?? exception.message : String(exception));
+    // The route pattern only (e.g. GET /api/admin/users/:id): no ids, query string or request data.
+    const req = host.switchToHttp().getRequest<Request>();
+    void reportError(exception, `${req.method} ${(req.route as { path?: string } | undefined)?.path ?? "(no route)"}`);
     res.status(500).json({ statusCode: 500, code: "INTERNAL", message: "Something went wrong" });
   }
 }

@@ -24,6 +24,8 @@ export interface JobContext {
 export interface QueuePort {
   enqueue<T extends object>(job: JobName, data: T, opts: { key: string; runAt?: Date }, tx?: { queueSql: SqlExecutor }): Promise<void>;
   schedule(job: JobName, cron: string): Promise<void>;
+  /** Removes a schedule set by `schedule` (schedules are persisted, so they outlive the code that set them). */
+  unschedule(job: JobName): Promise<void>;
   work<T>(job: JobName, handler: (data: T, ctx: JobContext) => Promise<void>): Promise<void>;
 }
 

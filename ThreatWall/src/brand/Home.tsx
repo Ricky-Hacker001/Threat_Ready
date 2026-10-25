@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, FileDown, FileText, Info, NotebookText, RotateCcw } from 'lucide-react';
 import { SmallScreenNotice } from '../components/SmallScreenNotice';
+import { IdentityNotice } from '../components/IdentityNotice';
+import { inPlatform, platformIdentity } from '../platform';
 import { NOTEBOOK_PDF } from '../notebook/lessons';
 import { useStore } from '../state/store';
 import { ui } from '../state/ui';
@@ -40,6 +42,7 @@ export function Home() {
 
         <main>
         <SmallScreenNotice />
+        <IdentityNotice variant="page" />
         {storageNotice ? (
           <div className="tr-card tr-notice" role="status">
             <Info size={18} aria-hidden="true" />
@@ -168,7 +171,9 @@ export function Home() {
         <div className="tr-honesty">
           <div>All traffic, hosts and attacks are simulated in your browser. Websites are fictional <span className="tr-mono">.example</span> domains and public addresses come from documentation ranges.</div>
           <div>ThreatWall is a fictional appliance used for training.</div>
-          <div>Progress is stored in this browser only. Clearing site data or pressing Reset starts again.</div>
+          <div>{platformIdentity().problem
+            ? 'Progress is kept in this tab only this time (see above).'
+            : `Progress is kept in this browser${inPlatform ? ' and is not recorded on your ThreatReady profile' : ''}. Clearing site data or pressing Reset starts again.`}</div>
         </div>
         </main>
 

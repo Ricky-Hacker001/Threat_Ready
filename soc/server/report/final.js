@@ -37,7 +37,7 @@ const STATEMENTS = {
   verdict: 'Several verdicts were wrong. Confirm what the rule matched, and whether it was authorised, before choosing a verdict.',
 };
 
-export function buildFinalReport(user, now = Date.now()) {
+export function buildFinalReport(user, now = Date.now(), { hosted = false, durable = false } = {}) {
   const attempts = repo.listAttempts(user.uid);
   const badges = repo.listAwards(user.uid);
   const levels = levelState(user.uid);
@@ -258,8 +258,9 @@ export function buildFinalReport(user, now = Date.now()) {
     notes: {
       abandoned: 'Abandoned attempts score 0 under the simulation rules and are not counted in averages, skill scores or decision metrics.',
       internal: 'Internal badges show progress inside this simulation. They are not a certification or professional qualification.',
-      // Only true when the daily wipe runs (it is off inside ThreatReady).
-      reset: config.dailyWipe ? 'Practice records reset daily at 00:00 UTC.' : null,
+      // Only what is true: the daily wipe when it runs; inside ThreatReady (no wipe), saved with the
+      // account while the launcher keeps them across restarts, otherwise only where they are kept.
+      reset: config.dailyWipe ? 'Practice records reset daily at 00:00 UTC.' : hosted ? (durable ? 'Practice records are saved to your ThreatReady account.' : 'Practice records are kept on the ThreatReady lab server.') : null,
     },
   };
 }

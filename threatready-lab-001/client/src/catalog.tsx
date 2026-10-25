@@ -4,7 +4,12 @@ import { Shell } from './shell';
 
 interface Progress { runs: number; status: string; level: number; percent: number; score: number; max: number; complete: boolean; updatedAt: string }
 type TrackKey = 'cloud' | 'blue' | 'red' | 'network';
-interface Entry { id: string; title: string; subtitle: string; track: TrackKey; difficulty: string; minutes?: number; scope?: string; release: string; href?: string; home?: boolean; available: boolean; progress: Progress | null }
+/**
+ * `progressIn`: where the lab keeps progress. "account": ThreatReady's servers, kept across restarts
+ * (saved with the platform account); "server": ThreatReady's lab server, with no promise beyond that;
+ * "browser": the learner's browser. `onProfile`: the profile shows it.
+ */
+export interface Entry { id: string; title: string; subtitle: string; track: TrackKey; difficulty: string; minutes?: number; scope?: string; release: string; href?: string; home?: boolean; available: boolean; progress: Progress | null; progressIn?: 'account' | 'server' | 'browser'; onProfile?: boolean }
 
 /** The four tracks, in catalog order. `slug` is the URL: /labs/tracks/<slug>. */
 export const TRACKS: { key: TrackKey; slug: string; title: string; blurb: string; icon: string }[] = [
@@ -26,6 +31,9 @@ function useLabs() {
   return { labs, err, load };
 }
 
+/** Where this lab keeps progress, in the card's footer. */
+const keptIn = (l: Entry) => (l.progressIn === 'account' ? 'Saved to your ThreatReady account' : l.progressIn === 'server' ? 'Progress is kept on the ThreatReady lab server' : 'Progress is kept in this browser');
+
 function LabCard({ l, open }: { l: Entry; open: (id: string) => void }) {
   const p = l.progress;
   const action = l.href ? 'Open lab' : !p ? 'Start lab' : p.complete ? 'Review lab' : 'Continue lab';
@@ -44,8 +52,8 @@ function LabCard({ l, open }: { l: Entry; open: (id: string) => void }) {
     </div>}
     <div className="tr-card-foot">
       {!l.available ? <span className="tr-small tr-muted">Planned for {l.release}</span>
-        : l.href ? <><span className="tr-small tr-muted">Progress is kept inside the lab</span><a className="tr-btn tr-btn-primary tr-btn-sm" href={`${BASE}${l.href}`}>{action}</a></>
-        : <><span /><button type="button" className="tr-btn tr-btn-primary tr-btn-sm" onClick={() => open(l.id)}>{action}</button></>}
+        : l.href ? <><span className="tr-small tr-muted">{keptIn(l)}</span><a className="tr-btn tr-btn-primary tr-btn-sm" href={`${BASE}${l.href}`}>{action}</a></>
+        : <><span className="tr-small tr-muted">{keptIn(l)}</span><button type="button" className="tr-btn tr-btn-primary tr-btn-sm" onClick={() => open(l.id)}>{action}</button></>}
     </div>
   </li>;
 }
@@ -68,39 +76,43 @@ export function Catalog({ user, go, open }: { user: any; go: (to: string) => voi
       <div>
         <span className="tr-eyebrow"><span className="tr-dot tr-dot-labs" aria-hidden="true" style={{ marginRight: 8 }} />Lab Simulations</span>
         <h1 className="tr-h1">Work the incident, not the quiz.</h1>
-        <p className="tr-lead">Hands-on labs in simulated environments, grouped by track. Each lab keeps its own runs, objectives and reports; your overall progress also shows on your ThreatReady profile.</p>
+        <p className="tr-lead">Hands-on labs in simulated environments, grouped by track. Each lab keeps its own runs, objectives and reports, and its card says where your progress is kept. Progress kept by ThreatReady (not in your browser) also shows on your profile.</p>
       </div>
       {labs && <div className="tr-meta" aria-label="Your labs"><span><b className="tr-h3">{live.length}</b>&nbsp;available</span><span><b className="tr-h3">{inProgress}</b>&nbsp;in progress</span><span><b className="tr-h3">{completed}</b>&nbsp;completed</span></div>}
     </div></section>
     <div className="tr-wrap tr-section">
       <Status err={err} labs={labs} load={load} />
       {labs && labs.some(l => l.home) && <><h2 className="tr-section-title">Featured labs</h2><ul className="tr-grid">{labs.filter(l => l.home).map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
-      {labs && <><h2 className="tr-section-title">Choose a track</h2><ul className="tr-grid lab-tracks">
-        {TRACKS.map((t) => {
-          // Labs shown in the "Featured labs" section belong to a track too and are listed there as well.
-          const mine = labs.filter(l => l.track === t.key); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
-          const href = `${BASE}tracks/${t.slug}`;
-          return <li key={t.key} className="tr-card lab-track">
-            <div className="tr-card-top"><span className="lab-track-icon"><TrackIcon d={t.icon} /></span>{n ? <span className="tr-tag tr-tag-live">{n} live</span> : <span className="tr-tag tr-tag-soon">Coming soon</span>}</div>
-            <h3 className="tr-h3"><a className="lab-card-link" href={href} onClick={(e) => { e.preventDefault(); go(href); }}>{t.title}</a></h3>
-            <p>{t.blurb}</p>
-            <ul className="lab-track-list">{mine.length ? mine.map(l => <li key={l.id}><span>{l.title}</span>{!l.available && <span className="tr-small tr-muted">{l.release}</span>}</li>) : <li className="tr-muted">Labs for this track are being prepared.</li>}</ul>
-            <div className="tr-card-foot"><span className="tr-small tr-muted">{n} available{soon ? ` · ${soon} coming soon` : ''}</span><span className="tr-small lab-track-go" aria-hidden="true">View labs →</span></div>
-          </li>;
-        })}
-      </ul></>}
+      {labs && <><h2 className="tr-section-title">Choose a track</h2><TrackGrid labs={labs} go={go} /></>}
     </div>
   </Shell>;
 }
 
+/** The four track cards. Labs shown in "Featured labs" belong to a track too and are counted and listed there as well. */
+export function TrackGrid({ labs, go }: { labs: Entry[]; go: (to: string) => void }) {
+  return <ul className="tr-grid lab-tracks">
+    {TRACKS.map((t) => {
+      const mine = labs.filter(l => l.track === t.key); const n = mine.filter(l => l.available).length; const soon = mine.length - n;
+      const href = `${BASE}tracks/${t.slug}`;
+      return <li key={t.key} className="tr-card lab-track">
+        <div className="tr-card-top"><span className="lab-track-icon"><TrackIcon d={t.icon} /></span>{n ? <span className="tr-tag tr-tag-live">{n} live</span> : <span className="tr-tag tr-tag-soon">Coming soon</span>}</div>
+        <h3 className="tr-h3"><a className="lab-card-link" href={href} onClick={(e) => { e.preventDefault(); go(href); }}>{t.title}</a></h3>
+        <p>{t.blurb}</p>
+        <ul className="lab-track-list">{mine.length ? mine.map(l => <li key={l.id}><span>{l.title}</span>{!l.available && <span className="tr-small tr-muted">{l.release}</span>}</li>) : <li className="tr-muted">Labs for this track are being prepared.</li>}</ul>
+        <div className="tr-card-foot"><span className="tr-small tr-muted">{n} available{soon ? ` · ${soon} coming soon` : ''}</span><span className="tr-small lab-track-go" aria-hidden="true">View labs →</span></div>
+      </li>;
+    })}
+  </ul>;
+}
+
 /** An address under /labs/ that matches nothing (an old bookmark, a mistyped track): say so, with the way back. */
-export function NotFoundPage({ user, go, what }: { user: any; go: (to: string) => void; what: 'track' | 'page' }) {
+export function NotFoundPage({ user, go, what }: { user: any; go: (to: string) => void; what: 'track' | 'lab' | 'page' }) {
   useEffect(() => { document.title = 'Not found · Lab Simulations · ThreatReady'; return () => { document.title = 'Lab Simulations · ThreatReady'; }; }, []);
   return <Shell current="labs" user={user}>
     <section className="tr-page-head"><div className="tr-wrap tr-page-head-in"><div>
       <nav className="lab-crumbs" aria-label="Breadcrumb"><a href={BASE} onClick={(e) => { e.preventDefault(); go(BASE); }}>All tracks</a><span aria-hidden="true">/</span><span aria-current="page">Not found</span></nav>
       <span className="tr-eyebrow"><span className="tr-dot tr-dot-labs" aria-hidden="true" style={{ marginRight: 8 }} />Lab Simulations</span>
-      <h1 className="tr-h1">{what === 'track' ? 'That track does not exist' : 'That page does not exist'}</h1>
+      <h1 className="tr-h1">{what === 'track' ? 'That track does not exist' : what === 'lab' ? 'That lab does not exist' : 'That page does not exist'}</h1>
       <p className="tr-lead">The link may be out of date or mistyped. The tracks are Cloud Security, Blue Team, Red Team and Network Security.</p>
     </div></div></section>
     <div className="tr-wrap tr-section"><div className="lab-notfound">
@@ -114,8 +126,6 @@ export function NotFoundPage({ user, go, what }: { user: any; go: (to: string) =
 export function TrackPage({ user, slug, go, open }: { user: any; slug: string; go: (to: string) => void; open: (id: string) => void }) {
   const { labs, err, load } = useLabs();
   const t = trackBySlug(slug)!;
-  const mine = labs?.filter(l => l.track === t.key) ?? [];
-  const live = mine.filter(l => l.available); const soon = mine.filter(l => !l.available);
   useEffect(() => { document.title = `${t.title} · Lab Simulations · ThreatReady`; return () => { document.title = 'Lab Simulations · ThreatReady'; }; }, [t.title]);
   return <Shell current="labs" user={user}>
     <Strip />
@@ -129,9 +139,18 @@ export function TrackPage({ user, slug, go, open }: { user: any; slug: string; g
     </div></section>
     <div className="tr-wrap tr-section">
       <Status err={err} labs={labs} load={load} />
-      {live.length > 0 && <><h2 className="tr-section-title">Available now</h2><ul className="tr-grid">{live.map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
-      {soon.length > 0 && <><h2 className="tr-section-title">Coming soon</h2><ul className="tr-grid">{soon.map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
-      {labs && !mine.length && <div className="tr-note tr-note-info">No labs in this track yet.</div>}
+      {labs && <TrackLabs labs={labs} track={t.key} open={open} />}
     </div>
   </Shell>;
+}
+
+/** Every lab of one track, featured ones included (SOC Simulation is on the main Labs page and in Blue Team). */
+export function TrackLabs({ labs, track, open }: { labs: Entry[]; track: TrackKey; open: (id: string) => void }) {
+  const mine = labs.filter(l => l.track === track);
+  const live = mine.filter(l => l.available); const soon = mine.filter(l => !l.available);
+  return <>
+    {live.length > 0 && <><h2 className="tr-section-title">Available now</h2><ul className="tr-grid">{live.map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
+    {soon.length > 0 && <><h2 className="tr-section-title">Coming soon</h2><ul className="tr-grid">{soon.map(l => <LabCard key={l.id} l={l} open={open} />)}</ul></>}
+    {!mine.length && <div className="tr-note tr-note-info">No labs in this track yet.</div>}
+  </>;
 }

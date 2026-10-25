@@ -4,6 +4,7 @@ import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../authz/principal.js';
+import { logger } from '../logging/logger.js';
 
 export type Db = NodePgDatabase<typeof schema>;
 
@@ -43,7 +44,11 @@ export class Database implements OnApplicationShutdown {
       max: cfg.DATABASE_POOL_MAX,
       application_name: `threatready-${process.env.APP_ROLE ?? 'api'}`,
       statement_timeout: 15_000,
+      // A saturated or unreachable database fails a request in 5 s instead of queueing it forever.
+      connectionTimeoutMillis: 5_000,
     });
+    // An idle client's connection dropping (database restart, network blip) must not crash the process.
+    this.pool.on('error', (err) => logger.error({ err: { message: err.message } }, 'database pool client error'));
     this.db = drizzle({ client: this.pool, schema });
   }
 

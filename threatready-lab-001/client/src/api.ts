@@ -38,8 +38,15 @@ export async function api(path: string, body?: any, method?: string): Promise<an
   if (res.ok && !isJson) throw new ApiError(res.status, 'Unexpected response from the server. Retry in a moment.', 'BAD_RESPONSE');
   if (res.status === 401) { signIn(); throw new ApiError(401, 'Signing you in…', 'AUTH_REQUIRED'); }
   if (res.status === 403 && json.code === 'AUTH_ACCOUNT_REQUIRED') { signUp(); throw new ApiError(403, json.error, json.code); }
-  if (!res.ok) throw new ApiError(res.status, json.error || `Request failed (${res.status})`, json.code);
+  if (!res.ok) throw new ApiError(res.status, json.error || busyMessage(res) || `Request failed (${res.status})`, json.code);
   return json;
+}
+/** 429/503 without the server's own message (a proxy or gateway page): say it plainly, with when to retry. */
+function busyMessage(res: Response) {
+  if (res.status !== 429 && res.status !== 503) return '';
+  const s = Math.ceil(Number(res.headers.get('Retry-After')) || 0);
+  const when = s > 0 ? `Try again in ${s >= 120 ? `${Math.ceil(s / 60)} minutes` : `${s} second${s === 1 ? '' : 's'}`}.` : 'Try again in a moment.';
+  return res.status === 429 ? `Too many requests. ${when}` : `Lab Simulations is briefly unavailable. ${when}`;
 }
 export const newRequestId = () => (crypto.randomUUID ? crypto.randomUUID() : `r-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`);
 

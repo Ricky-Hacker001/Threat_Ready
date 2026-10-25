@@ -1,4 +1,5 @@
-import { AlertCircle, CheckCircle2, CircleAlert, Info, X, type LucideIcon } from 'lucide-react';
+import { AlertCircle, CheckCircle2, CircleAlert, Info, SearchX, X, type LucideIcon } from 'lucide-react';
+import { Link } from 'react-router';
 import { Component, createContext, useCallback, useContext, useEffect, useRef, useState, type ErrorInfo, type ReactNode, type RefObject } from 'react';
 import { ApiError, messageFor } from '../lib/api';
 import { scoreTone } from '../lib/format';
@@ -14,23 +15,36 @@ export function usePageTitle(title: string | null | undefined) {
   }, [title]);
 }
 
+/** The pending wait for a heading; a newer screen change replaces it. */
+let headingTimer: ReturnType<typeof setTimeout> | undefined;
+
 /**
  * Moves focus to the screen's h1 (after a route or screen change), so screen readers announce the new
- * page. Pages load lazily and their data arrives later, so this waits briefly for the heading.
+ * page. Pages load lazily and their data arrives later, so this waits briefly (up to 3 s) for the
+ * heading. Only the latest call keeps waiting, and it stops if the document is gone (a test teardown).
  */
 export function focusMainHeading() {
+  clearTimeout(headingTimer);
   let tries = 0;
   const attempt = () => {
+    headingTimer = undefined;
+    if (typeof document === 'undefined') return;
     const h1 = document.querySelector<HTMLElement>('main h1');
     if (h1) {
       if (!h1.hasAttribute('tabindex')) h1.setAttribute('tabindex', '-1');
       h1.focus({ preventScroll: true });
       return;
     }
-    if (++tries < 40) window.setTimeout(attempt, 75);
+    if (++tries < 40) headingTimer = setTimeout(attempt, 75);
     else document.querySelector<HTMLElement>('main')?.focus({ preventScroll: true });
   };
-  window.setTimeout(attempt, 0);
+  headingTimer = setTimeout(attempt, 0);
+}
+
+/** Stops waiting for a heading (tests call it on teardown, so no timer outlives the page). */
+export function cancelHeadingFocus() {
+  clearTimeout(headingTimer);
+  headingTimer = undefined;
 }
 
 /* ---------- Modal dialogs ---------- */
@@ -155,9 +169,11 @@ export function Skeleton({ h = 16, w = '100%', style }: { h?: number; w?: number
   return <div className="skeleton" style={{ height: h, width: w, ...style }} aria-hidden />;
 }
 
-export function CardSkeleton({ lines = 3 }: { lines?: number }) {
+/** Placeholder card while data loads; a polite status region, so screen readers hear what is loading. */
+export function CardSkeleton({ lines = 3, label = 'Loading' }: { lines?: number; label?: string }) {
   return (
-    <div className="card stack" aria-busy="true" aria-label="Loading">
+    <div className="card stack" role="status" aria-label={label}>
+      <span className="sr-only">{label}…</span>
       <Skeleton h={14} w="40%" />
       {Array.from({ length: lines }, (_, i) => (
         <Skeleton key={i} h={12} w={`${90 - i * 12}%`} />
@@ -277,6 +293,31 @@ export function Sparkline({ values, width = 220, height = 48 }: { values: number
     </svg>
   );
 }
+
+/** A bad or stale link (unknown id, someone else's interview): what happened and the way back. */
+export function NotFoundState({ title, children, to, linkLabel }: { title: string; children?: ReactNode; to: string; linkLabel: string }) {
+  return (
+    <div className="page" style={{ maxWidth: 720 }}>
+      <div className="card stack lg">
+        <div className="row">
+          <span className="icon-tile warn"><SearchX className="icon" aria-hidden /></span>
+          <h1 className="h-sm">{title}</h1>
+        </div>
+        {children && <p className="subtle">{children}</p>}
+        <div className="row wrap">
+          <Link className="btn primary" to={to}>{linkLabel}</Link>
+          <Link className="btn ghost" to="/interview-prep">Back to dashboard</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A route id that can't name anything (typo, truncated link): shown as not found without asking the API. */
+export const isMalformedId = (id: string) => !ID_RE.test(id);
+/** The API says the thing doesn't exist or isn't the learner's (404), or the id in the link is invalid (422). */
+export const isNotFound = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.code === 'VALIDATION_FAILED');
 
 export function Empty({ title, children, action, icon: Icon }: { title: string; children?: ReactNode; action?: ReactNode; icon?: LucideIcon }) {
   return (

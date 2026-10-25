@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ReasoningDifficulty } from '@threatready/contracts';
 import { reasoningAttempts, reasoningItems, reasoningServed } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, ne, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
@@ -10,6 +10,7 @@ import { LlmService, type CallMeta } from '../ai/llm.service.js';
 import { getDomain, registeredDomains } from './domains/index.js';
 import { fingerprintOf, type ReasoningDomain, type VariationSeed } from './domain.types.js';
 import type { GeneratedItem } from './item.types.js';
+import { evaluatorRequestBound } from './prompts/evaluation.prompts.js';
 import { GENERATION_PROMPT_VERSION, GENERATOR_VERSION, generationRequest, generationSchema } from './prompts/generation.prompts.js';
 import { normaliseWeights } from './scoring.js';
 import { pickSeed, type Rng } from './seed.js';
@@ -19,13 +20,16 @@ import { normaliseGeneratorOutput, toGeneratedItem, validateGeneratedItem } from
 /** The platform account that owns pool generation in the AI ledger (migration 0009). */
 export const POOL_USER_ID = 'threatready-reasoning-pool';
 export const POOL_ORG_ID = '00000000-0000-4000-8000-0000000a11d0';
+/** Pool generation's ledger entry: the platform account, on the pool's own daily cap. */
+const POOL_META: CallMeta = { feature: 'reasoning.generate', owner: { userId: POOL_USER_ID, orgId: POOL_ORG_ID }, budget: 'pool' };
 /** Difficulties the pool keeps a bucket for. */
 export const POOL_DIFFICULTIES: readonly ReasoningDifficulty[] = ['beginner', 'intermediate', 'advanced'];
 
 /**
  * The pool bucket a requested difficulty is served from. The contract also accepts 'expert', which
  * shares the 'advanced' bucket: without this every expert request missed the pool and queued a
- * 16k-token on-demand generation billed to the platform account (pool-budget DoS, audit §3.5).
+ * 16k-token on-demand generation billed to the platform account (pool-budget DoS, audit §3.5). The
+ * attempt records the bucket, so the difficulty shown is the difficulty served.
  */
 export function poolBucket(difficulty: string): ReasoningDifficulty {
   if (difficulty === 'expert') return 'advanced';
@@ -66,11 +70,12 @@ export class GenerationService {
 
   /**
    * Tops up the pool. With a domain and difficulty, that bucket; without, every bucket of every
-   * registered domain (the schedule). A bucket is filled to REASONING_POOL_TARGET questions, and to
-   * at least REASONING_POOL_MIN_AVAILABLE that the requesting learner has not been served, at most
-   * REASONING_POOL_BATCH per run, generated in parallel.
+   * registered domain. How many a bucket gains is `needed()`; at most REASONING_POOL_BATCH per run,
+   * generated in parallel. A no-op while the pool is disabled, including for jobs a persisted
+   * schedule still enqueues.
    */
   async refillPool(req: { domain?: string; difficulty?: string; userId?: string } = {}): Promise<void> {
+    if (!this.cfg.REASONING_POOL_ENABLED) return;
     const domains = req.domain ? [getDomain(req.domain)].filter((d): d is ReasoningDomain => Boolean(d)) : registeredDomains();
     for (const domain of domains) {
       const levels = req.difficulty ? POOL_DIFFICULTIES.filter((d) => d === poolBucket(req.difficulty!)) : POOL_DIFFICULTIES;
@@ -123,39 +128,74 @@ export class GenerationService {
   }
 
   /**
-   * How many questions this bucket should gain now. A learner-triggered refill tops the bucket up for
-   * that learner but never past REASONING_POOL_TARGET: the target bounds what one learner can make
-   * the platform generate; past it, the learner's own daily cap pays for on-demand questions.
+   * How many questions this bucket should gain now (demand-driven, audit TR-10):
+   *  - a learner-triggered refill (`userId`) tops the bucket up to REASONING_POOL_TARGET, never past
+   *    it, so one learner cycling through buckets cannot make the platform generate without bound;
+   *  - the schedule keeps a bucket served in the last REASONING_POOL_DEMAND_DAYS at the target and any
+   *    other bucket at REASONING_POOL_IDLE_TARGET. While one of a bucket's recently active learners has
+   *    fewer than REASONING_POOL_MIN_AVAILABLE questions left unseen, it grows that bucket past the
+   *    target, up to REASONING_POOL_MAX_ITEMS, on the pool budget. On-demand generation (billed to the
+   *    learner) covers them until the next scheduled run.
    */
-  private async needed(domain: string, difficulty: string, userId?: string): Promise<number> {
-    const [{ n: total } = { n: 0 }] = await this.db.system(({ db }) =>
-      db.select({ n: count() }).from(reasoningItems).where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), eq(reasoningItems.difficulty, difficulty))),
-    );
-    const headroom = Math.max(0, this.cfg.REASONING_POOL_TARGET - total);
-    let need = headroom;
-    if (userId) {
-      const available = await this.availableFor(userId, domain, difficulty);
-      need = Math.min(Math.max(need, this.cfg.REASONING_POOL_MIN_AVAILABLE - available), headroom);
+  async needed(domain: string, difficulty: string, userId?: string): Promise<number> {
+    if (!this.cfg.REASONING_POOL_ENABLED) return 0;
+    const d = await this.demand(domain, difficulty);
+    if (userId) return Math.min(Math.max(0, this.cfg.REASONING_POOL_TARGET - d.total), this.cfg.REASONING_POOL_BATCH);
+    let need = Math.max(0, (d.mostSeen === null ? this.cfg.REASONING_POOL_IDLE_TARGET : this.cfg.REASONING_POOL_TARGET) - d.total);
+    if (d.mostSeen !== null) {
+      const shortfall = this.cfg.REASONING_POOL_MIN_AVAILABLE - (d.total - d.mostSeen);
+      need = Math.max(need, Math.min(shortfall, this.cfg.REASONING_POOL_MAX_ITEMS - d.total));
     }
     return Math.min(need, this.cfg.REASONING_POOL_BATCH);
   }
 
-  /** Pool questions in a bucket that this learner has not been served. */
-  async availableFor(userId: string, domain: string, difficulty: string): Promise<number> {
-    const [{ n } = { n: 0 }] = await this.db.system(({ db }) =>
-      db
-        .select({ n: count() })
-        .from(reasoningItems)
-        .where(
-          and(
-            eq(reasoningItems.pool, true),
-            eq(reasoningItems.domain, domain),
-            eq(reasoningItems.difficulty, difficulty),
-            sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${userId})`,
-          ),
-        ),
+  /** Questions a learner-triggered refill could still add to a bucket (it never grows one past the target). */
+  async headroom(domain: string, difficulty: string): Promise<number> {
+    return Math.max(0, this.cfg.REASONING_POOL_TARGET - (await this.demand(domain, difficulty)).total);
+  }
+
+  /**
+   * A bucket's size, whether it is in demand, and how many of its questions the most-served of its
+   * recently active learners has seen (null when nobody was served from it in the demand window).
+   */
+  private async demand(domain: string, difficulty: string): Promise<{ total: number; mostSeen: number | null }> {
+    const { rows } = await this.db.system((tx) =>
+      tx.sql.executeSql(
+        `WITH bucket AS (SELECT id FROM reasoning_items WHERE pool AND domain = $1 AND difficulty = $2),
+              active AS (SELECT DISTINCT s.user_id FROM reasoning_served s JOIN bucket b ON b.id = s.item_id WHERE s.served_at >= now() - make_interval(days => $3::int))
+         SELECT (SELECT count(*)::int FROM bucket) AS total,
+                (SELECT max(n)::int FROM (SELECT count(*) AS n FROM reasoning_served s JOIN bucket b ON b.id = s.item_id JOIN active a ON a.user_id = s.user_id GROUP BY s.user_id) seen) AS most_seen`,
+        [domain, difficulty, this.cfg.REASONING_POOL_DEMAND_DAYS],
+      ),
     );
-    return n;
+    const r = rows[0] as { total: number | string; most_seen: number | string | null } | undefined;
+    return { total: Number(r?.total ?? 0), mostSeen: r?.most_seen === null || r?.most_seen === undefined ? null : Number(r.most_seen) };
+  }
+
+  /** The cost of one on-demand generation call for this bucket, for a budget check before it is queued. */
+  generationEstimateUsd(domainKey: string, difficulty: string): number {
+    const domain = getDomain(domainKey);
+    if (!domain) return 0;
+    const bucket = poolBucket(difficulty);
+    // Any seed gives a prompt of about the same size; a fixed one keeps the estimate stable and the generator's random sequence untouched.
+    return this.llm.estimate(generationRequest({ domain, seed: pickSeed(domain, [], () => 0, new Set(), bucket), avoid: [], previousFailure: [], tryNumber: 1 }));
+  }
+
+  /** What an on-demand generation leaves unspent of the learner's daily cap: room for one first-stage evaluation. */
+  evaluationRoomUsd(domainKey: string): number {
+    const domain = getDomain(domainKey);
+    return domain ? this.llm.estimate(evaluatorRequestBound(domain, null)) : 0;
+  }
+
+  /**
+   * Whether the pool's daily cap and the global breaker still allow one generation for this bucket
+   * today (checked without reserving). When they do not, no refill can arrive before the daily reset.
+   */
+  async poolCanGenerate(domainKey: string, difficulty: string): Promise<boolean> {
+    return this.llm.check(POOL_META, this.generationEstimateUsd(domainKey, difficulty)).then(
+      () => true,
+      () => false,
+    );
   }
 
   /* ---------------- On demand: only when the pool has nothing left for this learner ---------------- */
@@ -166,11 +206,13 @@ export class GenerationService {
     const domain = getDomain(a.domain);
     if (!domain) return this.markFailed(attemptId, 'REASONING_DOMAIN_UNAVAILABLE');
     const difficulty = poolBucket(a.difficulty);
-    const bank = await this.bankFor(a.domain, difficulty);
-    // On demand for one learner: charged to that learner's daily cap, not the platform pool account.
+    const bank = await this.bankFor(a.domain, difficulty, a.userId);
+    // On demand for one learner: charged to that learner's daily cap, not the platform pool account,
+    // and never into the room the evaluation of their answer will need (audit TR-08).
     const r = await this.generateOne(domain, difficulty, bank, {
       sourceId: a.id,
       owner: { userId: a.userId, orgId: a.orgId },
+      keepFreeUsd: this.evaluationRoomUsd(a.domain),
       onTry: (n) => this.db.system(({ db }) => db.update(reasoningAttempts).set({ generationTries: n, updatedAt: new Date() }).where(eq(reasoningAttempts.id, attemptId))),
     });
     if (!r.ok) return this.markFailed(attemptId, r.code);
@@ -180,7 +222,8 @@ export class GenerationService {
       await db.insert(reasoningServed).values({ orgId: a.orgId, userId: a.userId, itemId: row!.id, attemptId: a.id }).onConflictDoNothing();
       await db
         .update(reasoningAttempts)
-        .set({ state: 'ready', itemId: row!.id, failureCode: null, failureStage: null, updatedAt: new Date() })
+        // Opened now: the question was not readable before, and answer time and expiry count from here.
+        .set({ state: 'ready', itemId: row!.id, failureCode: null, failureStage: null, openedAt: new Date(), updatedAt: new Date() })
         .where(and(eq(reasoningAttempts.id, attemptId), eq(reasoningAttempts.state, 'generating')));
     });
   }
@@ -196,19 +239,45 @@ export class GenerationService {
 
   /* ---------------- Shared ---------------- */
 
-  /** The bucket's recent pool questions: seeds to steer away from, texts to compare with. */
-  private async bankFor(domain: string, difficulty: string): Promise<Bank> {
-    const rows = await this.db.system(({ db }) =>
-      db
-        .select({ id: reasoningItems.id, fingerprint: reasoningItems.fingerprint, seed: reasoningItems.seed, public: reasoningItems.public })
+  /**
+   * What a new question is compared with: the bucket's latest 80 pool questions (seeds to steer away
+   * from, texts to compare), the domain's latest 40 at the other difficulties and, when generating for
+   * one learner, every question that learner has had in the domain at any level (audit TR-59). The
+   * extra texts are compared on wording only: the variation fingerprint does not include the
+   * difficulty, so sharing one with another level is not a repeat.
+   */
+  private async bankFor(domain: string, difficulty: string, userId?: string): Promise<Bank> {
+    const cols = { id: reasoningItems.id, fingerprint: reasoningItems.fingerprint, seed: reasoningItems.seed, public: reasoningItems.public };
+    const { rows, others, seen } = await this.db.system(async ({ db }) => ({
+      rows: await db
+        .select(cols)
         .from(reasoningItems)
         .where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), eq(reasoningItems.difficulty, difficulty)))
         .orderBy(desc(reasoningItems.createdAt))
         .limit(80),
-    );
+      others: await db
+        .select(cols)
+        .from(reasoningItems)
+        .where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), ne(reasoningItems.difficulty, difficulty)))
+        .orderBy(desc(reasoningItems.createdAt))
+        .limit(40),
+      seen: userId
+        ? await db
+            .select(cols)
+            .from(reasoningItems)
+            .where(and(eq(reasoningItems.domain, domain), sql`(${reasoningItems.userId} = ${userId} OR EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${userId}))`))
+            .orderBy(desc(reasoningItems.createdAt))
+            .limit(300)
+        : [],
+    }));
+    const known = new Set(rows.map((r) => r.id));
+    const extra = [...seen, ...others].filter((r) => !known.has(r.id) && Boolean(known.add(r.id)));
     return {
       seeds: rows.map((r) => r.seed as VariationSeed),
-      texts: rows.map((r) => ({ id: r.id, fingerprint: r.fingerprint, text: comparableText(r.public as GeneratedItem['public']) })),
+      texts: [
+        ...rows.map((r) => ({ id: r.id, fingerprint: r.fingerprint, text: comparableText(r.public as GeneratedItem['public']) })),
+        ...extra.map((r) => ({ id: r.id, fingerprint: '', text: comparableText(r.public as GeneratedItem['public']) })),
+      ],
       avoid: rows.slice(0, 8).map((r) => ({ title: (r.public as GeneratedItem['public']).title, question: (r.public as GeneratedItem['public']).question })),
     };
   }
@@ -221,11 +290,11 @@ export class GenerationService {
     domain: ReasoningDomain,
     difficulty: ReasoningDifficulty,
     bank: Bank,
-    opts: { sourceId?: string; firstSeed?: VariationSeed; owner?: { userId: string; orgId: string }; onTry?: (n: number) => Promise<unknown> },
+    opts: { sourceId?: string; firstSeed?: VariationSeed; owner?: { userId: string; orgId: string }; keepFreeUsd?: number; onTry?: (n: number) => Promise<unknown> },
   ): Promise<Generated> {
     const meta: CallMeta = opts.owner
-      ? { feature: 'reasoning.generate', owner: opts.owner, sourceId: opts.sourceId, budget: 'reasoning' }
-      : { feature: 'reasoning.generate', owner: { userId: POOL_USER_ID, orgId: POOL_ORG_ID }, sourceId: opts.sourceId, budget: 'pool' };
+      ? { feature: 'reasoning.generate', owner: opts.owner, sourceId: opts.sourceId, budget: 'reasoning', keepFreeUsd: opts.keepFreeUsd }
+      : { ...POOL_META, sourceId: opts.sourceId };
     let feedback: string[] = [];
     const used = new Set(bank.seeds.map(fingerprintOf));
     const started = Date.now();

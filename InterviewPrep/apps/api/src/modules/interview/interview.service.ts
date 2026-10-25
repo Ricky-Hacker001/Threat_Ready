@@ -9,7 +9,7 @@ import {
   type SessionView,
 } from '@threatready/contracts';
 import { evaluations, interviewSessions, interviewTurns, jobDescriptions, resumes } from '@threatready/db';
-import { DomainError } from '@threatready/shared';
+import { DomainError, secondsUntilUtcMidnight } from '@threatready/shared';
 import { and, count, desc, eq, gte, isNotNull, lt, notInArray, sql } from 'drizzle-orm';
 import { countsTowardQuota } from './quota.js';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
@@ -18,15 +18,30 @@ import { ContentService } from '../../platform/content/content.service.js';
 import { Database, type Tx } from '../../platform/db/database.js';
 import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
+import { LlmService } from '../ai/llm.service.js';
 import { PARSER_VERSION } from '../ai/prompts/documents.prompts.js';
 import { SCORING_VERSION } from '../scoring/scoring.js';
 import { analysisOf, type SessionAnalysis } from './analysis.service.js';
 import { emptyProgress } from './plan.types.js';
 import { applyCorrections, buildPlan } from './planner.js';
-import { buildSessionView, configOf, loadOwnedSession, progressOf, transition, type SessionRow } from './session.repo.js';
+import { evaluationStalled, recoverStalledEvaluation } from './recovery.js';
+import {
+  buildSessionView,
+  configOf,
+  endPause,
+  integrityOf,
+  loadOwnedSession,
+  MAX_REPORT_RETRIES,
+  progressOf,
+  SCORING_CEILING_CODE,
+  scoringBilledSince,
+  startPause,
+  tabHidden,
+  transition,
+  type SessionPatch,
+  type SessionRow,
+} from './session.repo.js';
 import { IDLE_PAUSE_MS, stopClock, startClock } from './timing.js';
-
-const MAX_REPORT_RETRIES = 3;
 
 @Injectable()
 export class InterviewService {
@@ -35,10 +50,11 @@ export class InterviewService {
     @Inject(ContentService) private readonly content: ContentService,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
+    @Inject(LlmService) private readonly llm: LlmService,
   ) {}
 
   view(tx: Tx, s: SessionRow): Promise<SessionView> {
-    return buildSessionView(tx, s, this.content, analysisOf(s)?.roleTitle ?? null);
+    return buildSessionView(tx, s, this.content, analysisOf(s)?.roleTitle ?? null, this.cfg.INTERVIEW_MAX_PAUSES);
   }
 
   async create(p: Principal, req: CreateInterviewRequest): Promise<SessionView> {
@@ -88,9 +104,12 @@ export class InterviewService {
       let s = await loadOwnedSession(tx, p.userId, id);
       // Lazy idle pause (LLD-3: 10 minutes idle while awaiting an answer).
       if (s.state === 'awaiting_answer' && Date.now() - s.lastActivityAt.getTime() > IDLE_PAUSE_MS) {
-        const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince }, new Date(s.lastActivityAt.getTime() + IDLE_PAUSE_MS));
-        s = await transition(tx, s, ['awaiting_answer'], { state: 'paused', ...clock }).catch(() => s);
+        const pausedAt = new Date(s.lastActivityAt.getTime() + IDLE_PAUSE_MS);
+        const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince }, pausedAt);
+        s = await transition(tx, s, ['awaiting_answer'], { state: 'paused', ...clock, integrity: startPause('idlePauseCount', pausedAt) }).catch(() => s);
       }
+      // An evaluation lost mid-call: move on as after a failed evaluation (TR-23).
+      if (evaluationStalled(s)) s = await recoverStalledEvaluation(tx, s, (t, row, reason, extra) => this.complete(t, row, reason, extra)).catch(() => s);
       return this.view(tx, s);
     });
   }
@@ -168,13 +187,20 @@ export class InterviewService {
     });
   }
 
+  /**
+   * Pausing stops the clock and withholds the question until resume; every pause and the time spent
+   * paused are recorded for the report (TR-24). INTERVIEW_MAX_PAUSES (0 = unlimited) caps the count.
+   */
   async pause(p: Principal, id: string): Promise<SessionView> {
     return this.db.user(p, async (tx) => {
       const s = await loadOwnedSession(tx, p.userId, id);
       if (s.state === 'paused') return this.view(tx, s);
       if (s.state !== 'awaiting_answer') throw new DomainError(s.state === 'evaluating' || s.state === 'asking' ? 'INTERVIEW_TURN_IN_PROGRESS' : 'INTERVIEW_INVALID_STATE');
-      const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince });
-      return this.view(tx, await transition(tx, s, ['awaiting_answer'], { state: 'paused', ...clock, lastActivityAt: new Date() }));
+      const max = this.cfg.INTERVIEW_MAX_PAUSES;
+      if (max > 0 && (integrityOf(s).pauseCount ?? 0) >= max) throw new DomainError('INTERVIEW_PAUSE_LIMIT_REACHED', { details: { maxPauses: max } });
+      const now = new Date();
+      const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince }, now);
+      return this.view(tx, await transition(tx, s, ['awaiting_answer'], { state: 'paused', ...clock, lastActivityAt: now, integrity: startPause('pauseCount', now) }));
     });
   }
 
@@ -185,7 +211,22 @@ export class InterviewService {
       if (s.state !== 'paused') throw new DomainError('INTERVIEW_INVALID_STATE');
       if (!s.currentTurnId) throw new DomainError('INTERVIEW_INVALID_STATE');
       const clock = startClock({ activeElapsedMs: s.activeElapsedMs, runningSince: null });
-      return this.view(tx, await transition(tx, s, ['paused'], { state: 'awaiting_answer', ...clock, lastActivityAt: new Date() }));
+      return this.view(tx, await transition(tx, s, ['paused'], { state: 'awaiting_answer', ...clock, lastActivityAt: new Date(), integrity: endPause() }));
+    });
+  }
+
+  /**
+   * The browser reports that the interview tab was hidden (sent when it is visible again). Counted for
+   * the report only; never part of the score. Ignored once the interview is over.
+   */
+  async recordTabHidden(p: Principal, id: string, hiddenMs = 0): Promise<void> {
+    await this.db.user(p, async (tx) => {
+      const s = await loadOwnedSession(tx, p.userId, id);
+      if (!['asking', 'awaiting_answer', 'evaluating', 'paused'].includes(s.state)) return;
+      await tx.db
+        .update(interviewSessions)
+        .set({ integrity: tabHidden(hiddenMs) })
+        .where(eq(interviewSessions.id, s.id));
     });
   }
 
@@ -193,6 +234,10 @@ export class InterviewService {
     return this.db.user(p, async (tx) => {
       const s = await loadOwnedSession(tx, p.userId, id);
       if (['completed', 'scoring', 'report_ready'].includes(s.state)) return this.view(tx, s);
+      // A turn whose evaluation or question stream was lost (lease expired) does not block ending.
+      const askingLease = progressOf(s).askingLeaseUntil;
+      const askingStalled = s.state === 'asking' && (!askingLease || new Date(askingLease).getTime() < Date.now());
+      if (evaluationStalled(s) || askingStalled) return this.view(tx, await this.complete(tx, s, 'candidate_ended'));
       if (s.state === 'evaluating' || s.state === 'asking') throw new DomainError('INTERVIEW_TURN_IN_PROGRESS');
       if (!['awaiting_answer', 'paused', 'planned'].includes(s.state)) throw new DomainError('INTERVIEW_INVALID_STATE');
       return this.view(tx, await this.complete(tx, s, 'candidate_ended'));
@@ -212,8 +257,10 @@ export class InterviewService {
    * completed -> scoring: the final-scoring job is enqueued in the same transaction (LLD-6).
    * A session with no answers has nothing to score and ends as expired.
    */
-  async complete(tx: Tx, s: SessionRow, reason: string, extra: Partial<typeof interviewSessions.$inferInsert> = {}): Promise<SessionRow> {
+  async complete(tx: Tx, s: SessionRow, reason: string, extra: SessionPatch = {}): Promise<SessionRow> {
     const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince });
+    // Ending while paused closes the pause, so the report shows the real paused time.
+    if (s.state === 'paused' && !extra.integrity) extra = { ...extra, integrity: endPause() };
     const [{ n } = { n: 0 }] = await tx.db
       .select({ n: count() })
       .from(interviewTurns)
@@ -226,20 +273,95 @@ export class InterviewService {
     return next;
   }
 
+  /**
+   * Manual "generate again" for a failed report (audit 2026-10-23 IP-REG0). Every billed attempt re-runs
+   * the LARGE scoring batches, so attempts are capped at MAX_REPORT_RETRIES; but an attempt that never
+   * reached the provider (an outage, AI paused for the day) costs nothing and does not count, and while
+   * AI is paused the retry is refused with the time it resumes instead of being used up.
+   */
   async retryReport(p: Principal, id: string): Promise<SessionView> {
+    const first = await this.db.user(p, (tx) => loadOwnedSession(tx, p.userId, id));
+    if (first.state === 'failed' && first.failureStage === 'scoring') {
+      // Final scoring already spent this session's whole ceiling (AI_FINALIZE_SOURCE_CAP_USD): another
+      // attempt would only bill again (TR-08 IP-07).
+      if (first.failureCode === SCORING_CEILING_CODE) throw new DomainError('REPORT_RETRY_LIMIT_REACHED');
+      const blocked = await this.scoringBlocked(first);
+      if (blocked === 'ceiling') throw new DomainError('REPORT_RETRY_LIMIT_REACHED');
+      if (blocked === 'paused') {
+        // Recorded as paused, so the sweeper generates it once the breaker closes (whatever failed first).
+        await this.db.user(p, (tx) =>
+          tx.db
+            .update(interviewSessions)
+            .set({ failureCode: 'AI_SERVICE_PAUSED', version: sql`${interviewSessions.version} + 1`, updatedAt: new Date() })
+            .where(and(eq(interviewSessions.id, first.id), eq(interviewSessions.state, 'failed'), eq(interviewSessions.failureStage, 'scoring'))),
+        );
+        throw new DomainError('AI_SERVICE_PAUSED', {
+          message: 'Report generation is paused until 00:00 UTC; your answers are saved and the report will be generated then',
+          retryAfterSec: secondsUntilUtcMidnight(),
+          retryable: false,
+        });
+      }
+    }
     return this.db.user(p, async (tx) => {
       const s = await loadOwnedSession(tx, p.userId, id);
       if (s.state === 'scoring' || s.state === 'report_ready') return this.view(tx, s);
       if (!(s.state === 'failed' && s.failureStage === 'scoring')) throw new DomainError('INTERVIEW_INVALID_STATE');
       const progress = progressOf(s);
-      const attempt = (progress.retryReportCount ?? 0) + 1;
-      // Every manual retry re-runs the LARGE scoring batches: three retries, then the report stays failed.
-      if (attempt > MAX_REPORT_RETRIES) throw new DomainError('INTERVIEW_LIMIT_REACHED', { message: 'The report has been retried the maximum number of times; contact support' });
-      const next = await transition(tx, s, ['failed'], { state: 'scoring', failureCode: null, failureStage: null, progress: { ...progress, retryReportCount: attempt } });
-      // A new key per manual retry; the handler itself is idempotent on (session, scoring version).
-      await this.queue.enqueue(JOBS.interviewFinalScoring, { kind: 'final_scoring', sessionId: s.id }, { key: `${s.id}:${SCORING_VERSION}:retry:${attempt}` }, tx);
+      const billed = await scoringBilledSince(tx, s.id, progress.lastReportRetryAt);
+      const count = (progress.retryReportCount ?? 0) + (billed ? 1 : 0);
+      if (count > MAX_REPORT_RETRIES) throw new DomainError('REPORT_RETRY_LIMIT_REACHED');
+      const next = await transition(tx, s, ['failed'], {
+        state: 'scoring',
+        failureCode: null,
+        failureStage: null,
+        progress: { ...progress, retryReportCount: count, lastReportRetryAt: new Date().toISOString() },
+      });
+      // A new key per manual retry (the version moves on every transition); the handler is idempotent on (session, scoring version).
+      await this.queue.enqueue(JOBS.interviewFinalScoring, { kind: 'final_scoring', sessionId: s.id }, { key: `${s.id}:${SCORING_VERSION}:retry:${s.version}` }, tx);
       return this.view(tx, next);
     });
+  }
+
+  /**
+   * Support's recovery for a report the learner can no longer retry (scripts/retry-report.ts --reset):
+   * clears the retry count and, when final scoring stopped at its per-session ceiling, adds `extraUsd`
+   * (one more AI_FINALIZE_SOURCE_CAP_USD by default) to that session's ceiling, so the next attempt
+   * may bill that much again. Returns the extra spend the session's final scoring is now allowed.
+   */
+  async resetReportRetries(sessionId: string, extraUsd = this.cfg.AI_FINALIZE_SOURCE_CAP_USD): Promise<{ extraSourceCapUsd: number }> {
+    return this.db.system(async ({ db }) => {
+      const [s] = await db.select().from(interviewSessions).where(eq(interviewSessions.id, sessionId)).for('update');
+      if (!s) throw new DomainError('INTERVIEW_SESSION_NOT_FOUND');
+      const ceiling = s.state === 'failed' && s.failureStage === 'scoring' && s.failureCode === SCORING_CEILING_CODE;
+      const extraSourceCapUsd = (progressOf(s).finalizeExtraUsd ?? 0) + (ceiling ? extraUsd : 0);
+      const cleared = sql`(${interviewSessions.progress} - 'retryReportCount') - 'lastReportRetryAt'`;
+      await db
+        .update(interviewSessions)
+        .set({
+          progress: ceiling ? sql`${cleared} || jsonb_build_object('finalizeExtraUsd', ${extraSourceCapUsd}::numeric)` : cleared,
+          ...(ceiling ? { failureCode: null } : {}),
+          version: sql`${interviewSessions.version} + 1`,
+          updatedAt: new Date(),
+        })
+        .where(eq(interviewSessions.id, sessionId));
+      return { extraSourceCapUsd };
+    });
+  }
+
+  /**
+   * Whether final scoring can run now: 'paused' while the daily AI breaker is open for it (refused
+   * without using an attempt), 'ceiling' once this session's final scoring spent its ceiling.
+   */
+  private async scoringBlocked(s: SessionRow): Promise<'paused' | 'ceiling' | null> {
+    try {
+      const extraSourceCapUsd = progressOf(s).finalizeExtraUsd;
+      await this.llm.check({ feature: 'interview.final_scoring', owner: { userId: s.userId, orgId: s.orgId }, sourceId: s.id, budget: 'finalize', extraSourceCapUsd }, 0);
+      return null;
+    } catch (err) {
+      if (err instanceof DomainError && err.code === 'LLM_BUDGET_EXCEEDED' && (err.details as { scope?: string } | undefined)?.scope === 'finalize_source') return 'ceiling';
+      if (err instanceof DomainError && (err.code === 'LLM_BUDGET_EXCEEDED' || err.code === 'AI_SERVICE_PAUSED')) return 'paused';
+      throw err;
+    }
   }
 
   /** Lightweight state probe for the SSE events stream. */
@@ -252,3 +374,4 @@ export class InterviewService {
 
   resumableStates = RESUMABLE_STATES;
 }
+

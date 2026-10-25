@@ -1,6 +1,10 @@
 import { AI_CONSENT_VERSION } from '@threatready/contracts';
+import { PortError } from '@threatready/shared';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { LlmService } from '../src/modules/ai/llm.service.js';
+import { withUsage } from '../src/platform/ports/llm.port.js';
 import {
   docxFrom,
   drainJobs,
@@ -10,6 +14,7 @@ import {
   ORIGIN,
   resetDatabase,
   RESUME_TEXT,
+  sessionCookieValue,
   signOutEverywhere,
   signUp,
   startApp,
@@ -88,7 +93,7 @@ describe('platform: identity from onboard, internal API for onboard', () => {
   it('reports a down identity provider as unavailable, not as signed out', async () => {
     const broken = await startApp({ IDENTITY_URL: 'http://127.0.0.1:9' });
     try {
-      const res = await request(broken.app.getHttpServer()).get('/v1/me').set('Cookie', 'tr.session_token=x');
+      const res = await request(broken.app.getHttpServer()).get('/v1/me').set('Cookie', `tr.session_token=${sessionCookieValue()}`);
       expect(res.status).toBe(503);
       expect(res.body.error).toMatchObject({ code: 'AUTH_PROVIDER_UNAVAILABLE', retryable: true });
     } finally {
@@ -155,5 +160,58 @@ describe('platform: identity from onboard, internal API for onboard', () => {
 
   it('keeps the stub honest: unknown cookies stay unknown', () => {
     expect(identities.has('nope')).toBe(false);
+  });
+});
+
+describe('billed failures through LlmService (audit 2026-10-23 TR-09, IP-REG2)', () => {
+  let t: TestApp;
+  let owner: { userId: string; orgId: string };
+  beforeAll(async () => {
+    t = await startApp();
+    const learner = await signUp(t, 'Billing Probe');
+    const userId = (await learner.get('/v1/me')).body.id as string;
+    const { rows } = await t.pool.query('SELECT org_id FROM memberships WHERE user_id = $1', [userId]);
+    owner = { userId, orgId: rows[0].org_id };
+  });
+  afterAll(async () => t?.close());
+
+  const req = { tier: 'LARGE' as const, system: 'probe', messages: [{ role: 'user' as const, content: 'probe' }], maxOutputTokens: 100, promptVersion: 'probe.v1' };
+  const schema = { name: 'billing_probe', jsonSchema: { type: 'object' }, zod: z.object({ ok: z.boolean() }) };
+  const usage = (model: string) => ({ model, inputTokens: 50_000, outputTokens: 100_000, cacheReadTokens: 0, cacheWriteTokens: 0 });
+
+  it('records a billed failure at its real price, dated model ids priced at their model (not the cheapest)', async () => {
+    const llm = t.app.get(LlmService);
+    t.llm.overrides.set('billing_probe', () => {
+      throw withUsage(new PortError('invalid_output', 'truncated', { retryable: true }), usage('claude-sonnet-5-5-20990101'));
+    });
+    const before = Number((await t.pool.query('SELECT ai_spend_today_usd() AS v')).rows[0].v);
+    await expect(llm.structured({ feature: 'test.billing', owner, budget: 'new_interview' }, req, schema)).rejects.toMatchObject({ code: 'LLM_OUTPUT_INVALID' });
+    const { rows } = await t.pool.query(`SELECT status, error_kind, model, input_tokens, output_tokens, cost_usd FROM llm_call_log WHERE feature = 'test.billing' ORDER BY id`);
+    // One retry on invalid output: two billed rows at the sonnet-5-5 list price (50k x $2 + 100k x $10 per MTok).
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r).toMatchObject({ status: 'failed', error_kind: 'invalid_output', model: 'claude-sonnet-5-5-20990101', input_tokens: 50_000, output_tokens: 100_000, cost_usd: '1.100000' });
+    const after = Number((await t.pool.query('SELECT ai_spend_today_usd() AS v')).rows[0].v);
+    expect(after - before).toBeCloseTo(2.2, 5);
+    // The billed failures count toward the learner's daily cap ($2): the next call is refused.
+    t.llm.overrides.clear();
+    await expect(llm.structured({ feature: 'test.billing', owner, budget: 'new_interview' }, req, schema)).rejects.toMatchObject({ code: 'LLM_BUDGET_EXCEEDED', details: { scope: 'user_day' } });
+  });
+
+  it('charges the refused first try when a fallback model answered', async () => {
+    const other = await signUp(t, 'Fallback Probe');
+    const userId = (await other.get('/v1/me')).body.id as string;
+    const { rows: [m] } = await t.pool.query('SELECT org_id FROM memberships WHERE user_id = $1', [userId]);
+    const original = t.llm.generateStructured.bind(t.llm);
+    t.llm.generateStructured = (async () => ({ value: { ok: true }, usage: { ...usage('claude-opus-5-5'), inputTokens: 1000, outputTokens: 1000 }, extraUsage: [{ ...usage('claude-sonnet-5-5'), inputTokens: 1000, outputTokens: 1000 }] })) as typeof t.llm.generateStructured;
+    try {
+      await t.app.get(LlmService).structured({ feature: 'test.fallback', owner: { userId, orgId: m.org_id }, budget: 'new_interview' }, req, schema);
+    } finally {
+      t.llm.generateStructured = original;
+    }
+    const { rows } = await t.pool.query(`SELECT status, error_kind, model, cost_usd FROM llm_call_log WHERE feature = 'test.fallback' ORDER BY id`);
+    expect(rows).toEqual([
+      { status: 'settled', error_kind: null, model: 'claude-opus-5-5', cost_usd: '0.024000' },
+      { status: 'failed', error_kind: 'refusal', model: 'claude-sonnet-5-5', cost_usd: '0.012000' },
+    ]);
   });
 });

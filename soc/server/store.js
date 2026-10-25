@@ -26,17 +26,34 @@ function atomicWrite(file, text) {
   }
 }
 
-// One JSON document on disk with a debounced, atomic writer.
+// One JSON document on disk with a debounced, atomic writer. A file that does not parse, or is not
+// a JSON object, is moved aside as <file>.corrupt-<time> before starting empty, so the next write
+// cannot overwrite records that may still be recovered by hand.
 export class JsonFile {
   constructor(file, empty) {
     this.file = file;
     this.empty = empty;
     this.db = empty();
     this.timer = null;
-    try {
-      if (fs.existsSync(file)) this.db = { ...empty(), ...JSON.parse(fs.readFileSync(file, 'utf8')) };
-    } catch (err) {
-      console.error(`Could not read ${file}: ${err.message}. Starting empty.`);
+    if (fs.existsSync(file)) {
+      let parsed;
+      let problem = null;
+      try {
+        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) problem = 'not a JSON object';
+      } catch (err) {
+        problem = err.message;
+      }
+      if (!problem) this.db = { ...empty(), ...parsed };
+      else {
+        const aside = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+        try {
+          fs.renameSync(file, aside);
+          console.error(`Could not read ${file} (${problem}); kept it as ${aside} and started empty.`);
+        } catch (err) {
+          console.error(`Could not read ${file} (${problem}) or move it aside (${err.message}). Starting empty.`);
+        }
+      }
     }
     FILES.push(this);
   }

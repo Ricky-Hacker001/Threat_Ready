@@ -1,6 +1,7 @@
 import type { InterviewConfig, InterviewReport, JobProfile, QuestionReview, SkillOutcome } from '@threatready/contracts';
-import type { ContentService } from '../../platform/content/content.service.js';
-import type { FinalScoring } from '../ai/prompts/interview.prompts.js';
+import type { ContentService, CriterionId } from '../../platform/content/content.service.js';
+import { quoteIsIn } from '../ai/prompts/common.js';
+import type { FinalScoring, TurnAssessment } from '../ai/prompts/interview.prompts.js';
 import type { InterviewPlan } from '../interview/plan.types.js';
 import type { TurnRow } from '../interview/session.repo.js';
 import { CATEGORY_WEIGHTS, FOLLOW_UP_WEIGHT, LEVEL_POINTS, SCORING_VERSION, type ScoreResult } from '../scoring/scoring.js';
@@ -10,6 +11,52 @@ export const REPORT_DISCLAIMER =
 
 const DEMONSTRATED_THRESHOLD = 70;
 const IMPROVE_THRESHOLD = 55;
+
+const times = (n: number) => (n === 1 ? 'once' : `${n} times`);
+
+/** The most an answer that tried to instruct the assessor can score on any criterion. */
+export const GRADER_INSTRUCTION_LEVEL_CAP = 1;
+
+/**
+ * One answer's criterion levels from its final assessment (ADD §7 step 3): a level without a verbatim
+ * quote from that answer drops to 0, and an answer that tried to instruct the assessor is capped at
+ * GRADER_INSTRUCTION_LEVEL_CAP. The instruction itself is ignored, but the model's reading of an answer
+ * written to steer it cannot be trusted at full weight (audit 2026-10-23 TR-21).
+ */
+export function assessedLevels(m: TurnAssessment | undefined, answer: string): Partial<Record<CriterionId, number>> {
+  const levels: Partial<Record<CriterionId, number>> = {};
+  for (const cr of m?.criteria ?? []) {
+    const lvl = Number(cr.level);
+    const quoted = lvl > 0 && !quoteIsIn(cr.evidence_quote, answer) ? 0 : lvl;
+    levels[cr.criterion_id] = m!.instructs_grader ? Math.min(quoted, GRADER_INSTRUCTION_LEVEL_CAP) : quoted;
+  }
+  return levels;
+}
+
+/**
+ * Notes shown with the report. Pauses and tab switches are stated as facts; they do not change any
+ * score. `cappedAnswers` is how many answers final scoring capped for instructing the assessor.
+ */
+export function integrityNotes(
+  instructedGrader: boolean,
+  i?: { pauseCount: number; idlePauseCount: number; pausedSec: number; tabHiddenCount: number },
+  cappedAnswers = 0,
+): string[] {
+  const notes: string[] = [];
+  if (cappedAnswers > 0) {
+    notes.push(`Some answers contained instructions aimed at the assessor. They were ignored, and ${cappedAnswers === 1 ? 'that answer was' : 'those answers were'} scored at no more than level ${GRADER_INSTRUCTION_LEVEL_CAP}.`);
+  } else if (instructedGrader) {
+    notes.push('Some answers contained instructions aimed at the assessor. They were ignored, and only the substance of the answers was assessed.');
+  }
+  if (i && (i.pauseCount > 0 || i.idlePauseCount > 0)) {
+    const minutes = Math.max(1, Math.round(i.pausedSec / 60));
+    const parts = [i.pauseCount > 0 ? `You paused the interview ${times(i.pauseCount)}` : null, i.idlePauseCount > 0 ? `it paused itself ${times(i.idlePauseCount)} after 10 minutes without activity` : null].filter(Boolean);
+    const sentence = parts.join(', and ');
+    notes.push(`${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} (about ${minutes} minute${minutes === 1 ? '' : 's'} paused in total). While paused, the clock stops and the question is hidden.`);
+  }
+  if (i && i.tabHiddenCount > 0) notes.push(`You switched away from the interview tab ${times(i.tabHiddenCount)}. This is recorded for your information and does not affect the score.`);
+  return notes;
+}
 
 /** Builds the report from stored numbers. The model writes text only; every number comes from code. */
 export function buildReport(args: {
@@ -23,6 +70,8 @@ export function buildReport(args: {
   scoring: FinalScoring | null;
   scores: ScoreResult;
   integrityFlags: number;
+  /** Pauses and tab switches during the session (shown for information; never scored). */
+  integrity?: { pauseCount: number; idlePauseCount: number; pausedSec: number; tabHiddenCount: number };
   pdfEnabled: boolean;
 }): InterviewReport {
   const { content, job, plan, turns, scoring, scores } = args;
@@ -127,10 +176,12 @@ export function buildReport(args: {
         focus: nextFocus.map(label),
       },
     },
-    integrityNotes:
-      args.integrityFlags > 0 || scoring?.turns.some((t) => t.instructs_grader)
-        ? ['Some answers contained instructions aimed at the assessor. They were ignored, and only the substance of the answers was assessed.']
-        : [],
+    integrityNotes: integrityNotes(
+      args.integrityFlags > 0 || Boolean(scoring?.turns.some((t) => t.instructs_grader)),
+      args.integrity,
+      scoring?.turns.filter((t) => t.instructs_grader).length ?? 0,
+    ),
+    ...(args.integrity ? { integrity: { pauseCount: args.integrity.pauseCount, pausedSec: args.integrity.pausedSec, tabHiddenCount: args.integrity.tabHiddenCount } } : {}),
     pdf: { available: args.pdfEnabled },
   };
 }

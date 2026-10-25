@@ -9,10 +9,12 @@ import {
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
 import { fromNodeHeaders } from "better-auth/node";
+import { eq } from "drizzle-orm";
 import type { Request } from "express";
 import { AUTH, type Auth } from "../auth/auth.js";
 import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
+import { users } from "../db/schema.js";
 import { ensurePersonalWorkspace, findPersonalMembership } from "../tenancy/tenancy.js";
 import {
   ADMIN_PERMISSIONS,
@@ -24,6 +26,13 @@ import {
   type Permission,
   type Principal,
 } from "./authz.js";
+
+const unauthenticated = () => new UnauthorizedException({ code: "UNAUTHENTICATED", message: "Sign in to continue" });
+
+async function userExists(db: Db, userId: string): Promise<boolean> {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+  return rows.length > 0;
+}
 
 /**
  * Global, default-deny guard. Implements ADD L7 steps 1–4:
@@ -60,7 +69,7 @@ export class AuthGuard implements CanActivate {
       headers: fromNodeHeaders(req.headers),
       query: fresh ? { disableCookieCache: true } : undefined,
     });
-    if (!session) throw new UnauthorizedException({ code: "UNAUTHENTICATED", message: "Sign in to continue" });
+    if (!session) throw unauthenticated();
 
     const user = session.user as typeof session.user & {
       username?: string | null;
@@ -73,8 +82,15 @@ export class AuthGuard implements CanActivate {
     // 2. Tenant context from the membership table, never from the request.
     let membership = await findPersonalMembership(this.db, user.id);
     if (!membership) {
+      // No membership also means the user was deleted (a guest who left, an account removed) while a
+      // cookie-cached session still names it: that is signed out, not a server error.
+      if (!(await userExists(this.db, user.id))) throw unauthenticated();
       // Self-heal if the create hook failed after the user row committed.
-      await ensurePersonalWorkspace(this.db, user.id, isTrial ? "trial" : "learner");
+      await ensurePersonalWorkspace(this.db, user.id, isTrial ? "trial" : "learner").catch((err: unknown) => {
+        // Deleted between the check and the insert (foreign key violation): same answer.
+        if ((err as { code?: string; cause?: { code?: string } })?.cause?.code === "23503" || (err as { code?: string })?.code === "23503") throw unauthenticated();
+        throw err;
+      });
       membership = await findPersonalMembership(this.db, user.id);
     }
     if (!membership) throw new ForbiddenException({ code: "NO_MEMBERSHIP", message: "Forbidden" });

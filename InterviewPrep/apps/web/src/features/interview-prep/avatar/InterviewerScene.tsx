@@ -145,10 +145,55 @@ function Interviewer(props: Omit<InterviewerSceneProps, 'onContextLost'> & { red
   return <primitive object={rig.root} />;
 }
 
+/**
+ * Reduced motion: the canvas renders on demand instead of every display frame. Frames are asked for
+ * only where motion carries meaning: lip sync while Alex speaks (30 fps), a short burst after a status
+ * change (the face settles into it) and one for a blink every few seconds. The body holds still.
+ */
+function DemandFrames({ speaking, status }: { speaking: boolean; status: InterviewerStatus }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    let raf = 0;
+    let timer = 0;
+    const burst = (ms: number) => {
+      cancelAnimationFrame(raf);
+      const until = performance.now() + ms;
+      const step = () => {
+        invalidate();
+        if (performance.now() < until) raf = requestAnimationFrame(step);
+      };
+      step();
+    };
+    burst(600);
+    if (speaking) {
+      const lips = window.setInterval(() => invalidate(), 1000 / 30);
+      return () => {
+        window.clearInterval(lips);
+        cancelAnimationFrame(raf);
+      };
+    }
+    const blink = () => {
+      timer = window.setTimeout(() => {
+        burst(300);
+        blink();
+      }, 3000 + Math.random() * 3000);
+    };
+    blink();
+    return () => {
+      window.clearTimeout(timer);
+      cancelAnimationFrame(raf);
+    };
+  }, [speaking, status, invalidate]);
+  return null;
+}
+
 export default function InterviewerScene({ onContextLost, ...props }: InterviewerSceneProps) {
   const visible = useDocumentVisible();
   const reducedMotion = usePrefersReducedMotion();
   const [hq, setHq] = useState(startHighQuality);
+  // Shadow maps cost every frame: only devices that start in high quality get them (fixed per mount;
+  // switching them later would recompile every material).
+  const [shadows] = useState(startHighQuality);
   const lostRef = useRef(onContextLost);
   lostRef.current = onContextLost;
 
@@ -157,11 +202,12 @@ export default function InterviewerScene({ onContextLost, ...props }: Interviewe
       className="ivw-canvas"
       aria-hidden="true"
       dpr={[1, 1.75]}
-      // stop rendering entirely while the tab is hidden
-      frameloop={visible ? 'always' : 'never'}
-      shadows="percentage"
+      // Stop rendering entirely while the tab is hidden; with reduced motion, render only on demand.
+      frameloop={!visible ? 'never' : reducedMotion ? 'demand' : 'always'}
+      shadows={shadows ? 'percentage' : false}
       camera={{ position: CAMERA_POS, fov: 24, near: 0.05, far: 30 }}
-      gl={{ antialias: true, powerPreference: 'high-performance', alpha: false }}
+      // 'default' lets the browser keep a laptop on its integrated GPU (battery, heat) for one talking head.
+      gl={{ antialias: true, powerPreference: 'default', alpha: false }}
       onCreated={({ gl, scene }) => {
         // plain render; the photographic Effects switch to AgX with their own grade
         gl.toneMapping = THREE.ACESFilmicToneMapping;
@@ -179,8 +225,12 @@ export default function InterviewerScene({ onContextLost, ...props }: Interviewe
       }}
     >
       <CameraRig />
-      {/* drop the photographic effects if the frame rate falls */}
-      <PerformanceMonitor onDecline={() => setHq(false)} flipflops={2} onFallback={() => setHq(false)} />
+      {reducedMotion ? (
+        <DemandFrames speaking={props.speaking} status={props.status} />
+      ) : (
+        // drop the photographic effects if the frame rate falls (it can't be measured on demand frames)
+        <PerformanceMonitor onDecline={() => setHq(false)} flipflops={2} onFallback={() => setHq(false)} />
+      )}
       {hq && <Effects focus={FOCUS} />}
       <Room />
       <Suspense fallback={null}>

@@ -51,6 +51,8 @@ export const toastTitle = (tone: string, code?: string) => (tone === 'ok' ? 'Suc
 export function App() {
   const [user, setUser] = useState<any>(null); const [err, setErr] = useState('');
   const [path, setPath] = useState(location.pathname);
+  // A lab address the server does not know (a stale or mistyped /labs/<id>): the not-found page, not a Retry.
+  const [missing, setMissing] = useState<string | null>(null);
   // The session and the app list together (the list capped at 1.5 s), so the header never renders half-filled.
   const load = useCallback(() => { setErr(''); Promise.all([api('/me'), Promise.race([platformApps(), new Promise((r) => setTimeout(r, 1500))])]).then(([u]) => setUser(u), (e: any) => { if (e.status !== 401 && e.code !== 'AUTH_ACCOUNT_REQUIRED') setErr(e.message); }); }, []);
   useEffect(() => { load(); const h = () => setPath(location.pathname); window.addEventListener('popstate', h); return () => window.removeEventListener('popstate', h); }, []);
@@ -61,14 +63,14 @@ export function App() {
   const t = new RegExp(`^${BASE}tracks/([^/]{1,80})/?$`).exec(path);
   if (t) return trackBySlug(t[1]) ? <TrackPage key={t[1]} user={user} slug={t[1]} go={go} open={open} /> : <NotFoundPage user={user} go={go} what="track" />;
   const m = new RegExp(`^${BASE}([\\w-]{1,40})/?$`).exec(path);
-  if (m && m[1] !== 'tracks') return <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} />;
+  if (m && m[1] !== 'tracks') return missing === m[1] ? <NotFoundPage user={user} go={go} what="lab" /> : <Lab key={m[1]} labId={m[1]} user={user} logout={signOut} backToCatalog={() => go(BASE)} onMissing={() => setMissing(m[1])} />;
   // The catalog lives at /labs/ only; any other address under it is a broken link, not the catalog.
   const home = path === BASE || path === BASE.replace(/\/$/, '') || path === `${BASE}index.html` || path === `${BASE}tracks` || path === `${BASE}tracks/`;
   if (!home) return <NotFoundPage user={user} go={go} what="page" />;
   return <Catalog user={user} go={go} open={open} />;
 }
 
-function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any; logout: () => void; backToCatalog: () => void }) {
+function Lab({ labId, user, logout, backToCatalog, onMissing }: { labId: string; user: any; logout: () => void; backToCatalog: () => void; onMissing: () => void }) {
   // The ThreatReady strip (mark, Back, All labs) shared with every hosted lab console.
   useEffect(() => {
     const tag = document.createElement('script'); tag.src = `${BASE}lab-nav.js`; tag.defer = true; document.head.appendChild(tag);
@@ -91,7 +93,10 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
   const load = useCallback(async () => {
     setLoadErr('');
     try { const [d, s] = await Promise.all([api(`/labs/${labId}`), api(`/labs/${labId}/sessions`, {})]); setDef(d); apply(s); inspected.current = new Set(); prevLevel.current = s.status.level; setScreen(store.get(`tr_brief_${s.session.id}`) ? 'console' : 'briefing'); }
-    catch (e: any) { if (!(e instanceof ApiError && (e.status === 401 || e.code === 'AUTH_ACCOUNT_REQUIRED'))) setLoadErr(e.message); }
+    catch (e: any) {
+      if (e instanceof ApiError && e.status === 404) { onMissing(); return; }
+      if (!(e instanceof ApiError && (e.status === 401 || e.code === 'AUTH_ACCOUNT_REQUIRED'))) setLoadErr(e.message);
+    }
   }, []);
   useEffect(() => { onConnection(setOnline); load(); const h = () => setRoute(parseHash()); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h); }, []);
   useEffect(() => { const b = (e: BeforeUnloadEvent) => { if (dirty.current.size) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload', b); return () => window.removeEventListener('beforeunload', b); }, []);
@@ -160,7 +165,7 @@ function Lab({ labId, user, logout, backToCatalog }: { labId: string; user: any;
           <button className="topbtn" aria-label="Help: how this lab works" onClick={() => setMenu('help')}>?</button>
           <select className="region" aria-label="Region" value={region} onChange={e => setRegion(e.target.value)}>{REGIONS.map(([id, l]) => <option key={id} value={id}>{l} · {id}</option>)}</select>
           <span className="acct" title="Simulated account"><b>{cloud.account.alias}</b><small>{cloud.account.id}</small></span>
-          <div className="dd"><button className="topbtn name" aria-label={`Account and lab menu (${user.name})`} aria-haspopup="true" aria-expanded={menu === 'me'} onClick={e => { e.stopPropagation(); setMenu(menu === 'me' ? null : 'me'); }}><span className="nm">{user.name}</span><span className="ini" aria-hidden>{initials(user.name)}</span> <span aria-hidden>▾</span></button>
+          <div className="dd"><button className="topbtn name" aria-label={`${user.name}, ${initials(user.name)}: account and lab menu`} aria-haspopup="true" aria-expanded={menu === 'me'} onClick={e => { e.stopPropagation(); setMenu(menu === 'me' ? null : 'me'); }}><span className="nm">{user.name}</span><span className="ini" aria-hidden>{initials(user.name)}</span> <span aria-hidden>▾</span></button>
             {menu === 'me' && <div className="ddmenu"><p className="muted">Signed in as <b>{user.name}</b><br />Role: ThreatReady-SecurityAnalyst<br />Run {snap.session.run} · Level {status.level}<br />Simulated clock: {fmt(status.time)} (T+{elapsed})</p>
               <button onClick={() => setScreen('briefing')}>View briefing</button><button onClick={() => openReport(null)}>Incident report</button><button onClick={() => setRunsOpen(true)}>Previous runs…</button><button onClick={() => setResetOpen(true)}>Reset lab…</button>
               <button onClick={() => { if (!dirty.current.size || confirm('Discard unsaved changes?')) backToCatalog(); }}>All labs</button><a className="ddlink" href={onboardLinks.profile}>Profile and overview</a><button onClick={logout}>Sign out of ThreatReady</button></div>}</div>
@@ -244,9 +249,10 @@ function LevelSummary({ level, onClose }: { level: number; onClose: () => void }
 }
 
 function ResetModal({ onClose, onReset }: { onClose: () => void; onReset: () => void }) {
+  const { def } = useLabCtx(); const maxRuns = Number(def.maxRuns) || 0;
   const [t, setT] = useState('');
   return <Modal title="Reset lab" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn danger" disabled={t !== 'RESET'} onClick={onReset}>Reset lab</button></>}>
-    <p>This restores the AeroCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived, not deleted: open them later from <b>Previous runs</b> in the account menu.</p>
+    <p>This restores the AeroCart environment to its original, vulnerable state and starts a new run. Your current run and its report are archived: open them later from <b>Previous runs</b> in the account menu.{maxRuns > 0 && <> Up to {maxRuns} runs are kept: your best run, your best completed run and the most recent ones. Older ones are removed.</>}</p>
     <Field label='Type RESET to confirm'><input value={t} onChange={e => setT(e.target.value)} autoFocus /></Field></Modal>;
 }
 
@@ -295,14 +301,14 @@ function RunsModal({ onClose, onOpen }: { onClose: () => void; onOpen: (sessionI
   const load = useCallback(() => { setErr(''); api(`/labs/${encodeURIComponent(def.id)}/runs`).then(r => Array.isArray(r) ? setRuns([...r].reverse()) : setErr('Unexpected response from the server. Retry in a moment.'), (e: any) => setErr(e.message)); }, [def.id]);
   useEffect(load, [load]);
   return <Modal wide title="Previous runs" onClose={onClose} footer={<button className="btn" onClick={onClose}>Close</button>}>
-    <p className="muted">A reset archives the run it ends. Archived runs are read-only; their incident report shows what was done and verified in that run.</p>
+    <p className="muted">A reset archives the run it ends. Archived runs are read-only; their incident report shows what was done and verified in that run.{Number(def.maxRuns) > 0 && <> Up to {Number(def.maxRuns)} runs are kept: your best run, your best completed run and the most recent ones.</>}</p>
     {err && <Note tone="bad">{err} <button className="btn sm" onClick={load}>Retry</button></Note>}
     {!runs && !err && <div role="status"><div className="spinner" aria-hidden="true" /><span className="sr">Loading runs…</span></div>}
     {runs && <div className="dt-scroll"><table><thead><tr><th>Run</th><th>Started</th><th>Status</th><th>Level</th><th className="num">Score</th><th><span className="sr">Report</span></th></tr></thead>
       <tbody>{runs.map(r => <tr key={r.id}><td>Run {r.run}{r.id === session.id && <> <Badge tone="blue">Current</Badge></>}</td><td className="nowrap">{fmt(r.createdAt)}</td>
         <td>{r.complete ? <Badge tone="green">Completed</Badge> : r.status === 'archived' ? <Badge tone="grey">Archived</Badge> : <Badge tone="orange">In progress</Badge>}</td>
         <td>{r.level ?? '—'}</td><td className="num">{r.score ?? '—'} / {r.max ?? '—'}</td>
-        <td><button className="btn sm" onClick={() => onOpen(r.id)} aria-label={`Open the incident report for run ${r.run}`}>{r.complete ? 'Report' : 'Draft report'}</button></td></tr>)}
+        <td><button className="btn sm" onClick={() => onOpen(r.id)} aria-label={`${r.complete ? 'Report' : 'Draft report'} for run ${r.run}`}>{r.complete ? 'Report' : 'Draft report'}</button></td></tr>)}
         {!runs.length && <tr><td colSpan={6} className="empty">No runs yet.</td></tr>}</tbody></table></div>}
   </Modal>;
 }

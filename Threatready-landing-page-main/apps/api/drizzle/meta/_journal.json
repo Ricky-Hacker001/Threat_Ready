@@ -43,6 +43,41 @@
       "when": 1792800000000,
       "tag": "0005_append_only_audit",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0006_signin_failures",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792900001000,
+      "tag": "0007_activity_last_ping",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792900002000,
+      "tag": "0008_personal_membership_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792900003000,
+      "tag": "0009_strip_provider_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792900004000,
+      "tag": "0010_username_display_names",
+      "breakpoints": true
     }
   ]
 }

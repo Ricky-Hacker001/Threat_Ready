@@ -150,3 +150,27 @@ test('hosted mode registers no SIGTERM handler; production refuses the developme
   const legacy = spawnSync(process.execPath, ['--input-type=module', '-e', cfg], { cwd: root, env: { ...process.env, NODE_ENV: 'production', SOC_SESSION_SECRET: '', SIM_SESSION_SECRET: 'legacy-secret' }, encoding: 'utf8' });
   assert.deepEqual(JSON.parse(legacy.stdout), { secret: 'legacy-secret', generated: false }, legacy.stderr);
 });
+
+test('a body the JSON parser refuses gets its own 4xx, not a 500 with a stack in the log', async () => {
+  const logged = [];
+  const orig = console.error;
+  console.error = (...a) => { logged.push(a); };
+  try {
+    const post = (body, headers = {}) => fetch(`${baseUrl()}/api/attempts`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-user': 't.body', ...headers }, body });
+    const big = await post(JSON.stringify({ scenarioId: 'F1', pad: 'x'.repeat(300 * 1024) }));
+    assert.equal(big.status, 413);
+    assert.deepEqual(await big.json(), { error: 'payload_too_large', message: 'The request is too large.' });
+    const enc = await post('{}', { 'Content-Encoding': 'compress' });
+    assert.equal(enc.status, 415);
+    assert.equal((await enc.json()).error, 'unsupported_media_type');
+    const charset = await post('{}', { 'Content-Type': 'application/json; charset=x-unknown' });
+    assert.equal(charset.status, 415);
+    const bad = await post('{bad');
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).message, 'Malformed JSON.');
+    const param = await fetch(`${baseUrl()}/api/cases/%E0%A4%A`, { headers: { 'x-test-user': 't.body' } });
+    assert.equal(param.status, 400);
+    assert.equal((await param.json()).error, 'bad_request');
+  } finally { console.error = orig; }
+  assert.deepEqual(logged, [], 'nothing is logged as an internal error');
+});

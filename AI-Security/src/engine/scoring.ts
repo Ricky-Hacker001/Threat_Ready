@@ -32,6 +32,8 @@ export interface ScoreInputs {
   hintsUsed: number;
   wrongLayerApplied: number;
   failedRetestsAfterSecond: number;
+  /** Re-tests carried from discarded attempts (included in failedRetestsAfterSecond); only explains the line. */
+  carriedRetests?: number;
 }
 
 function round(n: number): number {
@@ -109,7 +111,8 @@ export function scoreAttempt(inp: ScoreInputs): ScoreBreakdown {
   if (inp.failedRetestsAfterSecond > 0) {
     const d = inp.failedRetestsAfterSecond * 5;
     deductions += d;
-    lines.push(`−${d}  ${inp.failedRetestsAfterSecond} failed re-test(s) after the second retry.`);
+    const carried = inp.carriedRetests ? ` (counting ${inp.carriedRetests} re-test(s) from a discarded attempt)` : "";
+    lines.push(`−${d}  ${inp.failedRetestsAfterSecond} failed re-test(s) after the second retry${carried}.`);
   }
 
   const gross = attackSucceeded + evidence + detection + fix + retest + benign + report;

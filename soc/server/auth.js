@@ -7,7 +7,7 @@
 
 import crypto from 'node:crypto';
 import express from 'express';
-import { config } from './config.js';
+import { config, stateDurable } from './config.js';
 import { HttpError } from './engine/response.js';
 
 const COOKIE = 'soc_session';
@@ -69,11 +69,17 @@ export function readSession(cookieValue, now = Date.now()) {
   }
 }
 
+// Name = the text before the first "=", trimmed. threatready-lab-001/server/hosted.ts
+// (withoutSocSession) reads names the same way; keep the two in step.
 function cookies(req) {
   const out = {};
   for (const part of String(req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const raw = part.slice(i + 1).trim();
+    let value = raw;
+    try { value = decodeURIComponent(raw); } catch { /* not percent-encoded: keep it as sent */ }
+    out[part.slice(0, i).trim()] = value;
   }
   return out;
 }
@@ -85,7 +91,14 @@ function setCookie(res, value, maxAge) {
 }
 
 // Attaches req.user when a valid session exists (or DEV_USER outside production).
+// Mounted inside ThreatReady (threatready-lab-001/server/hosted.ts), the host signs the platform user
+// in before this app runs: that identity is kept over any cookie, DEV_USER or test header, and the
+// request is marked as hosted (the sign-in routes below are then refused).
 export function sessionMiddleware(req, res, next) {
+  if (req.user) {
+    req.hostedIdentity = true;
+    return next();
+  }
   const s = readSession(cookies(req)[COOKIE]);
   // Test harness only: act as a named user without a token.
   if (config.testMode && req.headers['x-test-user']) req.user = { uid: String(req.headers['x-test-user']), name: String(req.headers['x-test-user']) };
@@ -103,6 +116,13 @@ export function requireSession(req, res, next) {
 }
 
 export const authRouter = express.Router();
+
+// Inside ThreatReady the platform owns sign-in and sign-out: this app issues no session of its own,
+// so a learner cannot detach their SOC records (or its per-user limits) from their account.
+authRouter.post(['/session', '/session/local', '/session/logout'], (req, res, next) => {
+  if (req.hostedIdentity) return res.status(404).json({ error: 'not_found', message: 'Sign-in is handled by ThreatReady.' });
+  return next();
+});
 
 authRouter.post('/session', (req, res, next) => {
   try {
@@ -135,6 +155,8 @@ authRouter.post('/session/logout', (req, res) => {
 });
 
 // Public: whether a session exists. No secrets.
-authRouter.get('/session/info', (req, res) => res.json({ homeUrl: config.trHomeUrl || null, signedIn: !!req.user, name: req.user?.name || null, dailyWipe: config.dailyWipe }));
+// `hosted`: signed in through ThreatReady, so records belong to the platform account; `durable`: they
+// are also kept across restarts (the launcher's database mirror), so they are saved with that account.
+authRouter.get('/session/info', (req, res) => res.json({ homeUrl: config.trHomeUrl || null, signedIn: !!req.user, name: req.user?.name || null, dailyWipe: config.dailyWipe, hosted: !!req.hostedIdentity, durable: !!req.hostedIdentity && stateDurable() }));
 
 authRouter.get('/me', (req, res) => res.json({ uid: req.user.uid, name: req.user.name }));

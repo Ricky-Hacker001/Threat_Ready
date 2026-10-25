@@ -82,3 +82,17 @@ export function existingAccountEmail(to: string, loginUrl: string): EmailMessage
   );
   return { to, subject: "Your ThreatReady account", text, html, kind: "existing-account" };
 }
+
+/** Sent once when repeated wrong passwords lock an account's sign-in (auth.ts lockout). */
+export function signInLockedEmail(to: string, minutes: number, loginUrl: string): EmailMessage {
+  const lead = `There were several wrong passwords for your ThreatReady username, so password sign-in is paused for ${minutes} minutes.`;
+  const next = "If that was you, wait and try again, or reset your password from the sign-in page now. If it wasn't, reset your password: the person trying doesn't know it, and the lock protects you meanwhile.";
+  const text = `${lead}\n\n${next}\n\nSign in: ${loginUrl}`;
+  const html = layout(
+    "Sign-in paused",
+    `<p style="margin:0 0 16px">${escape(lead)}</p>
+<p style="margin:0 0 16px">${escape(next)}</p>
+<p style="margin:0"><a href="${escape(loginUrl)}" style="color:#0e7490">Go to sign in</a></p>`,
+  );
+  return { to, subject: "Sign-in to your ThreatReady account was paused", text, html, kind: "signin-locked" };
+}

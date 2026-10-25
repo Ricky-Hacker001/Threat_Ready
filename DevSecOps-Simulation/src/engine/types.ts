@@ -151,7 +151,7 @@ export interface LabState {
   achieved: string[];
   /** Mode this attempt was started in; scoring and guidance use it even if the dashboard mode changes later. */
   mode?: 'guided' | 'standard' | 'expert';
-  /** Time away from the lab (tab hidden, lab closed) — not counted in the lab timer. */
+  /** Time away from the lab (tab hidden, lab closed) — not counted in the active time (the speed bonus uses wall-clock time). */
   pausedMs?: number;
   /** When the learner left the lab (tab hidden / lab closed); cleared on return. */
   awayAt?: number | null;

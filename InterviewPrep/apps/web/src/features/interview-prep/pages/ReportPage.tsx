@@ -25,27 +25,39 @@ import { useState, type KeyboardEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { api, ApiError } from '../../../lib/api';
 import { titleCase } from '../../../lib/format';
-import { Busy, CardSkeleton, ErrorAlert, Meter, RadarChart, ScorePill, ScoreRing, usePageTitle, useToast } from '../../../ui/components';
+import { Busy, CardSkeleton, ErrorAlert, isMalformedId, isNotFound, Meter, NotFoundState, RadarChart, ScorePill, ScoreRing, usePageTitle, useToast } from '../../../ui/components';
 
 /** The PDF is rendered by a worker after the report; poll for it this many times (5 s apart). */
 const PDF_POLLS = 24;
 
 export default function ReportPage() {
   const { id = '' } = useParams();
+  const malformed = isMalformedId(id);
   const q = useQuery({
     queryKey: ['report', id],
     queryFn: () => api.report(id),
+    enabled: !malformed,
     retry: (n, e) => e instanceof ApiError && e.code === 'REPORT_NOT_READY' && n < 20,
     retryDelay: 3000,
     // Keep checking until the PDF is ready, so the download button appears without a reload.
     refetchInterval: (query) => (query.state.data && !query.state.data.pdf.available && query.state.dataUpdateCount < PDF_POLLS ? 5000 : false),
   });
-  usePageTitle(q.data ? `Report: ${q.data.roleTitle}` : 'Report');
+  const notFound = malformed || isNotFound(q.error);
+  usePageTitle(notFound ? 'Report not found' : q.data ? `Report: ${q.data.roleTitle}` : 'Report');
   const polls = useQueryClient().getQueryState(['report', id])?.dataUpdateCount ?? 0;
 
-  if (q.isPending) return <div className="page"><h1 className="sr-only">Loading your report</h1><CardSkeleton lines={8} /></div>;
+  if (notFound) return <ReportNotFound />;
+  if (q.isPending) return <div className="page"><h1 className="sr-only">Loading your report</h1><CardSkeleton lines={8} label="Loading your report" /></div>;
   if (q.error) return <div className="page"><h1 className="h-sm" style={{ marginBottom: 16 }}>Your report could not be loaded</h1><ErrorAlert error={q.error} onRetry={() => void q.refetch()} /></div>;
   return <Report r={q.data} pdfPending={!q.data.pdf.available && polls < PDF_POLLS} />;
+}
+
+function ReportNotFound() {
+  return (
+    <NotFoundState title="This report doesn’t exist or isn’t yours" to="/interview-prep/history" linkLabel="Go to interview history">
+      The link may be mistyped or out of date. Every report you have is listed in your history.
+    </NotFoundState>
+  );
 }
 
 type Tab = 'overview' | 'questions' | 'plan' | 'method';

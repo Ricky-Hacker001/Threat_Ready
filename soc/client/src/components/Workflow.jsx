@@ -236,10 +236,20 @@ function StageForm({ cs, onCase }) {
     return () => { if (bridge.form === me) bridge.form = null; };
   }, [st.id]);
 
-  // Save the draft shortly after each change so a reload loses nothing.
+  // Save the draft shortly after each change so a reload loses nothing. Refused for a moment (429/503
+  // with a short Retry-After), it is saved once more after that wait, unless the form changed or closed
+  // meanwhile (the next change saves anyway); the answers stay in the form either way.
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   useEffect(() => {
     if (!dirty.current) return undefined;
-    const t = setTimeout(() => { api.draft(cs.id, { values, links }).catch(() => {}); dirty.current = false; }, 700);
+    const t = setTimeout(() => {
+      dirty.current = false;
+      api.draft(cs.id, { values, links }).catch((e) => {
+        if ((e.status !== 429 && e.status !== 503) || !(e.retryAfter > 0 && e.retryAfter <= 60)) return;
+        setTimeout(() => { if (mounted.current && !dirty.current) api.draft(cs.id, latest.current).catch(() => {}); }, e.retryAfter * 1000);
+      });
+    }, 700);
     return () => clearTimeout(t);
   }, [values, links, cs.id]);
 

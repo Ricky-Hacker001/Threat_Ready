@@ -72,7 +72,9 @@ export function AppCards({ apps, linkOut = true, onRetry }: { apps: OverviewApp[
           ) : app.error ? (
             <div className="app-card-error">
               <p className="quota">
-                We couldn't reach {APP_LABEL[app.key]} just now. Your progress is safe; it's saved in the app.
+                {/* Truthful either way (BIZ-06): a summary that cannot be fetched changes nothing in the app,
+                    whether it keeps progress on its server or, for some labs, in the learner's browser. */}
+                We couldn't reach {APP_LABEL[app.key]} just now, so its progress isn't shown here. This doesn't change your progress; the app keeps it.
                 {/* Admin view (linkOut=false) keeps the technical reason for troubleshooting. */}
                 {!linkOut ? ` (${app.error})` : null}
               </p>

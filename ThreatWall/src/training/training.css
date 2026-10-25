@@ -181,3 +181,8 @@
 .tw-small-notice button { flex: none; background: none; border: 1px solid #c9a24f; border-radius: 3px; color: #6b4b00; padding: 2px 8px; font-size: 12px; }
 .tr-page .tw-small-notice { margin: 0 0 14px; border: 1px solid #5b4a1f; border-radius: 8px; background: #2a2416; color: #fde68a; }
 .tr-page .tw-small-notice button { border-color: #8a6d2a; color: #fde68a; }
+/* Account not confirmed inside ThreatReady: the lab is kept in this tab only (IdentityNotice, above the appliance). */
+.tw-id-notice { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 6px 8px; padding: 8px 12px; background: #fff7e6; border-bottom: 1px solid #f1d9a6; color: #6b4b00; font-size: 12.5px; line-height: 1.45; flex: none; }
+.tw-id-notice p { margin: 0; flex: 1 1 240px; min-width: 0; }
+.tw-id-notice svg { flex: none; margin-top: 2px; }
+.tw-id-notice button { flex: none; background: none; border: 1px solid #c9a24f; border-radius: 3px; color: #6b4b00; padding: 2px 8px; font-size: 12px; }

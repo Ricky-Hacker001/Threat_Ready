@@ -1,5 +1,5 @@
 // Cross-browser journeys across every ThreatReady app: sign-in, home, theme, menus, profile, admin,
-// InterviewPrep (incl. the 2D interviewer), Lab Simulations (tracks and every live lab) and Attack Reasoning — in Chromium,
+// InterviewPrep (incl. the 2D interviewer), Lab Simulations (tracks and every live lab), Attack Reasoning and sign-out — in Chromium,
 // Firefox and WebKit (Safari's engine), at desktop and phone width.
 //
 //   E2E_USER=asha.rao E2E_PASSWORD=… node cross-browser.mjs            # all installed browsers
@@ -7,7 +7,8 @@
 //   E2E_BROWSERS=chromium E2E_BROWSER_PATH=/usr/bin/brave-browser …      # Brave/Edge/Chrome itself
 //   E2E_BASE=… E2E_INTERVIEW=… E2E_LABS=… E2E_AR=…                    # other hosts (defaults: local dev)
 //
-// The account must exist and be verified; give it the admin role to cover the admin console.
+// The account must exist and be verified. The admin console is checked only when it has the admin role
+// (onboard /api/me says so); otherwise that check is reported as skipped, not failed.
 import { chromium, firefox, webkit } from 'playwright';
 
 const BASE = process.env.E2E_BASE ?? 'http://localhost:5173';
@@ -24,15 +25,18 @@ const ENGINES = { chromium, firefox, webkit };
 const wanted = (process.env.E2E_BROWSERS ?? 'chromium,firefox,webkit').split(',').map((s) => s.trim());
 
 const results = [];
-const record = (browser, viewport, name, ok, detail = '') => {
-  results.push({ browser, viewport, name, ok, detail });
-  console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
+const record = (browser, viewport, name, ok, detail = '', skipped = false) => {
+  results.push({ browser, viewport, name, ok, detail, skipped });
+  console.log(`  ${skipped ? '–' : ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
 };
+/** A check that does not apply to this account or host: `return skip('why')`. */
+const skip = (why) => ({ skip: why });
 
 async function check(browser, viewport, name, fn) {
   try {
     const detail = await fn();
-    record(browser, viewport, name, true, typeof detail === 'string' ? detail : '');
+    if (detail && typeof detail === 'object' && 'skip' in detail) record(browser, viewport, name, true, `skipped: ${detail.skip}`, true);
+    else record(browser, viewport, name, true, typeof detail === 'string' ? detail : '');
   } catch (err) {
     record(browser, viewport, name, false, String(err?.message ?? err).split('\n')[0].slice(0, 200));
   }
@@ -52,8 +56,10 @@ async function run(name, engine) {
     // E2E_BROWSER_PATH: a Chromium-based browser installed on this machine (Brave, Edge, Chrome).
     browser = await engine.launch(name === 'chromium' && process.env.E2E_BROWSER_PATH ? { executablePath: process.env.E2E_BROWSER_PATH } : {});
   } catch (err) {
+    // A host without this engine's system libraries (common for WebKit on Linux) is not a product
+    // failure: reported as skipped. The run still fails if no browser could start at all.
     console.log(`\n${name}: could not launch (${String(err.message).split('\n')[0]}) — skipped`);
-    results.push({ browser: name, viewport: '-', name: 'launch', ok: false, detail: 'browser could not start on this host' });
+    results.push({ browser: name, viewport: '-', name: 'launch', ok: true, skipped: true, detail: 'skipped: browser could not start on this host' });
     return;
   }
   console.log(`\n${name} ${browser.version()}`);
@@ -146,6 +152,8 @@ async function run(name, engine) {
     });
 
     await c('admin console', async () => {
+      const me = await page.request.get(`${BASE}/api/me`).then((r) => (r.ok() ? r.json() : null)).catch(() => null);
+      if (!me?.user?.isAdmin) return skip(`${USER} is not an admin (grant it to cover the admin console)`);
       await page.goto(`${BASE}/app/admin`);
       await page.getByRole('heading', { name: 'Admin console' }).waitFor({ timeout: 15000 });
       await page.locator('.tile').first().waitFor({ timeout: 15000 });
@@ -156,13 +164,20 @@ async function run(name, engine) {
       await page.goto(INTERVIEW);
       await page.locator('.tr-nav').waitFor({ timeout: 20000 });
       await page.locator('.subnav').getByText('History').waitFor();
-      await page.getByRole('heading', { name: /welcome back/i }).waitFor();
+      // "Welcome back, <name>" once there is an interview, "Welcome, <name>" before the first one.
+      await page.getByRole('heading', { name: /welcome( back)?,/i }).waitFor();
       await noOverflow(page);
     });
 
     await c('InterviewPrep: 2D interviewer animates', async () => {
-      // Tell InterviewPrep the 3D model is unavailable, so the 2D interviewer renders from the start.
-      await page.addInitScript(() => sessionStorage.setItem('tr-ivw-model-unavailable', '1'));
+      // Tell InterviewPrep the 3D model is unavailable, so the 2D interviewer renders from the start. The
+      // script runs in every later frame of this page too, including the DevSecOps lab's sandboxed
+      // (opaque-origin) iframe, where sessionStorage throws: only InterviewPrep's top frame, never throw.
+      await page.addInitScript((ivwPath) => {
+        try {
+          if (window === window.top && location.pathname.startsWith(ivwPath)) sessionStorage.setItem('tr-ivw-model-unavailable', '1');
+        } catch { /* no storage here (sandboxed frame) */ }
+      }, new URL(INTERVIEW).pathname);
       await page.goto(INTERVIEW);
       // The dashboard shows the interviewer as decoration (aria-hidden), so select the element itself.
       // Photographs of Alex when deployed (canvas), the illustrated portrait otherwise (SVG).
@@ -254,6 +269,22 @@ async function run(name, engine) {
     await c('no script errors on any page', async () => {
       assert(errors.length === 0, errors.slice(0, 3).join(' || '));
     });
+
+    // Last, at the last width: it ends the session this browser's two widths share.
+    if (vp.label === 'phone') await c('sign out from the account menu: straight to sign-in, no "session ended"', async () => {
+      await page.goto(`${BASE}/app`);
+      await page.getByRole('heading', { name: /welcome back/i }).waitFor({ timeout: 15000 });
+      const visited = [];
+      page.on('framenavigated', (f) => { if (f === page.mainFrame()) { const u = new URL(f.url()); visited.push(u.pathname + u.search); } });
+      await page.locator('.tr-menu-btn').click();
+      await page.locator('.tr-menu-pop').getByRole('button', { name: 'Sign out' }).click();
+      await page.getByRole('heading', { name: 'Sign in to ThreatReady' }).waitFor({ timeout: 15000 });
+      await page.waitForTimeout(1500); // a bounce through /app and back would land in this window
+      assert(!visited.some((u) => u.startsWith('/app') || u.includes('reason=expired')), `went through ${visited.join(' → ')}`);
+      const notices = await page.locator('.notice').allInnerTexts();
+      assert(notices.length === 0, `notice after signing out: ${notices.join(' / ')}`);
+      assert((await page.evaluate(() => sessionStorage.getItem('tr_next'))) === null, 'a return target was left behind');
+    });
     await context.close();
   }
   await browser.close();
@@ -265,6 +296,9 @@ for (const name of wanted) {
 }
 
 const failed = results.filter((r) => !r.ok);
-console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
+const skipped = results.filter((r) => r.skipped).length;
+console.log(`\n${results.length - failed.length - skipped}/${results.length - skipped} checks passed${skipped ? ` (${skipped} skipped)` : ''}`);
 for (const f of failed) console.log(`  ✗ [${f.browser} ${f.viewport}] ${f.name}: ${f.detail}`);
-process.exit(failed.length ? 1 : 0);
+const ran = results.some((r) => !r.skipped);
+if (!ran) console.log('  ✗ no browser could start: nothing was tested');
+process.exit(failed.length || !ran ? 1 : 0);

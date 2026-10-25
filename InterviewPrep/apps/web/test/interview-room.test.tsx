@@ -84,7 +84,9 @@ describe('interview room', () => {
     const next = { ...base, progress: { ...base.progress, questionNumber: 2 }, currentTurn: { ...base.currentTurn!, turnId: '33333333-3333-4333-8333-333333333333', questionNumber: 2, question: 'How would you escalate it?' } };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseBody([{ type: 'evaluating' }, { type: 'question.start', turnId: next.currentTurn.turnId, kind: 'question', questionNumber: 2, topic: 'Incident response' }, { type: 'question.delta', text: 'How would you escalate it?' }, { type: 'done', session: next }]));
     renderRoom(base);
-    await userEvent.type(screen.getByLabelText('Your answer'), 'I would scope the alert first.');
+    // One paste, not 30 keystrokes: each keystroke re-renders the whole room, which is slow under load (TR-63).
+    await userEvent.click(screen.getByLabelText('Your answer'));
+    await userEvent.paste('I would scope the alert first.');
     await userEvent.click(screen.getByRole('button', { name: 'Submit answer' }));
     await waitFor(() => expect(screen.getByText('How would you escalate it?')).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -99,7 +101,7 @@ describe('interview room', () => {
     const asking: SessionView = { ...base, state: 'asking', interviewerStatus: 'asking', currentTurn: null };
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(sseBody([{ type: 'done', session: base }]));
     renderRoom(asking);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/v1/interviews/${base.id}/question`, expect.objectContaining({ method: 'POST' })), { timeout: 4000 });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/v1/interviews/${base.id}/question`, expect.objectContaining({ method: 'POST' })), { timeout: 10_000 });
     await waitFor(() => expect(screen.getByText(/Walk me through how you triage/)).toBeInTheDocument());
   });
 

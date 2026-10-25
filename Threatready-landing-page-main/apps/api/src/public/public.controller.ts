@@ -19,6 +19,8 @@ export class PublicController {
     return {
       providers: { google: !!this.config.google, github: !!this.config.github },
       turnstileSiteKey: this.config.turnstile?.siteKey ?? null,
+      /** Whether "Continue as a guest" is offered (TRIAL_ENABLED). */
+      trialEnabled: this.config.trialEnabled,
       // Public origins only; internal URLs never leave the server.
       apps: APP_KEYS.map((k) => {
         const { internalUrl: _internal, ...info } = this.config.apps[k];
