@@ -25,7 +25,7 @@ export class PlatformController {
   @Get("internal/identity/session")
   @Public()
   async identity(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<Identity> {
-    assertInternalCaller(req, this.config.INTERNAL_API_TOKEN);
+    assertInternalCaller(req, this.config.internalTokensAccept);
     const cookie = req.headers.cookie;
     if (!cookie) throw new UnauthorizedException({ code: "UNAUTHENTICATED", message: "Sign in to continue" });
 

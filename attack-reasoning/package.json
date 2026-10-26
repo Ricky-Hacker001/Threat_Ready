@@ -9,7 +9,11 @@
     "build": "vite build",
     "start": "tsx server/index.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:regexp": "node ../tools/check-regexp-from-input.mjs server"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",

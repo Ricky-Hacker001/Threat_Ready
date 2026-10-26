@@ -9,16 +9,23 @@ const inPlatform = typeof window !== 'undefined' && BASE.startsWith('/labs/');
 
 let namespace = 'local';
 
-/** Resolve the namespace once, before the store first reads storage. */
+/** Keys written before namespacing; each is migrated once at boot (see migrateLegacyKey). */
+export const LEGACY_KEYS = ['threatwall:lab-state', 'tw-last-route'] as const;
+
+/** Resolve the namespace once, before the store first reads storage, then migrate the legacy keys. */
 export async function initStorageNamespace(): Promise<string> {
-  if (!inPlatform) return namespace;
-  try {
-    const res = await fetch(new URL('../api/me', window.location.origin + BASE), { credentials: 'include', cache: 'no-store' });
-    if (res.ok) {
-      const u = (await res.json()) as { id?: unknown };
-      if (typeof u?.id === 'string' && u.id) namespace = u.id.replace(/[^A-Za-z0-9_.@-]/g, '_');
-    }
-  } catch { /* standalone or signed out: stay local */ }
+  if (inPlatform) {
+    try {
+      const res = await fetch(new URL('../api/me', window.location.origin + BASE), { credentials: 'include', cache: 'no-store' });
+      if (res.ok) {
+        const u = (await res.json()) as { id?: unknown };
+        if (typeof u?.id === 'string' && u.id) namespace = u.id.replace(/[^A-Za-z0-9_.@-]/g, '_');
+      }
+    } catch { /* standalone or signed out: stay local */ }
+  }
+  // Eagerly, so a legacy key is claimed by the account that boots, not by whichever account first opens
+  // the page that happens to read it.
+  for (const k of LEGACY_KEYS) migrateLegacyKey(k);
   return namespace;
 }
 

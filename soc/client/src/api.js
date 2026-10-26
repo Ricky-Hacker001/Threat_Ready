@@ -18,6 +18,8 @@ const emit = (kind, v) => listeners[kind].forEach((fn) => { try { fn(v); } catch
 
 // The API sits under the page's base path (/ standalone, /labs/soc/ inside ThreatReady).
 const BASE = import.meta.env.BASE_URL.replace(/\/+$/, '');
+/** An API path (`/api/...`) resolved under the base path: for EventSource, downloads and links, which don't go through call(). */
+export const apiUrl = (path) => BASE + path;
 
 async function call(method, url, body) {
   const res = await fetch(BASE + url, {

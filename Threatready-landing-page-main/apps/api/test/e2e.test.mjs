@@ -340,18 +340,47 @@ describe("ownership and RLS", () => {
     try {
       const none = await db.query("select user_id from feature_launches");
       assert.equal(none.rowCount, 0, "missing WHERE and missing setting → no rows");
+      // No request user set: the shared tables answer role-wide (Better Auth, admin console, tenancy).
+      const bOrg = (await db.query("select org_id from memberships where user_id = $1", [bId])).rows[0]?.org_id;
+      assert.ok(bOrg, "memberships readable without a user context");
+      assert.equal((await db.query("select 1 from users where id = $1", [bId])).rowCount, 1);
 
       await db.query("begin");
       await db.query("select set_config('app.user_id', $1, true)", [aId]);
       const own = await db.query("select distinct user_id from feature_launches");
       assert.deepEqual(own.rows.map((r) => r.user_id), [aId]);
       await assert.rejects(
-        db.query("insert into feature_launches (user_id, org_id, feature) select $1, org_id, 'interview' from memberships where user_id = $1", [bId]),
+        db.query("insert into feature_launches (user_id, org_id, feature) values ($1, $2, 'interview')", [bId, bOrg]),
         /row-level security/,
       );
       await db.query("rollback");
 
       await assert.rejects(db.query("delete from feature_launches"), /permission denied/);
+    } finally {
+      await db.end();
+    }
+  });
+
+  test("RLS backstop (migration 0006): with a request user set, users/memberships/organizations show only that user's rows", { skip: !APP_DB }, async () => {
+    const a = await registerVerified();
+    const b = await registerVerified();
+    const aId = (await a.c.get("/api/me")).json.user.id;
+    const bId = (await b.c.get("/api/me")).json.user.id;
+    const db = new pg.Client({ connectionString: APP_DB });
+    await db.connect();
+    try {
+      await db.query("begin");
+      await db.query("select set_config('app.user_id', $1, true)", [aId]);
+      assert.deepEqual((await db.query("select id from users where id in ($1, $2) order by id", [aId, bId])).rows.map((r) => r.id), [aId], "only own user row");
+      assert.deepEqual([...new Set((await db.query("select user_id from memberships")).rows.map((r) => r.user_id))], [aId], "only own memberships");
+      const orgs = await db.query("select o.id from organizations o join memberships m on m.org_id = o.id where m.user_id in ($1, $2)", [aId, bId]);
+      assert.equal(orgs.rowCount, 1, "only organisations the user belongs to");
+      assert.equal((await db.query("select 1 from organizations where id in (select org_id from memberships where user_id = $1)", [bId])).rowCount, 0);
+      await assert.rejects(db.query("update users set name = 'x' where id = $1", [bId]).then((r) => { if (r.rowCount === 0) throw new Error("0 rows"); }), /0 rows|row-level security/);
+      await assert.rejects(db.query("insert into memberships (org_id, user_id, role) select org_id, $1, 'learner' from memberships where user_id = $1", [bId]).then((r) => { if (r.rowCount === 0) throw new Error("0 rows"); }), /0 rows|row-level security/);
+      await db.query("rollback");
+      // After the transaction the setting reads '' on this connection: still no user context.
+      assert.equal((await db.query("select 1 from users where id = $1", [bId])).rowCount, 1);
     } finally {
       await db.end();
     }

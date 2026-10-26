@@ -6,6 +6,9 @@
   "scripts": {
     "test": "node cross-browser.mjs"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "devDependencies": {
     "playwright": "^1.64.0"
   }

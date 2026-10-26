@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { MODEL_PRICING, type ModelPricing } from '../modules/ai/pricing.js';
+import { estimateInterviewCost, MODEL_PRICING, type InterviewCostEstimate, type ModelPricing } from '../modules/ai/pricing.js';
 
 /**
  * Server configuration, validated at boot. In AWS, ECS injects these from SSM Parameter Store
@@ -54,6 +54,17 @@ const EnvSchema = z
     ONBOARD_URL: z.url().default('http://localhost:5173'),
     /** Shared secret for /internal/* in both directions (same value in onboard and Labs). */
     INTERNAL_API_TOKEN: z.string().min(32),
+    /**
+     * Per-caller internal tokens (security patch 2, A9). The launcher derives one token per
+     * caller->callee pair from INTERNAL_API_TOKEN with HKDF, so a token leaked from one app cannot be
+     * replayed against another. INTERNAL_TOKENS_ACCEPT lists the tokens this API accepts (comma
+     * separated); INTERNAL_TOKEN_TO_ONBOARD is the one it presents to onboard. Absent, everything
+     * falls back to the raw INTERNAL_API_TOKEN (local development unchanged).
+     */
+    INTERNAL_TOKENS_ACCEPT: z.string().optional(),
+    INTERNAL_TOKEN_TO_ONBOARD: z.string().min(32).optional(),
+    /** Also accept the raw INTERNAL_API_TOKEN as a bearer. Default: false in production, true elsewhere. */
+    INTERNAL_TOKEN_LEGACY_ACCEPT: bool.optional(),
     /** Seconds a resolved session is reused before asking onboard again. Revocation lags by this much. */
     IDENTITY_CACHE_SECONDS: z.coerce.number().int().min(0).max(300).default(30),
 
@@ -63,8 +74,12 @@ const EnvSchema = z
     FS_STORAGE_DIR: z.string().default('./var/storage'),
 
     ANTHROPIC_API_KEY: z.string().optional(),
-    /** The application asks for tiers; these map tiers to verified model ids (L15). */
-    LLM_MODEL_SMALL: z.string().default('claude-haiku-4-5'),
+    /**
+     * The application asks for tiers; these map tiers to verified model ids (L15). SMALL has a
+     * development default only: in production it must be set explicitly (the per-interview budget is
+     * derived from its price, so a silent default would silently change what a learner can spend).
+     */
+    LLM_MODEL_SMALL: z.string().optional(),
     LLM_MODEL_LARGE: z.string().default('claude-sonnet-5-5'),
     /** Optional model to retry on a refusal stop for LARGE-tier calls. */
     LLM_REFUSAL_FALLBACK_MODEL: z.string().optional(),
@@ -77,10 +92,15 @@ const EnvSchema = z
     /** 'anthropic' in every deployed environment; 'fake' only for local demos and tests. */
     LLM_DRIVER: z.enum(['anthropic', 'fake']).default('anthropic'),
 
-    AI_SESSION_CAP_USD: z.coerce.number().positive().default(0.6),
-    AI_FINAL_SCORING_RESERVE_USD: z.coerce.number().nonnegative().default(0.2),
-    AI_USER_DAILY_CAP_USD: z.coerce.number().positive().default(2),
-    AI_GLOBAL_DAILY_CAP_USD: z.coerce.number().positive().default(60),
+    /**
+     * AI budgets. Unset, each is derived from the configured models' prices and the interview cost
+     * model (INTERVIEW_COST_MODEL in pricing.ts), so a model change moves the caps with the price
+     * instead of leaving yesterday's dollar figures in place. An explicit value always wins.
+     */
+    AI_SESSION_CAP_USD: z.coerce.number().positive().optional(),
+    AI_FINAL_SCORING_RESERVE_USD: z.coerce.number().nonnegative().optional(),
+    AI_USER_DAILY_CAP_USD: z.coerce.number().positive().optional(),
+    AI_GLOBAL_DAILY_CAP_USD: z.coerce.number().positive().optional(),
     INTERVIEW_MONTHLY_QUOTA_FREE: z.coerce.number().int().positive().default(5),
     INTERVIEW_MAX_OPEN_SESSIONS: z.coerce.number().int().positive().default(2),
     /** Multiplies the tier-2 rate limits (load tests, staging); 1 in production. */
@@ -106,6 +126,8 @@ const EnvSchema = z
     REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(4),
     REASONING_POOL_BATCH: z.coerce.number().int().min(1).max(10).default(4),
     REASONING_POOL_DAILY_CAP_USD: z.coerce.number().positive().default(5),
+    /** A pool question is retired from serving after this many learners have seen it (answer-key exposure bound). */
+    REASONING_ITEM_MAX_SERVES: z.coerce.number().int().positive().default(25),
 
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),
@@ -125,6 +147,10 @@ const EnvSchema = z
   })
   .superRefine((env, ctx) => {
     if (env.NODE_ENV === 'production') {
+      if (!env.LLM_MODEL_SMALL) ctx.addIssue({ code: 'custom', path: ['LLM_MODEL_SMALL'], message: 'required in production (no default: the AI budget is derived from its price)' });
+      if (!env.INTERNAL_TOKENS_ACCEPT && !env.INTERNAL_TOKEN_LEGACY_ACCEPT) {
+        ctx.addIssue({ code: 'custom', path: ['INTERNAL_TOKENS_ACCEPT'], message: 'required in production unless INTERNAL_TOKEN_LEGACY_ACCEPT=true (the raw INTERNAL_API_TOKEN is not accepted by default)' });
+      }
       if (env.STORAGE_DRIVER !== 's3' && !env.ALLOW_EPHEMERAL_STORAGE) ctx.addIssue({ code: 'custom', path: ['STORAGE_DRIVER'], message: 'must be s3 in production (or set ALLOW_EPHEMERAL_STORAGE=true for a demo)' });
       if (env.LLM_DRIVER !== 'anthropic') ctx.addIssue({ code: 'custom', path: ['LLM_DRIVER'], message: 'must be anthropic in production' });
       if (!env.SENTRY_DSN && !env.ALLOW_NO_SENTRY) ctx.addIssue({ code: 'custom', path: ['SENTRY_DSN'], message: 'required in production (or set ALLOW_NO_SENTRY=true for a demo)' });
@@ -138,12 +164,30 @@ const EnvSchema = z
     if (env.EMAIL_DRIVER === 'ses' && !env.SES_FROM_ADDRESS) ctx.addIssue({ code: 'custom', path: ['SES_FROM_ADDRESS'], message: 'required for SES' });
   });
 
-export type AppConfig = z.infer<typeof EnvSchema> & {
+type Env = z.infer<typeof EnvSchema>;
+/** Values that are optional in the environment but always resolved in the loaded configuration. */
+type Resolved = 'LLM_MODEL_SMALL' | 'AI_SESSION_CAP_USD' | 'AI_FINAL_SCORING_RESERVE_USD' | 'AI_USER_DAILY_CAP_USD' | 'AI_GLOBAL_DAILY_CAP_USD';
+
+export type AppConfig = Omit<Env, Resolved> & {
+  LLM_MODEL_SMALL: string;
+  AI_SESSION_CAP_USD: number;
+  AI_FINAL_SCORING_RESERVE_USD: number;
+  AI_USER_DAILY_CAP_USD: number;
+  AI_GLOBAL_DAILY_CAP_USD: number;
   pricing: Record<string, ModelPricing>;
   isProd: boolean;
   /** APP_ORIGIN plus ALLOWED_APP_ORIGINS, normalised to origins. */
   allowedOrigins: string[];
+  /** What one interview is expected to cost at the configured models (logged at boot; basis of the default caps). */
+  interviewCostEstimate: InterviewCostEstimate;
+  /** Bearer tokens accepted on /internal/* (per-caller tokens, plus the raw token when legacy acceptance is on). */
+  internalTokensAccept: readonly string[];
+  /** Bearer token this API presents to onboard. */
+  internalTokenToOnboard: string;
 };
+
+/** Development default for the SMALL tier; production must set LLM_MODEL_SMALL explicitly. */
+export const DEV_DEFAULT_MODEL_SMALL = 'claude-haiku-4-5';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = EnvSchema.safeParse(env);
@@ -151,7 +195,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
     throw new Error(`Invalid configuration: ${issues}`);
   }
-  const cfg = parsed.data;
+  const raw = parsed.data;
+  // Production fails closed above; everywhere else the development default applies.
+  const cfg = { ...raw, LLM_MODEL_SMALL: raw.LLM_MODEL_SMALL ?? DEV_DEFAULT_MODEL_SMALL };
   const pricing: Record<string, ModelPricing> = { ...MODEL_PRICING };
   if (cfg.LLM_PRICING_OVERRIDES) {
     const overrides = z
@@ -172,12 +218,39 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   // An unverified model id is a configuration error, never a silent default (L15).
   for (const key of ['LLM_MODEL_SMALL', 'LLM_MODEL_LARGE', 'LLM_REFUSAL_FALLBACK_MODEL'] as const) {
     const model = cfg[key];
-    if (model && !pricing[model]) {
+    if (model && !Object.hasOwn(pricing, model)) {
       throw new Error(`Invalid configuration: ${key}=${model} is not in the verified model registry; add LLM_PRICING_OVERRIDES after verifying it`);
     }
   }
   const allowedOrigins = [...new Set([cfg.APP_ORIGIN, ...cfg.ALLOWED_APP_ORIGINS.split(',')].map((o) => o.trim()).filter(Boolean).map((o) => new URL(o).origin))];
-  return { ...cfg, pricing, isProd: cfg.NODE_ENV === 'production', allowedOrigins };
+  const isProd = cfg.NODE_ENV === 'production';
+
+  // Budget defaults from the price list: an unset cap is what the cost model says, never a stale dollar figure.
+  const interviewCostEstimate = estimateInterviewCost(pricing[cfg.LLM_MODEL_SMALL]!, pricing[cfg.LLM_MODEL_LARGE]!);
+  const budgets = {
+    AI_SESSION_CAP_USD: cfg.AI_SESSION_CAP_USD ?? interviewCostEstimate.sessionCapUsd,
+    AI_FINAL_SCORING_RESERVE_USD: cfg.AI_FINAL_SCORING_RESERVE_USD ?? interviewCostEstimate.finalizeUsd,
+    AI_USER_DAILY_CAP_USD: cfg.AI_USER_DAILY_CAP_USD ?? interviewCostEstimate.userDailyCapUsd,
+    AI_GLOBAL_DAILY_CAP_USD: cfg.AI_GLOBAL_DAILY_CAP_USD ?? interviewCostEstimate.globalDailyCapUsd,
+  };
+
+  // Per-caller internal tokens (A9). The raw token is accepted only when legacy acceptance is on:
+  // default on outside production (local dev, tests) and off in production.
+  const legacy = cfg.INTERNAL_TOKEN_LEGACY_ACCEPT ?? !isProd;
+  const internalTokensAccept = [...new Set([...(cfg.INTERNAL_TOKENS_ACCEPT ?? '').split(',').map((t) => t.trim()).filter(Boolean), ...(legacy ? [cfg.INTERNAL_API_TOKEN] : [])])];
+  if (internalTokensAccept.some((t) => t.length < 32)) throw new Error('Invalid configuration: INTERNAL_TOKENS_ACCEPT: every token must be at least 32 characters');
+  if (!internalTokensAccept.length) throw new Error('Invalid configuration: INTERNAL_TOKENS_ACCEPT: no internal token would be accepted');
+
+  return {
+    ...cfg,
+    ...budgets,
+    pricing,
+    isProd,
+    allowedOrigins,
+    interviewCostEstimate,
+    internalTokensAccept,
+    internalTokenToOnboard: cfg.INTERNAL_TOKEN_TO_ONBOARD ?? cfg.INTERNAL_API_TOKEN,
+  };
 }
 
 export const APP_CONFIG = Symbol('APP_CONFIG');

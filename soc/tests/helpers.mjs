@@ -28,6 +28,10 @@ let server;
 let base;
 export async function start() {
   await new Promise((resolve) => { server = app.listen(0, resolve); });
+  // fetch() pools keep-alive connections; a test that pauses for about Node's default 5 s keep-alive
+  // timeout then reuses a socket the server has just closed (ECONNRESET). Keep test sockets open longer.
+  server.keepAliveTimeout = 120_000;
+  server.headersTimeout = 125_000;
   base = `http://127.0.0.1:${server.address().port}`;
 }
 export const baseUrl = () => base;

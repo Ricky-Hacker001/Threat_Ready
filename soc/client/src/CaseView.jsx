@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from './api.js';
+import { api, apiUrl } from './api.js';
 import { LiveFeed, SearchPanel, AlertPanel, EvidencePanel, HistoryPanel } from './components/Panels.jsx';
 import ToolsPanel from './components/ToolsPanel.jsx';
 import Workflow from './components/Workflow.jsx';
@@ -99,7 +99,7 @@ export default function CaseView({ id, goHome, go }) {
     seen.current = new Set();
     api.getCase(id).then((c) => { if (!dead) { setCs(c); if (c.status === 'closed' && c.report) setTab('report'); } }).catch((e) => { if (!dead) setLoadErr(e); });
     api.logs(id, { limit: 120 }).then((r) => { if (!dead) push(r.events); }).catch(() => {});
-    const es = new EventSource(`/api/cases/${id}/stream`);
+    const es = new EventSource(apiUrl(`/api/cases/${id}/stream`));
     es.addEventListener('hello', () => setConnected(true));
     es.addEventListener('logs', (m) => push(JSON.parse(m.data)));
     es.addEventListener('case', () => refresh());

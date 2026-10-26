@@ -23,10 +23,9 @@ import { Database, type Tx } from '../../platform/db/database.js';
 import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
 import { CACHE_PORT, type CachePort } from '../../platform/ports/cache.port.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
-import { attemptView, loadEvaluation, loadItem, loadOwnedAttempt, publicOf, transition, type AttemptRow } from './attempt.repo.js';
+import { attemptView, ITEM_COLUMNS, loadEvaluation, loadItem, loadItemPrivate, loadOwnedAttempt, publicOf, transition, type AttemptRow } from './attempt.repo.js';
 import { catalogue, getDomain, isAvailable } from './domains/index.js';
 import { logger } from '../../platform/logging/logger.js';
-import type { GeneratedItem } from './item.types.js';
 import type { StoredFeedback } from './evaluation.service.js';
 import { poolBucket } from './generation.service.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
@@ -75,13 +74,15 @@ export class ReasoningService {
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 17))', [p.userId]);
       await this.makeRoom(tx, p);
       const [picked] = await tx.db
-        .select()
+        .select(ITEM_COLUMNS)
         .from(reasoningItems)
         .where(
           and(
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
             eq(reasoningItems.difficulty, bucket),
+            // Retired once enough learners have seen it: bounds how far one answer key travels (A5).
+            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         )
@@ -119,6 +120,7 @@ export class ReasoningService {
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
             eq(reasoningItems.difficulty, bucket),
+            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         );
@@ -259,34 +261,38 @@ export class ReasoningService {
 
   /** The correct answer and the feedback exist only after the learner's own reasoning was evaluated. */
   async result(p: Principal, id: string): Promise<ReasoningResult> {
-    return this.db.user(p, async (tx) => {
+    const { a, item, ev } = await this.db.user(p, async (tx) => {
       const a = await loadOwnedAttempt(tx, p.userId, id);
       if (a.state !== 'evaluated' || !a.itemId) throw new DomainError('REASONING_INVALID_STATE', { message: 'The result is available once the evaluation has finished' });
       const [item, ev] = await Promise.all([loadItem(tx, a.itemId), loadEvaluation(tx, a.id)]);
       if (!item || !ev) throw new DomainError('REASONING_INVALID_STATE');
-      const pub = publicOf(item);
-      const stored = ev.feedback as StoredFeedback;
-      const priv = item.private as GeneratedItem['private'];
-      return {
-        attemptId: a.id,
-        domain: pub.domain,
-        totalScore: ev.totalScore,
-        correct: ev.correct,
-        selectedOption: a.selectedOption as OptionId,
-        correctOption: priv.correctOption,
-        options: stored.options,
-        dimensions: ev.dimensions as ReasoningResult['dimensions'],
-        feedback: stored.feedback,
-        confidence: ev.confidence,
-        reviewFlag: ev.reviewFlag,
-        degraded: ev.degraded,
-        notices: stored.notices,
-        scoring: { version: ev.scoringVersion, weights: pub.weights, notes: stored.scoringNotes },
-        techniques: pub.techniques,
-        concepts: pub.concepts,
-        evaluatedAt: ev.createdAt.toISOString(),
-      };
+      return { a, item, ev };
     });
+    // The answer key is read with the owner role, only after the learner's evaluated attempt on this
+    // item was confirmed above: the API role cannot select the column at all (migration 0011).
+    const priv = await this.db.system((tx) => loadItemPrivate(tx, item.id));
+    if (!priv) throw new DomainError('REASONING_INVALID_STATE');
+    const pub = publicOf(item);
+    const stored = ev.feedback as StoredFeedback;
+    return {
+      attemptId: a.id,
+      domain: pub.domain,
+      totalScore: ev.totalScore,
+      correct: ev.correct,
+      selectedOption: a.selectedOption as OptionId,
+      correctOption: priv.correctOption,
+      options: stored.options,
+      dimensions: ev.dimensions as ReasoningResult['dimensions'],
+      feedback: stored.feedback,
+      confidence: ev.confidence,
+      reviewFlag: ev.reviewFlag,
+      degraded: ev.degraded,
+      notices: stored.notices,
+      scoring: { version: ev.scoringVersion, weights: pub.weights, notes: stored.scoringNotes },
+      techniques: pub.techniques,
+      concepts: pub.concepts,
+      evaluatedAt: ev.createdAt.toISOString(),
+    };
   }
 
   async list(p: Principal, cursor: string | undefined, limit = 20): Promise<ReasoningAttemptList> {

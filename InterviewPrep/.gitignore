@@ -6,3 +6,6 @@ coverage
 !.env.example
 *.tsbuildinfo
 var/
+
+# Secrets and logs: same rules as the root .gitignore (templates are .env.example)
+*.log

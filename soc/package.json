@@ -5,7 +5,7 @@
   "type": "module",
   "description": "SOC analyst simulation: live log stream, L1 triage, L2 investigation, L3 response, ticket closure",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "scripts": {
     "start": "node server/index.js",
@@ -13,7 +13,8 @@
     "dev:client": "vite --config client/vite.config.js",
     "build": "vite build --config client/vite.config.js",
     "test": "node tests/run.mjs",
-    "start:dev": "node scripts/start-dev.mjs"
+    "start:dev": "node scripts/start-dev.mjs",
+    "lint:regexp": "node ../tools/check-regexp-from-input.mjs server"
   },
   "dependencies": {
     "express": "^4.21.2"

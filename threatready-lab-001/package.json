@@ -8,7 +8,11 @@
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "test:e2e": "tsx tests/e2e/browser.e2e.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:regexp": "node ../tools/check-regexp-from-input.mjs server"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "keywords": [],
   "author": "",
@@ -33,7 +37,6 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
-    "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^5.0.3"
   },
   "private": true,

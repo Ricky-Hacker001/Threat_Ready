@@ -254,8 +254,10 @@ export class DocumentsService {
         TIMEOUT: 'The document took too long to read. Try saving it again as a simpler PDF.',
         UNSUPPORTED: 'This file type is not supported.',
         UNREADABLE: 'The file appears to be damaged or empty.',
+        TOO_LARGE: 'The document expands to far more than a resume or job description should. Save it again as a plain DOCX or PDF.',
       }[code];
-      return fail(failure(kind, 'UNREADABLE'), message);
+      // A package whose declared contents are oversized is refused as too large, never inflated (A4).
+      return fail(failure(kind, code === 'TOO_LARGE' ? 'TOO_LARGE' : 'UNREADABLE'), message);
     }
 
     let prepared: ReturnType<typeof prepareText>;

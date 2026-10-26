@@ -140,6 +140,12 @@ export const interviewSessions = pgTable(
     /** Code-held progress: plan cursor, follow-up counters, running summary, performance trend. */
     progress: jsonb('progress').notNull().default({}),
     currentTurnId: uuid('current_turn_id'),
+    /**
+     * While `state = 'evaluating'`: the moment after which the evaluation is presumed lost (the API
+     * process died between storing the answer and asking the next question). The sweeper moves such
+     * sessions on without the evaluation, as a failed evaluation would.
+     */
+    evaluatingLeaseUntil: timestamp('evaluating_lease_until', { withTimezone: true }),
     activeElapsedMs: integer('active_elapsed_ms').notNull().default(0),
     runningSince: timestamp('running_since', { withTimezone: true }),
     lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
@@ -218,6 +224,8 @@ export const evaluations = pgTable(
   },
   (t) => [
     uniqueIndex('evaluations_session_version_uq').on(t.sessionId, t.scoringVersion),
+    /** Every RLS policy and dashboard query filters by user_id; without this each is a sequential scan. */
+    index('evaluations_user_idx').on(t.userId),
     check('evaluations_score_range', sql`overall_score between 0 and 100`),
     ownerPolicy('evaluations'),
   ],

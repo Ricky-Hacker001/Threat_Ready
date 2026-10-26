@@ -4,6 +4,7 @@ import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import type { Principal } from '../authz/principal.js';
+import { logger } from '../logging/logger.js';
 
 export type Db = NodePgDatabase<typeof schema>;
 
@@ -43,6 +44,16 @@ export class Database implements OnApplicationShutdown {
       max: cfg.DATABASE_POOL_MAX,
       application_name: `threatready-${process.env.APP_ROLE ?? 'api'}`,
       statement_timeout: 15_000,
+      // A connection that cannot be established in 5 s fails the query instead of hanging the request;
+      // idle connections are returned after 30 s so a Neon/RDS-side close never surprises a borrowed client.
+      connectionTimeoutMillis: 5_000,
+      idleTimeoutMillis: 30_000,
+    });
+    // pg emits 'error' on the pool when an idle client drops (server restart, network blip). Without a
+    // listener that is an uncaught exception and the whole process dies; the client is already removed
+    // from the pool, so logging is all that is needed.
+    this.pool.on('error', (err) => {
+      logger.warn({ err: { name: err.name, message: err.message, code: (err as { code?: string }).code } }, 'database pool: idle client error');
     });
     this.db = drizzle({ client: this.pool, schema });
   }

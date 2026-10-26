@@ -1,14 +1,23 @@
 import type { ReasoningAttemptState, ReasoningAttemptView, ReasoningItemPublic } from '@threatready/contracts';
 import { reasoningAttempts, reasoningEvaluations, reasoningItems } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import type { Tx } from '../../platform/db/database.js';
 import type { Weights } from './domain.types.js';
 import type { GeneratedItem, ReasoningItemPrivate } from './item.types.js';
 
 export type AttemptRow = typeof reasoningAttempts.$inferSelect;
-export type ItemRow = typeof reasoningItems.$inferSelect;
+/** A question as the API may see it: every column except `private` (A5; the API role has no privilege on it). */
+export type ItemRow = Omit<typeof reasoningItems.$inferSelect, 'private'>;
 export type EvaluationRow = typeof reasoningEvaluations.$inferSelect;
+
+/**
+ * Projection for every reasoning_items read in a learner's transaction. The answer key column is
+ * never listed: since migration 0011 selecting it as tr_app_user is a privilege error, so a `select()`
+ * of the whole row would fail rather than leak.
+ */
+const { private: _private, ...publicColumns } = getTableColumns(reasoningItems);
+export const ITEM_COLUMNS = publicColumns;
 
 /** Scoped repository: an attempt is found only by (id, userId). A miss is 404, never 403 (ADD L7). */
 export async function loadOwnedAttempt(tx: Tx, userId: string, id: string, forUpdate = false): Promise<AttemptRow> {
@@ -19,8 +28,17 @@ export async function loadOwnedAttempt(tx: Tx, userId: string, id: string, forUp
 }
 
 export async function loadItem(tx: Tx, id: string): Promise<ItemRow | null> {
-  const [row] = await tx.db.select().from(reasoningItems).where(eq(reasoningItems.id, id));
+  const [row] = await tx.db.select(ITEM_COLUMNS).from(reasoningItems).where(eq(reasoningItems.id, id));
   return row ?? null;
+}
+
+/**
+ * The answer key for one question, read with the owner role (never inside a learner's transaction).
+ * Callers check the learner owns an evaluated attempt on the item first.
+ */
+export async function loadItemPrivate(tx: Tx, id: string): Promise<ReasoningItemPrivate | null> {
+  const [row] = await tx.db.select({ private: reasoningItems.private }).from(reasoningItems).where(eq(reasoningItems.id, id));
+  return row ? (row.private as ReasoningItemPrivate) : null;
 }
 
 export async function loadEvaluation(tx: Tx, attemptId: string): Promise<EvaluationRow | null> {
@@ -63,8 +81,6 @@ export function publicOf(item: ItemRow): ReasoningItemPublic {
     createdAt: item.createdAt.toISOString(),
   };
 }
-
-export const privateOf = (item: ItemRow): ReasoningItemPrivate => item.private as ReasoningItemPrivate;
 
 export function attemptView(a: AttemptRow, item: ItemRow | null, ev: EvaluationRow | null): ReasoningAttemptView {
   return {

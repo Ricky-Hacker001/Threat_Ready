@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-HSRC5kiGSmh26gOy3eiNPGzC4h+1SgcrSZal8xtxRUg='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; connect-src 'self' https://threatready-db.onrender.com; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="description" content="ThreatReady security practices — infrastructure, encryption, access controls, and responsible disclosure program.">
 <meta name="robots" content="index, follow">
@@ -210,7 +211,7 @@ We will not claim certifications we do not hold. If this page says something is 
 <h2 id="landing">11. Landing page protections</h2>
 <p>Even before signup, this marketing site (<code>threatready.io</code>) applies abuse protections so signup forms, the demo, and the auth modal cannot be used to attack our infrastructure or yours.</p>
 <ul>
-<li><strong>Content Security Policy:</strong> The page enforces a CSP that limits where scripts, styles, fonts, and images can come from. <code>frame-ancestors 'none'</code> prevents the page from being framed for clickjacking.</li>
+<li><strong>Content Security Policy:</strong> The page enforces a CSP that limits where scripts, styles, fonts, and images can come from.</li>
 <li><strong>Form rate limiting (client-side):</strong> Email submissions through the auth modal, newsletter signup, and demo evaluation are rate-limited per browser session — 5 auth attempts per minute, 3 newsletter submissions per 5 minutes, 5 demo evaluations per 5 minutes. The product backend enforces stricter, IP-based limits independently.</li>
 <li><strong>Honeypot fields:</strong> Hidden fields invisible to humans but filled in by automated bots cause submissions to be silently dropped.</li>
 <li><strong>Input validation:</strong> Email addresses are validated against RFC-aligned patterns and length caps before being forwarded. Demo answer text is capped at 5,000 characters.</li>

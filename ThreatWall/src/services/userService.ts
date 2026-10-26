@@ -35,6 +35,17 @@ export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | 
   return { next: { ...cfg, users: { ...cfg.users, local } }, audit: [{ category: 'Users', action: `Local user ${u.name} ${originalId ? 'modified' : 'added'}`, detail: `Groups: ${u.groups.join(', ')}${u.otp ? '; one-time password required' : ''}${f.password && originalId ? '; password changed' : ''}` }] };
 }
 
+/**
+ * Replaces a local user's legacy (FNV-1a) password hash with the SHA-256 digest `verifyPassword` returned
+ * after a successful login. Silent for the learner: no audit row, nothing else on the user changes.
+ * Returns the config unchanged when the user is gone or already holds that hash.
+ */
+export function rehashUser(cfg: FirewallConfig, id: string, passwordHash: string): FirewallConfig {
+  const u = cfg.users.local.find((x) => x.id === id);
+  if (!u || !passwordHash || u.passwordHash === passwordHash) return cfg;
+  return { ...cfg, users: { ...cfg.users, local: cfg.users.local.map((x) => (x.id === id ? { ...x, passwordHash } : x)) } };
+}
+
 export function deleteUser(cfg: FirewallConfig, id: string): Result {
   const u = cfg.users.local.find((x) => x.id === id)!;
   return { next: { ...cfg, users: { ...cfg.users, local: cfg.users.local.filter((x) => x.id !== id) } }, audit: [{ category: 'Users', action: `Local user ${u.name} deleted`, detail: '' }] };

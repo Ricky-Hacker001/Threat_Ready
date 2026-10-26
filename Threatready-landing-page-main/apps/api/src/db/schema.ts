@@ -3,7 +3,9 @@ import {
   bigint,
   bigserial,
   boolean,
+  check,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -33,25 +35,46 @@ const timestamps = {
     .$onUpdate(() => new Date()),
 };
 
+/**
+ * Request-scoped backstop for the shared tables (migration 0006). The API's one role serves Better
+ * Auth (looks users up by email/token before anyone is signed in), the admin console (reads across
+ * users) and the tenancy helpers, so these tables cannot be owner-only for the role. Instead the
+ * policies bite whenever a request user is set (withUserTx): a query that runs under one user's
+ * app.user_id can then see and write only that user's own row / memberships / organisations. With no
+ * user context (the setting unset, or "" after a previous transaction reset it) the role-wide grants
+ * apply as before. A real split would need a second database role for Better Auth and admin.
+ */
+const noUserContext = sql`coalesce(current_setting('app.user_id', true), '') = ''`;
+const currentUser = sql`current_setting('app.user_id', true)`;
+
 /* ------------------------------------------------------------------ */
 /* Better Auth tables (fields match better-auth 1.7.7 + username,      */
 /* emailOTP, anonymous plugins and database rate limiting).            */
-/* Not RLS-protected: Better Auth must look users up across accounts.  */
+/* Better Auth must look users up across accounts: `users` carries     */
+/* only the request-scoped backstop above, the other tables no RLS.    */
 /* ------------------------------------------------------------------ */
 
-export const users = pgTable("users", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: boolean("email_verified").notNull().default(false),
-  image: text("image"),
-  username: text("username").unique(),
-  displayUsername: text("display_username"),
-  isAnonymous: boolean("is_anonymous").default(false),
-  /** Platform role: "user" or "admin". Admin sees /admin (all users, tokens, AI cost). */
-  role: text("role").notNull().default("user"),
-  ...timestamps,
-});
+const usersSelfOrNoContext = sql`${noUserContext} OR id = ${currentUser}`;
+export const users = pgTable(
+  "users",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: boolean("email_verified").notNull().default(false),
+    image: text("image"),
+    username: text("username").unique(),
+    displayUsername: text("display_username"),
+    isAnonymous: boolean("is_anonymous").default(false),
+    /** Platform role: "user" or "admin". Admin sees /admin (all users, tokens, AI cost). */
+    role: text("role").notNull().default("user"),
+    ...timestamps,
+  },
+  () => [
+    check("users_role_check", sql`"role" IN ('user', 'admin')`),
+    pgPolicy("users_self_or_no_context", { for: "all", to: appRole, using: usersSelfOrNoContext, withCheck: usersSelfOrNoContext }),
+  ],
+).enableRLS();
 
 export const sessions = pgTable(
   "sessions",
@@ -122,12 +145,18 @@ export const memberRole = pgEnum("member_role", ["learner", "trial", "student", 
 export const planKind = pgEnum("plan_kind", ["trial", "free"]);
 export const featureKey = pgEnum("feature_key", ["interview", "simulations", "reasoning"]);
 
-export const organizations = pgTable("organizations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  kind: orgKind("kind").notNull().default("personal"),
-  ...timestamps,
-});
+/** With a request user set: only organisations that user is a member of. */
+const orgMemberOrNoContext = sql`${noUserContext} OR EXISTS (SELECT 1 FROM memberships m WHERE m.org_id = organizations.id AND m.user_id = ${currentUser})`;
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    kind: orgKind("kind").notNull().default("personal"),
+    ...timestamps,
+  },
+  () => [pgPolicy("organizations_member_or_no_context", { for: "all", to: appRole, using: orgMemberOrNoContext, withCheck: orgMemberOrNoContext })],
+).enableRLS();
 
 export const memberships = pgTable(
   "memberships",
@@ -145,8 +174,9 @@ export const memberships = pgTable(
   (t) => [
     uniqueIndex("memberships_org_user_uidx").on(t.orgId, t.userId),
     index("memberships_user_id_idx").on(t.userId),
+    pgPolicy("memberships_own_or_no_context", { for: "all", to: appRole, using: sql`${noUserContext} OR user_id = ${currentUser}`, withCheck: sql`${noUserContext} OR user_id = ${currentUser}` }),
   ],
-);
+).enableRLS();
 
 export const entitlements = pgTable("entitlements", {
   orgId: uuid("org_id")
@@ -194,9 +224,7 @@ export const featureLaunches = pgTable(
 export const activityDays = pgTable(
   "activity_days",
   {
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     day: date("day", { mode: "string" }).notNull(),
     /** home | interview | labs | reasoning */
     app: text("app").notNull(),
@@ -206,16 +234,21 @@ export const activityDays = pgTable(
     firstAt: timestamp("first_at", { withTimezone: true }).notNull().defaultNow(),
     lastAt: timestamp("last_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.day, t.app, t.area] }), index("activity_days_day_idx").on(t.day)],
+  // Constraint names as migration 0003 created them (inline REFERENCES → PostgreSQL's <table>_<col>_fkey).
+  (t) => [
+    primaryKey({ name: "activity_days_pk", columns: [t.userId, t.day, t.app, t.area] }),
+    foreignKey({ name: "activity_days_user_id_fkey", columns: [t.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+    index("activity_days_day_idx").on(t.day),
+    check("activity_days_app_check", sql`"app" IN ('home', 'interview', 'labs', 'reasoning')`),
+    check("activity_days_seconds_check", sql`"seconds" >= 0`),
+  ],
 );
 
 /** Where a user uses the platform from, per UTC day: country (offline IP lookup, never the IP) and browser time zone. */
 export const userLocations = pgTable(
   "user_locations",
   {
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
     day: date("day", { mode: "string" }).notNull(),
     /** ISO 3166-1 alpha-2; "LO" local/private network; "ZZ" unknown. */
     country: text("country").notNull(),
@@ -225,7 +258,12 @@ export const userLocations = pgTable(
     firstAt: timestamp("first_at", { withTimezone: true }).notNull().defaultNow(),
     lastAt: timestamp("last_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [primaryKey({ columns: [t.userId, t.day, t.country, t.timeZone] }), index("user_locations_day_idx").on(t.day)],
+  (t) => [
+    primaryKey({ name: "user_locations_pk", columns: [t.userId, t.day, t.country, t.timeZone] }),
+    foreignKey({ name: "user_locations_user_id_fkey", columns: [t.userId], foreignColumns: [users.id] }).onDelete("cascade"),
+    index("user_locations_day_idx").on(t.day),
+    check("user_locations_country_check", sql`"country" ~ '^[A-Z]{2}$'`),
+  ],
 );
 
 /** Keys must equal Better Auth model names for the drizzle adapter. */
@@ -244,12 +282,18 @@ export const adminAuditLog = pgTable(
     id: bigserial("id", { mode: "number" }).primaryKey(),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
     action: text("action").notNull(),
-    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    actorId: text("actor_id"),
     actorEmail: text("actor_email"),
-    targetId: text("target_id").references(() => users.id, { onDelete: "set null" }),
+    targetId: text("target_id"),
     targetEmail: text("target_email"),
     detail: jsonb("detail").notNull().default({}),
     ip: text("ip"),
   },
-  (t) => [index("admin_audit_log_at_idx").on(t.at), index("admin_audit_log_target_idx").on(t.targetId)],
+  (t) => [
+    foreignKey({ name: "admin_audit_log_actor_id_fkey", columns: [t.actorId], foreignColumns: [users.id] }).onDelete("set null"),
+    foreignKey({ name: "admin_audit_log_target_id_fkey", columns: [t.targetId], foreignColumns: [users.id] }).onDelete("set null"),
+    index("admin_audit_log_at_idx").on(t.at),
+    index("admin_audit_log_target_idx").on(t.targetId),
+    check("admin_audit_log_action_check", sql`"action" IN ('role.promote', 'role.demote', 'users.export', 'user.view')`),
+  ],
 );

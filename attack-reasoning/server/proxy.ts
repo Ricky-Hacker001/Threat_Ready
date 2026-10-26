@@ -5,6 +5,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import type { Request, Response } from 'express';
+import { requestId } from './requestId';
 
 export interface ProxyOptions {
   /** Where this server reaches the monolith's API (in-VPC in AWS), e.g. http://localhost:3100 */
@@ -39,7 +40,8 @@ export function proxyToApi(opts: ProxyOptions) {
   const client = target.protocol === 'https:' ? https : http;
   const ipHeader = opts.clientIpHeader?.toLowerCase();
   return (req: Request, res: Response) => {
-    if (reachesInternal(req.originalUrl)) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found.', retryable: false, request_id: 'req_gateway' } }); return; }
+    const rid = requestId(req);
+    if (reachesInternal(req.originalUrl)) { res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found.', retryable: false, request_id: rid } }); return; }
     const headers: http.OutgoingHttpHeaders = {};
     // The cookie header goes through: the monolith resolves the ThreatReady session from it.
     for (const [k, v] of Object.entries(req.headers)) if (!dropIncoming(k, ipHeader) && v !== undefined) headers[k] = v;
@@ -48,6 +50,7 @@ export function proxyToApi(opts: ProxyOptions) {
     // The visitor's IP is always written here from the connection (req.ip honours Express's
     // `trust proxy` setting): a learner-supplied value in this header is never forwarded.
     if (ipHeader) headers[ipHeader] = req.ip ?? '';
+    headers['x-request-id'] = rid; // the gateway's id follows the request into the engine's logs
     const upstream = client.request(
       { protocol: target.protocol, hostname: target.hostname, port: target.port || undefined, method: req.method, path: req.originalUrl, headers },
       (up) => {
@@ -58,8 +61,9 @@ export function proxyToApi(opts: ProxyOptions) {
       },
     );
     upstream.setTimeout(0);
-    upstream.on('error', () => {
-      if (!res.headersSent) res.status(502).json({ error: { code: 'UPSTREAM_UNAVAILABLE', message: 'The assessment service is restarting. Try again shortly.', retryable: true, request_id: 'req_gateway' } });
+    upstream.on('error', (err) => {
+      console.error(`[${rid}] ${req.method} ${req.originalUrl}: reasoning engine unreachable: ${err.message}`);
+      if (!res.headersSent) res.status(502).json({ error: { code: 'UPSTREAM_UNAVAILABLE', message: 'The assessment service is restarting. Try again shortly.', retryable: true, request_id: rid } });
       else res.end();
     });
     req.on('aborted', () => upstream.destroy());
@@ -67,9 +71,9 @@ export function proxyToApi(opts: ProxyOptions) {
   };
 }
 
-/** One JSON call to the monolith's internal API with the shared token (summary and AI usage for onboard). */
-export async function internalGet(target: string, path: string, token: string, timeoutMs = 5000): Promise<{ status: number; body: unknown }> {
-  const res = await fetch(`${target.replace(/\/+$/, '')}${path}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+/** One JSON call to the monolith's internal API with this app's caller token (summary and AI usage for onboard). */
+export async function internalGet(target: string, path: string, token: string, rid?: string, timeoutMs = 5000): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${target.replace(/\/+$/, '')}${path}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...(rid ? { 'x-request-id': rid } : {}) }, signal: AbortSignal.timeout(timeoutMs) });
   const body: unknown = await res.json().catch(() => null);
   return { status: res.status, body };
 }

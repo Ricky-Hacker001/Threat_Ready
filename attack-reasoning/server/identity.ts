@@ -23,12 +23,13 @@ const MAX_IN_FLIGHT = 50;
  * lags that much), negative ones for 10 s; identical in-flight lookups are coalesced and at most
  * `maxInFlight` lookups run at once (beyond that the caller gets `unavailable`, a retryable 503).
  */
-export function onboardIdentity(opts: { identityUrl: string; internalToken: string; cacheSeconds?: number; timeoutMs?: number; maxInFlight?: number }): IdentityResolver {
+export function onboardIdentity(opts: { identityUrl: string; internalToken: string; cacheSeconds?: number; timeoutMs?: number; maxInFlight?: number; /** Token presented to onboard. Default: INTERNAL_TOKEN_TO_ONBOARD, else `internalToken`. */ callerToken?: string }): IdentityResolver {
   const cache = new Map<string, { at: number; ttl: number; user: PlatformUser | null }>();
   const inflight = new Map<string, Promise<IdentityResult>>();
   const ttl = (opts.cacheSeconds ?? 30) * 1000;
   const maxInFlight = opts.maxInFlight ?? MAX_IN_FLIGHT;
   const base = opts.identityUrl.replace(/\/+$/, '');
+  const bearer = opts.callerToken ?? callerInternalToken('onboard', opts.internalToken);
   const remember = (key: string, user: PlatformUser | null, entryTtl: number) => {
     if (entryTtl <= 0) return;
     cache.delete(key); // re-insert at the end: Map order is insertion order, so the oldest entries come first
@@ -39,7 +40,7 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
     let res: Response;
     try {
       res = await fetch(`${base}/api/internal/identity/session`, {
-        headers: { cookie, authorization: `Bearer ${opts.internalToken}`, accept: 'application/json' },
+        headers: { cookie, authorization: `Bearer ${bearer}`, accept: 'application/json' },
         signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
       });
     } catch (e: any) { console.error(`identity provider unreachable: ${e?.message ?? e}`); return { ok: false, reason: 'unavailable' }; }
@@ -69,12 +70,46 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
   };
 }
 
-/** Constant-time check of `Authorization: Bearer <INTERNAL_API_TOKEN>` for /internal/v1/*. */
-export function internalTokenMatches(header: string | undefined, token: string): boolean {
+/**
+ * Constant-time check of `Authorization: Bearer <token>` for /internal/v1/* against one or more accepted
+ * tokens (every candidate is compared; no early exit).
+ */
+export function internalTokenMatches(header: string | undefined, token: string | readonly string[]): boolean {
   const m = /^Bearer (.+)$/.exec(header || '');
   const a = crypto.createHash('sha256').update(m?.[1] ?? '').digest();
-  const b = crypto.createHash('sha256').update(token).digest();
-  return !!m && crypto.timingSafeEqual(a, b);
+  let ok = false;
+  for (const t of typeof token === 'string' ? [token] : token) {
+    const b = crypto.createHash('sha256').update(t).digest();
+    if (crypto.timingSafeEqual(a, b)) ok = true;
+  }
+  return !!m && ok;
+}
+
+/**
+ * Per-caller internal tokens (deploy/start.mjs derives one per caller→callee pair with HKDF). The callee
+ * accepts every token in `INTERNAL_TOKENS_ACCEPT` (comma list) plus `configured` when it is a token of its
+ * own (not the shared raw `INTERNAL_API_TOKEN`); the shared raw token is accepted only when
+ * `INTERNAL_TOKEN_LEGACY_ACCEPT` is true (default: false in production, true elsewhere). With no derived
+ * list configured at all (local dev, older launcher) the configured token alone is accepted, as before.
+ */
+export function acceptedInternalTokens(configured: string | undefined, opts: { accept?: readonly string[]; legacyAccept?: boolean; env?: NodeJS.ProcessEnv } = {}): string[] {
+  const env = opts.env ?? process.env;
+  const list = (opts.accept ?? (env.INTERNAL_TOKENS_ACCEPT ?? '').split(',')).map(s => s.trim()).filter(Boolean);
+  const legacy = opts.legacyAccept ?? (env.INTERNAL_TOKEN_LEGACY_ACCEPT !== undefined ? env.INTERNAL_TOKEN_LEGACY_ACCEPT === 'true' : env.NODE_ENV !== 'production');
+  const isRaw = !!env.INTERNAL_API_TOKEN && configured === env.INTERNAL_API_TOKEN;
+  if (configured && (!isRaw || legacy || list.length === 0)) list.push(configured);
+  if (legacy && env.INTERNAL_API_TOKEN) list.push(env.INTERNAL_API_TOKEN);
+  return [...new Set(list)];
+}
+
+/**
+ * The token this app presents to `callee`: `INTERNAL_TOKEN_TO_<CALLEE>` when set, else `configured`.
+ * A `configured` value that is not the shared raw `INTERNAL_API_TOKEN` was chosen deliberately (the
+ * launcher passes the derived token straight in) and is used as given.
+ */
+export function callerInternalToken(callee: 'onboard' | 'interview', configured: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
+  if (configured && configured !== env.INTERNAL_API_TOKEN) return configured;
+  return env[`INTERNAL_TOKEN_TO_${callee.toUpperCase()}`] || configured || '';
 }
 
 /** Every ThreatReady app's public URL and status, from onboard's public config (cached). Feeds the shared header. */

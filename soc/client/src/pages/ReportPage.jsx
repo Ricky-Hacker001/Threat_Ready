@@ -2,7 +2,7 @@
 // from the user's own records; available to every user whatever the results.
 
 import React, { useEffect, useState } from 'react';
-import { api } from '../api.js';
+import { api, apiUrl } from '../api.js';
 import { ErrorNote, stamp, duration } from '../components/bits.jsx';
 import { Shield } from '../components/Badge.jsx';
 import { Brand, Footer } from '../Console.jsx';
@@ -16,7 +16,7 @@ export default function ReportPage({ go }) {
   useEffect(() => { api.report().then(setR).catch(setErr); }, []);
 
   const download = () => {
-    window.location.href = '/api/me/export';
+    window.location.href = apiUrl('/api/me/export');
   };
 
   if (err) return <div className="page"><ErrorNote error={err} /><p><button type="button" className="btn" onClick={() => go('#/')}>Back to SOC home</button></p></div>;

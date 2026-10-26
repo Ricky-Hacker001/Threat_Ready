@@ -7,10 +7,26 @@ export interface Session { id: string; userId: string; labId: string; run: numbe
 // `tokens` held prototype display-name logins; sign-in now happens on onboard.threatready.io, so it is no longer written.
 interface Data { users: Record<string, { id: string; name: string }>; tokens: Record<string, string>; sessions: Record<string, Session> }
 
+/** Moves an unreadable store file to `<file>.corrupt-<timestamp>`; returns the new path, or null when that failed. */
+export function quarantine(file: string): string | null {
+  const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try { fs.renameSync(file, kept); return kept; } catch { return null; }
+}
+
 export class Store {
   private data: Data = { users: {}, tokens: {}, sessions: {} };
   constructor(private file: string | null) {
-    if (file && fs.existsSync(file)) { try { this.data = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { console.warn('store: could not parse data file, starting empty'); } }
+    if (file && fs.existsSync(file)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
+        this.data = { users: {}, tokens: {}, sessions: {}, ...parsed };
+      } catch (err) {
+        // A corrupt or truncated file is kept for recovery, never overwritten by the next save.
+        const kept = quarantine(file);
+        console.error(`store: ${file} could not be read (${(err as Error).message}); ${kept ? `kept as ${kept}` : 'could not be moved aside'}, starting empty`);
+      }
+    }
   }
   private save() {
     if (!this.file) return;

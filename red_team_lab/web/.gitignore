@@ -3,3 +3,7 @@ dist/
 data/
 *.log
 .env
+
+# Secrets and logs: same rules as the root .gitignore (templates are .env.example)
+.env.*
+!.env.example

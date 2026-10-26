@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { RawRequest, RawResponse, Sev, StatusBadge, Field, SEV_ORDER, useToast } from './ui';
-import { api } from './api';
+import { api, BASE } from './api';
 
 export interface ToolProps {
   def: any; view: any; status: any; sid: string;
@@ -21,8 +21,10 @@ const histById = (view: any, id: string) => view.history.find((h: any) => h.id =
 // inside the simulation (posting them to the parent, which calls browser.navigate) instead of letting
 // the frame navigate the real origin. It also turns blocking dialogs (alert/confirm/prompt) raised by
 // XSS payloads into a non-blocking on-page banner — a safe, visible proof that script executed.
-const NAV_SHIM = `<script>(function(){
-  function send(method,url,body){ try{ parent.postMessage({__trlab:1,type:'nav',method:method,url:url,body:body||''}, '*'); }catch(e){} }
+// The per-frame nonce ties its messages to the frame instance the lab page created (see BrowserTool).
+const navShim = (nonce: string) => `<script>(function(){
+  var nonce=${JSON.stringify(nonce)};
+  function send(method,url,body){ try{ parent.postMessage({__trlab:1,type:'nav',nonce:nonce,method:method,url:url,body:body||''}, '*'); }catch(e){} }
   document.addEventListener('click', function(e){
     var a = e.target && e.target.closest && e.target.closest('a[href]'); if(!a) return;
     var href = a.getAttribute('href')||'';
@@ -71,13 +73,23 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
 
   // Keep the embedded browser inside the simulation: a trusted shim in the sandboxed frame forwards
   // link clicks and form submits to the lab (browser.navigate) instead of navigating the real origin.
+  // The frame is the server's /target-frame.html (its own sandboxed policy, so the lab's pages can keep
+  // the strict platform policy while XSS payloads still run in the target): a fresh instance per
+  // response, which announces `ready` and is then handed the response body with this instance's nonce.
   const frameRef = useRef<HTMLIFrameElement>(null);
   const actRef = useRef(act); actRef.current = act;
+  const frameKey = lastBrowser?.id ?? '';
+  const nonce = useMemo(() => newNonce(), [frameKey]);
+  const frameDoc = useMemo(() => !resp ? '' : resp.contentType === 'text/html' ? resp.body + navShim(nonce) : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`, [resp, nonce]);
+  const frameState = useRef({ nonce, frameDoc }); frameState.current = { nonce, frameDoc };
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      if (frameRef.current && e.source !== frameRef.current.contentWindow) return;
+      // Only the current sandboxed frame (an opaque origin serialises as "null").
+      if (!frameRef.current || e.source !== frameRef.current.contentWindow || e.origin !== 'null') return;
       const d: any = e.data;
-      if (d && d.__trlab && d.type === 'nav' && typeof d.url === 'string')
+      if (!d || d.__trlab !== 1) return;
+      if (d.type === 'ready') { (e.source as Window).postMessage({ nonce: frameState.current.nonce, html: frameState.current.frameDoc }, '*'); return; }
+      if (d.type === 'nav' && d.nonce === frameState.current.nonce && typeof d.url === 'string')
         actRef.current('browser.navigate', { url: d.url, method: d.method === 'POST' ? 'POST' : 'GET', body: d.body || undefined });
     };
     window.addEventListener('message', onMsg);
@@ -125,7 +137,7 @@ export function BrowserTool({ def, view, act, pushRepeater, browserPrefill }: To
     </div>
 
     {resp
-      ? <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" srcDoc={resp.contentType === 'text/html' ? resp.body + NAV_SHIM : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`} />
+      ? <iframe key={frameKey} ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" src={`${BASE}target-frame.html`} />
       : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>}
 
     {links.length > 0 && <div style={{ marginTop: 8 }}><span className="muted small">Links on this page:</span><br />
@@ -380,4 +392,5 @@ function RenderedReport({ report }: { report: any }) {
 /* ---------------- helpers ---------------- */
 function parseHeaders(text: string): Record<string, string> { const o: Record<string, string> = {}; for (const line of text.split('\n')) { const i = line.indexOf(':'); if (i > 0) o[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim(); } return o; }
 function parseCookies(text: string): Record<string, string> { const o: Record<string, string> = {}; for (const p of text.split(';')) { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = p.slice(i + 1).trim(); } return o; }
+function newNonce() { return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function escapeHtml(s: string) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }

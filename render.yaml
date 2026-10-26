@@ -8,8 +8,13 @@ services:
     plan: free
     region: singapore
     buildCommand: bash deploy/build.sh
-    startCommand: node --max-old-space-size=96 --max-semi-space-size=2 deploy/start.mjs
+    # Gateway heap: 48 MB. It only proxies and serves static files; the apps run as memory-capped
+    # children (onboard 110, InterviewPrep 180, labs 150; see deploy/README.md "Memory budget").
+    startCommand: node --max-old-space-size=48 --max-semi-space-size=2 deploy/start.mjs
     healthCheckPath: /healthz
+    # autoDeploy: true deploys every push to the branch, including one whose CI failed. Turn on
+    # "Wait for CI" (service → Settings → Build & Deploy) so Render deploys only after the GitHub
+    # checks pass, or set this to false and deploy from the dashboard / a deploy hook after CI.
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
@@ -36,6 +41,11 @@ services:
       # --- AI interviewer (InterviewPrep) ---
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Model id for the small tier (required in production since the 2026-10-23 patch 2). Current
+      # default in InterviewPrep/apps/api/src/config/config.ts: claude-haiku-4-5. LLM_MODEL_LARGE
+      # (default claude-sonnet-5-5) may be set the same way.
+      - key: LLM_MODEL_SMALL
+        value: claude-haiku-4-5
       # --- Cloudflare Turnstile (CAPTCHA on sign-up, sign-in and OTP requests). Set BOTH or none:
       #     without them production runs on rate limits alone (the launcher warns at start).
       - key: TURNSTILE_SITE_KEY
@@ -54,3 +64,8 @@ services:
       # --- Optional: platform admins (comma-separated verified emails) ---
       - key: ADMIN_EMAILS
         sync: false
+      # --- Launcher switches (leave unset) ---
+      # FORCE_ROLE_SYNC=true re-issues ALTER ROLE ... PASSWORD for the app role once even when the
+      #   stored digest says the password is unchanged (e.g. after restoring the database).
+      # INTERNAL_TOKEN_LEGACY_ACCEPT=true makes the children accept the raw INTERNAL_API_TOKEN again
+      #   next to their per-caller tokens (default false in production; see deploy/README.md).

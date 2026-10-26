@@ -42,9 +42,19 @@ export const reasoningItems = pgTable(
     seed: jsonb('seed').notNull(),
     /** Scenario, narrative, diagram, question and options: everything the browser may see. */
     public: jsonb('public').notNull(),
-    /** Correct option, rubric, must-not-credit list, option analysis, reference answer: server only. */
+    /**
+     * Correct option, rubric, must-not-credit list, option analysis, reference answer: server only.
+     * Since migration 0011 the API role has no SELECT privilege on this column; it is read only
+     * through the worker/owner role (Database.system) by the evaluator and the result builder.
+     */
     private: jsonb('private').notNull(),
     weights: jsonb('weights').$type<Record<string, number>>().notNull(),
+    /**
+     * Learners this question has been served to (kept by a trigger on reasoning_served). A pool
+     * question past REASONING_ITEM_MAX_SERVES is retired from serving, bounding how far one answer
+     * key can travel; the refill job generates a replacement.
+     */
+    serveCount: integer('serve_count').notNull().default(0),
     generatorVersion: text('generator_version').notNull(),
     promptVersion: text('prompt_version').notNull(),
     model: text('model').notNull(),
@@ -54,6 +64,7 @@ export const reasoningItems = pgTable(
   (t) => [
     index('reasoning_items_user_domain_idx').on(t.userId, t.domain, t.createdAt),
     index('reasoning_items_pool_idx').on(t.pool, t.domain, t.difficulty, t.createdAt),
+    index('reasoning_items_pool_serve_idx').on(t.pool, t.domain, t.difficulty, t.serveCount),
     check('reasoning_items_owner_or_pool', sql`pool or user_id is not null`),
     ownerPolicy('reasoning_items'),
     // Pool questions are readable by any learner's transaction; the private half is still never serialised.

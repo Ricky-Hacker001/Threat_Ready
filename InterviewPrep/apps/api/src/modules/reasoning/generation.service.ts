@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { ReasoningDifficulty } from '@threatready/contracts';
 import { reasoningAttempts, reasoningItems, reasoningServed } from '@threatready/db';
 import { DomainError } from '@threatready/shared';
-import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { and, count, desc, eq, lt, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
@@ -128,8 +128,12 @@ export class GenerationService {
    * the platform generate; past it, the learner's own daily cap pays for on-demand questions.
    */
   private async needed(domain: string, difficulty: string, userId?: string): Promise<number> {
+    // Questions retired by the serve cap no longer count: the refill backfills them (A5).
     const [{ n: total } = { n: 0 }] = await this.db.system(({ db }) =>
-      db.select({ n: count() }).from(reasoningItems).where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), eq(reasoningItems.difficulty, difficulty))),
+      db
+        .select({ n: count() })
+        .from(reasoningItems)
+        .where(and(eq(reasoningItems.pool, true), eq(reasoningItems.domain, domain), eq(reasoningItems.difficulty, difficulty), lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES))),
     );
     const headroom = Math.max(0, this.cfg.REASONING_POOL_TARGET - total);
     let need = headroom;
@@ -151,6 +155,7 @@ export class GenerationService {
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, domain),
             eq(reasoningItems.difficulty, difficulty),
+            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${userId})`,
           ),
         ),

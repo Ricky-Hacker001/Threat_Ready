@@ -78,6 +78,13 @@
       "when": 1792574785720,
       "tag": "0010_bill_failed_calls",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792575385720,
+      "tag": "0011_security_patch_2",
+      "breakpoints": true
     }
   ]
 }

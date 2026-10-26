@@ -7,7 +7,115 @@ on:
 permissions:
   contents: read
 
+# Node 24 everywhere: matches render.yaml NODE_VERSION and engines.node (">=24") in every package.json.
+env:
+  NODE_VERSION: "24"
+
 jobs:
+  # Repo-level gates: ReDoS lint over every server source dir, generated _headers in sync with the gateway CSP,
+  # hash-based CSP on every static landing page. All dependency-free (node only).
+  tooling:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin SHA
+      - uses: actions/setup-node@v4 # TODO: pin SHA
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: tools self-test
+        run: node --test "tools/test/*.test.mjs"
+      - name: ReDoS lint (regex built from input) over every server dir and deploy/*.mjs
+        run: node tools/check-regexp-from-input.mjs
+      - name: onboard _headers matches deploy/gateway.mjs security headers
+        run: node tools/gen-headers.mjs --check
+      - name: landing pages carry a hash-based CSP
+        run: node tools/check-landing-csp.mjs
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin SHA
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2 # TODO: pin SHA
+        # Uses the repo .gitleaks.toml (allowlists the fake training keys). GITLEAKS_LICENSE is only needed for
+        # organisation repos; add it as a secret if the action asks for one.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+          GITLEAKS_ENABLE_SUMMARY: "true"
+
+  # Every npm package with a lockfile: clean install, typecheck, lint (incl. the regexp scanner), unit tests,
+  # production build with the same --base deploy/build.sh uses, and zero high/critical RUNTIME advisories.
+  npm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: deploy
+            build: bundle
+          - dir: InterviewPrep
+            build: build
+            # `npm test` at the root runs the Postgres-backed e2e suites; CI gates the unit suite (the e2e suites
+            # run in the InterviewPrep job when one is added). `npm run lint` has 5 pre-existing eslint errors in
+            # apps/web (InterviewerPhoto.tsx unused `dt`, `any` in test/brave-voice.test.tsx): fix those, then
+            # drop `lint: skip`.
+            lint: skip
+            test: npm test -w @threatready/api -- test/unit
+          - dir: threatready-lab-001
+            build: build
+          - dir: attack-reasoning
+            build: build
+          - dir: red_team_lab/web
+            build: build
+            base: /labs/redteam/
+          - dir: soc
+            build: build
+            base: /labs/soc/
+          - dir: ThreatWall
+            build: build
+            base: /labs/threatwall/
+          - dir: DevSecOps-Simulation
+            build: build
+            base: /labs/devsecops/
+          - dir: AI-Security
+            build: build
+            base: /labs/aisec/
+          - dir: e2e
+            # Cross-browser suite needs a running stack and browsers; install + audit only.
+            test: skip
+    name: npm (${{ matrix.dir }})
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    env:
+      VITE_ONBOARD_URL: ""
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin SHA
+      - uses: actions/setup-node@v4 # TODO: pin SHA
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npm run typecheck --if-present
+      - name: lint
+        if: matrix.lint != 'skip'
+        run: npm run lint --if-present
+      - name: lint:regexp (ReDoS)
+        run: npm run lint:regexp --if-present
+      - name: unit tests
+        if: matrix.test != 'skip'
+        run: ${{ matrix.test || 'npm test --if-present' }}
+      - name: build (as deploy/build.sh does)
+        if: matrix.build
+        run: npm run ${{ matrix.build }} -- ${{ matrix.base && format('--base {0}', matrix.base) || '' }}
+      - name: npm audit (runtime deps, high+)
+        run: npm audit --omit=dev --audit-level=high
+
+  # Onboard (pnpm workspace): typecheck, routes test, migrations and the e2e suite against a live API.
   onboard:
     runs-on: ubuntu-latest
     defaults:
@@ -34,19 +142,21 @@ jobs:
       EMAIL_DRIVER: log
       RATE_LIMIT_MULTIPLIER: "10"
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v4 # TODO: pin SHA
+      - uses: pnpm/action-setup@v4 # TODO: pin SHA
         with:
           package_json_file: Threatready-landing-page-main/package.json
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4 # TODO: pin SHA
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
           cache-dependency-path: Threatready-landing-page-main/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -v ON_ERROR_STOP=1 -f infra/db/init.sql
       - run: pnpm --filter @threatready/contracts build
       - run: pnpm typecheck
+      - name: lint:regexp (ReDoS)
+        run: pnpm lint:regexp
       - run: pnpm build
       - name: Every route declares a permission (ADD L7)
         run: pnpm --filter @threatready/api test:routes
@@ -63,3 +173,15 @@ jobs:
           pnpm test:e2e
       - if: failure()
         run: cat api.log
+      - name: pnpm audit (runtime deps, high+)
+        run: pnpm audit --prod --audit-level high
+
+  # The exact Render build (installs and builds every app for the single-origin deployment).
+  render-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # TODO: pin SHA
+      - uses: actions/setup-node@v4 # TODO: pin SHA
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: bash deploy/build.sh

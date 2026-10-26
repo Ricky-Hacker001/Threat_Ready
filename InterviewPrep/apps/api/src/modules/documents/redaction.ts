@@ -10,7 +10,9 @@ export interface RedactionResult {
 }
 
 const RULES: { name: string; marker: string; re: RegExp }[] = [
-  { name: 'email', marker: '[EMAIL]', re: /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
+  // The lookbehind anchors the match to the start of its run: without it a 30,000-character run of
+  // address characters with no "@" is rescanned from every position (1.6 s per document, A11c).
+  { name: 'email', marker: '[EMAIL]', re: /(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi },
   { name: 'url', marker: '[PROFILE_URL]', re: /\b(?:https?:\/\/)?(?:www\.)?(?:linkedin\.com|github\.com|gitlab\.com|twitter\.com|x\.com|medium\.com|behance\.net|dribbble\.com)\/[^\s)|,;]+/gi },
   { name: 'url', marker: '[URL]', re: /\bhttps?:\/\/[^\s)|,;]+/gi },
   { name: 'aadhaar', marker: '[ID_NUMBER]', re: /\b[2-9]\d{3}[\s-]?\d{4}[\s-]?\d{4}\b/g },

@@ -16,6 +16,7 @@ import { evaluate, VERDICT_LABEL, type FlowResult, type FlowSpec } from '../engi
 import { DAY_NAMES, labNow, localTime, tsAt, findAddress } from '../engine/objects';
 import { isIPv4, isMask, inSubnet } from '../lib/ip';
 import { labTotp, verifyPassword } from '../lib/hash';
+import { rehashUser } from '../services/userService';
 import { LAB } from '../state/baseline';
 
 export const LAB_TABS = [
@@ -439,8 +440,10 @@ function Card({ title, children, guide }: { title: string; children: ReactNode; 
 }
 
 function LabControlsTab() {
-  const { state, lab, patchLab, emit, config } = useStore();
+  const { state, lab, patchLab, emit, config, commit } = useStore();
   const tz = config.system.timezone;
+  // A local user's hash stored before the SHA-256 upgrade is replaced on the first successful login (as the admin's is in Login.tsx).
+  const rehash = (id: string, next?: string) => { if (next) commit(rehashUser(config, id, next), []); };
   const [nx, setNx] = useState({ user: '', pw: '', otp: '' });
   const [nxMsg, setNxMsg] = useState('');
   const [au, setAu] = useState({ host: 'hr', user: '', pw: '' });
@@ -460,7 +463,9 @@ function LabControlsTab() {
     const portal = evaluate(state, { from: 'remote-user', to: LAB.wanIp, proto: 'TCP', port: config.sslvpn.port }).result;
     if (!portal.ok) return fail(`Cannot reach the SSL VPN portal on ${LAB.wanIp}:${config.sslvpn.port} — ${portal.reason}`);
     const u = config.users.local.find((x) => x.name === nx.user.trim());
-    if (!u || !(await verifyPassword(nx.pw, u.passwordHash)).ok) return fail('Authentication failed: wrong username or password.');
+    const v = u ? await verifyPassword(nx.pw, u.passwordHash) : { ok: false };
+    if (!u || !v.ok) return fail('Authentication failed: wrong username or password.');
+    rehash(u.id, v.rehash);
     if (!u.groups.includes('SSLVPN Services')) return fail(`${u.name} is not a member of SSLVPN Services, so SSL VPN access is refused.`);
     if (u.otp && nx.otp.trim() !== labTotp(u.name, Date.now())) return fail('One-time code required or incorrect. Use the code shown under “Authenticator”.');
     if (!config.sslvpn.pool || !findAddress(config, config.sslvpn.pool)) return fail('Connected, but the firewall has no client address pool to hand out.');
@@ -474,7 +479,9 @@ function LabControlsTab() {
     const u = config.users.local.find((x) => x.name === au.user.trim());
     const h = hostById(au.host);
     if (!h) return;
-    if (!u || !(await verifyPassword(au.pw, u.passwordHash)).ok) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
+    const v = u ? await verifyPassword(au.pw, u.passwordHash) : { ok: false };
+    if (!u || !v.ok) { setAuMsg('Login failed: wrong username or password.'); emit('lab', { action: 'userlogin', ok: false }); return; }
+    rehash(u.id, v.rehash);
     const net = hostNet(state, h);
     if (!net) { setAuMsg(`${h.name} has no network address, so it cannot reach the login page.`); return; }
     patchLab({ authSessions: [...lab.authSessions.filter((a) => a.host !== h.id), { user: u.name, host: h.id, since: Date.now() }] }, [{ category: 'Users', action: 'User login', detail: `${u.name} on ${h.name} (${net.ip})` }]);

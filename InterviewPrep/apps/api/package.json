@@ -12,6 +12,9 @@
     "dev:worker": "tsx watch src/main.ts worker",
     "test": "vitest run"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.0",
     "@aws-sdk/client-s3": "^3.1149.0",

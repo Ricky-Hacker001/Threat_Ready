@@ -21,6 +21,7 @@ soc/data/*.json
 soc/data/*.tmp
 red_team_lab/web/data/
 .logs/
+*.log
 test-results/
 .claude/
 .DS_Store

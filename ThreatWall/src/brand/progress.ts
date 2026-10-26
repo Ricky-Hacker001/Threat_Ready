@@ -2,7 +2,7 @@ import type { Progress } from '../state/types';
 import { TASKS } from '../tasks';
 import type { TaskDef } from '../tasks/types';
 import { DEFAULT_ROUTE, routeFor } from '../shell/nav';
-import { migrateLegacyKey, nsKey } from '../lib/storage';
+import { nsKey } from '../lib/storage';
 
 export type LevelState = 'locked' | 'open' | 'in-progress' | 'complete';
 
@@ -28,14 +28,12 @@ export function nextTask(p: Progress): TaskDef | null {
   return TASKS.find((t) => { const s = st(p, t.id); return s !== 'completed' && s !== 'locked'; }) ?? null;
 }
 
-const LEGACY_LAST_ROUTE_KEY = 'tw-last-route';
-/** Per signed-in account (see lib/storage.ts). */
-export const lastRouteKey = (): string => nsKey(LEGACY_LAST_ROUTE_KEY);
+/** Per signed-in account (see lib/storage.ts; the legacy un-namespaced key is migrated at boot by initStorageNamespace). */
+export const lastRouteKey = (): string => nsKey('tw-last-route');
 
 /** Where "Continue" returns to: the last appliance page the learner had open. */
 export function lastRoute(): string {
   try {
-    migrateLegacyKey(LEGACY_LAST_ROUTE_KEY);
     const r = localStorage.getItem(lastRouteKey());
     if (r && routeFor(r)) return r;
   } catch { /* storage unavailable */ }

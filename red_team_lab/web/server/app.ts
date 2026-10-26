@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import { Store, Session } from './store';
 import { webLab, LabEngine } from './engine';
 import { CATALOG } from './catalog';
-import { IdentityResolver, internalTokenMatches, devUserCookie, devLogoutCookie } from './identity';
+import { IdentityResolver, acceptedInternalTokens, internalTokenMatches, devUserCookie, devLogoutCookie } from './identity';
 import { limitFromEnv, rateLimiter } from './ratelimit';
+import { requestId, requestIds } from './requestId';
+import { TARGET_FRAME_CSP, TARGET_FRAME_HTML } from './frame';
 
 const ENGINES: Record<string, LabEngine> = { [webLab.labId]: webLab };
 const hasOwn = (o: object, k: unknown) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
@@ -15,6 +17,10 @@ const engineOf = (labId: unknown): LabEngine | undefined => (hasOwn(ENGINES, lab
 export interface AppOptions {
   identity: IdentityResolver;
   internalToken?: string;
+  /** Per-caller tokens also accepted on /internal/v1/* (default: env INTERNAL_TOKENS_ACCEPT; see identity.ts). */
+  internalTokensAccept?: string[];
+  /** Whether the raw `internalToken` is accepted next to the per-caller list (default: env INTERNAL_TOKEN_LEGACY_ACCEPT, false in production). */
+  internalTokenLegacyAccept?: boolean;
   appOrigin: string;
   onboardUrl?: string;
   /** Standalone dev login (cookie-based). */
@@ -33,6 +39,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   const app = express();
   app.disable('x-powered-by');
   app.set('etag', false);
+  // First: the request id (from the gateway, or minted) for every response, error envelope and log line below.
+  app.use(requestIds());
   const limiter = rateLimiter({
     perUserPerMin: opts.ratePerMin ?? limitFromEnv('REDTEAM_RATE_PER_MIN', 120),
     perIpPerMin: opts.rateIpPerMin ?? limitFromEnv('REDTEAM_RATE_IP_PER_MIN', 300),
@@ -40,10 +48,19 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   });
   app.use(express.json({ limit: '128kb' }));
 
+  // The embedded target browser's document: a same-origin page with its own sandboxed policy (see frame.ts).
+  // Before the static handler so the built client never shadows it; the extension keeps it out of the hosted
+  // SPA fallback in threatready-lab-001/server/hosted.ts.
+  app.get('/target-frame.html', (_req, res) => {
+    res.set({ 'Content-Security-Policy': TARGET_FRAME_CSP, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+    res.type('html').send(TARGET_FRAME_HTML);
+  });
+
   /* ---------- internal API for onboard (optional platform parity) ---------- */
-  if (opts.internalToken) {
+  const acceptedTokens = opts.internalToken || opts.internalTokensAccept?.length ? acceptedInternalTokens(opts.internalToken, { accept: opts.internalTokensAccept, legacyAccept: opts.internalTokenLegacyAccept }) : [];
+  if (acceptedTokens.length) {
     const internal = express.Router();
-    internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, opts.internalToken!)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
+    internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, acceptedTokens)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
     internal.get('/users/:userId/summary', (req, res) => {
       const userId = req.params.userId;
       if (!userId || userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
@@ -113,7 +130,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
       for (const c of r.setCookies) res.append('Set-Cookie', c);
       if (r.user.isTrial) return res.status(403).json({ error: 'A ThreatReady account is required.', code: 'AUTH_ACCOUNT_REQUIRED' });
       if (!limiter.user(req, res, r.user.id)) return;
-      (req as any).user = store.upsertUser(r.user.id, r.user.name);
+      // Reads never write: the user mirror is refreshed on the first state-changing request only.
+      (req as any).user = req.method === 'GET' || req.method === 'HEAD' ? { id: r.user.id, name: r.user.name } : store.upsertUser(r.user.id, r.user.name);
       (req as any).platformUser = r.user;
       next();
     } catch (e) { next(e); }
@@ -183,6 +201,6 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.', code: 'SCENARIO_NOT_FOUND' }));
 
   if (staticDir && fs.existsSync(staticDir)) { app.use(express.static(staticDir)); app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html'))); }
-  app.use((err: any, _req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.', code: 'VALIDATION_FAILED' }); console.error(err); res.status(500).json({ error: 'Internal error.', code: 'INTERNAL_ERROR' }); });
+  app.use((err: any, req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.', code: 'VALIDATION_FAILED' }); console.error(`[${requestId(req)}] ${req.method} ${req.originalUrl}:`, err); res.status(500).json({ error: 'Internal error.', code: 'INTERNAL_ERROR' }); });
   return app;
 }

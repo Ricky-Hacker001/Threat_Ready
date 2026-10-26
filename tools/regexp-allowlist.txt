@@ -1,0 +1,17 @@
+# Reviewed sites for tools/check-regexp-from-input.mjs — one per line: `path:line  justification`.
+# Paths are relative to the repo root. Re-run `node tools/check-regexp-from-input.mjs` after editing a listed
+# file: a moved line is reported as a new finding (fails) and the old entry as "stale" (informational).
+# Security patch 1 (2026-10-23) ReDoS fixes — the three former regex sites:
+red_team_lab/web/server/terminal.ts:231  safeRegex(): only compiled after regexHazard() accepts the pattern (≤128 chars, no quantified groups/backrefs/lookarounds/stacked quantifiers, ≤1 unbounded quantifier); try/catch; grep scans ≤2000 lines/16 KB
+threatready-lab-001/server/policy.ts:35  glob(): regex-free two-pointer wildcard matcher (patterns capped by validatePolicy); listed for the record, produces no finding
+soc/server/engine/query.js:35  globMatch(): regex-free linear wildcard matcher (live ?q= capped at 300 chars); listed for the record, produces no finding
+# Constant-only interpolations (reviewed 2026-10-23, security patch 2): no request data reaches the pattern.
+red_team_lab/web/server/identity.ts:36  DEV_COOKIE is the module constant 'tr_lab_user'; the cookie VALUE is the subject string, not the pattern
+soc/server/demo/guide.js:601  q is a quiz spec object from the scenario fixture; q.test is a fixture-defined predicate function, not a RegExp
+soc/server/demo/guide.js:905  F.ATK is the scenario fixture's attacker IP (server-side constant), dot-escaped before compiling
+soc/server/engine/alias.js:35  alternation of scenario entity names (server-side fixtures) passed through esc(); bounded fixed-size list, no learner input
+InterviewPrep/apps/api/src/modules/ai/json-schema.ts:60  tag is always a code literal ('untrusted_resume', 'untrusted_answer', ...) at every call site; the untrusted text is the subject, not the pattern
+InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:14  fake LLM adapter (tests/dev only); tag is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:15  fake LLM adapter (tests/dev only); label is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:111  fake LLM adapter (tests/dev only); tag is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:121  fake LLM adapter (tests/dev only); term comes from the built-in rubric term list and is regex-escaped

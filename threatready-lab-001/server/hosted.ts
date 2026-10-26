@@ -154,6 +154,10 @@ export interface HostedLoadOptions {
   redTeamServer?: string;
   /** Onboard's internal token, so the Red Team lab's /internal/v1 summary (progress on the profile) is served. Default: INTERNAL_API_TOKEN. */
   internalToken?: string;
+  /** Per-caller tokens the Red Team lab's /internal/v1 also accepts (same list as this app: onboard→labs). Default: env INTERNAL_TOKENS_ACCEPT. */
+  internalTokensAccept?: string[];
+  /** Whether the raw token stays accepted beside the per-caller list. Default: env INTERNAL_TOKEN_LEGACY_ACCEPT (false in production). */
+  internalTokenLegacyAccept?: boolean;
 }
 
 export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Promise<HostedLab[]> {
@@ -184,11 +188,17 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
     const internalToken = opts.internalToken ?? process.env.INTERNAL_API_TOKEN;
     const app = createApp(new Store(opts.redTeamDataFile ?? path.join(red, 'data', 'store.json')), path.join(red, 'dist'), {
       identity: opts.identity, appOrigin: opts.appOrigin, onboardUrl: opts.onboardUrl, devLogin: false,
-      // Same token onboard sends this app: its /internal/v1 router stays token-checked.
+      // Same tokens onboard sends this app: its /internal/v1 router stays token-checked. (Calls to onboard go
+      // through the shared identity resolver above, which already presents this app's to-onboard token.)
       internalToken: internalToken && internalToken.length >= 32 ? internalToken : undefined,
+      internalTokensAccept: opts.internalTokensAccept, internalTokenLegacyAccept: opts.internalTokenLegacyAccept,
     });
     const redIndex = path.join(red, 'dist', 'index.html');
     labs.push({ slug: 'redteam', handler: (req, res, next) => {
+      // The embedded target browser is a same-origin frame (/target-frame.html, which sets its own sandboxed
+      // policy); the lab's pages may frame it and otherwise keep the strict gateway policy.
+      const csp = res.getHeader('Content-Security-Policy');
+      if (csp) res.setHeader('Content-Security-Policy', String(csp).replace(/frame-src (?!'self')/, "frame-src 'self' "));
       if (req.method === 'GET' && !req.path.startsWith('/api') && !/\.[a-z0-9]+$/i.test(req.path) && (req.headers.accept ?? '').includes('text/html')) { sendPage(res, redIndex); return; }
       app(req, res, next);
     } });

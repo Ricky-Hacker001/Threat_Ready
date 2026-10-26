@@ -43,8 +43,19 @@ const envSchema = z
      * the port, so :5173, :5174 and :5175 share them.
      */
     COOKIE_DOMAIN: optional,
-    /** Shared secret the apps send on /api/internal/* and onboard sends on theirs. */
+    /** Shared secret the apps send on /api/internal/* and onboard sends on theirs (the fallback when the per-caller tokens below are unset). */
     INTERNAL_API_TOKEN: z.string().min(32, "INTERNAL_API_TOKEN must be at least 32 characters"),
+    /**
+     * Per-caller internal tokens (deploy/start.mjs derives them; see deploy/README.md). Accepted on
+     * /api/internal/*: a comma-separated list, one token per calling app. Presented to each app's
+     * /internal/v1/*: one token per target. All optional: without them INTERNAL_API_TOKEN is used both ways.
+     */
+    INTERNAL_TOKENS_ACCEPT: optional,
+    INTERNAL_TOKEN_TO_INTERVIEW: optional,
+    INTERNAL_TOKEN_TO_LABS: optional,
+    INTERNAL_TOKEN_TO_AR: optional,
+    /** Also accept the raw INTERNAL_API_TOKEN next to INTERNAL_TOKENS_ACCEPT. Default: false in production, true otherwise. */
+    INTERNAL_TOKEN_LEGACY_ACCEPT: z.enum(["true", "false"]).optional(),
     /** Comma-separated verified emails that are platform admins (in addition to users.role = 'admin'). */
     ADMIN_EMAILS: optional,
     /** Public origins the browser is sent to. */
@@ -87,6 +98,10 @@ export type RegisteredApp = AppInfo & { internalUrl: string };
 
 export type Config = z.infer<typeof envSchema> & {
   apps: Record<AppKey, RegisteredApp>;
+  /** Bearer tokens /api/internal/* accepts (per-caller tokens, plus the raw token when legacy acceptance is on). */
+  internalTokensAccept: readonly string[];
+  /** Bearer token onboard presents to each app's /internal/v1/*. */
+  internalTokenTo: Record<AppKey, string>;
   /** Origins allowed as ?next= targets and as Better Auth trusted origins */
   appOrigins: string[];
   adminEmails: Set<string>;
@@ -131,10 +146,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
   };
   const appOrigins = [...new Set([origin(c.WEB_ORIGIN), ...APP_KEYS.map((k) => origin(apps[k].url))])];
+  const legacyAccept = c.INTERNAL_TOKEN_LEGACY_ACCEPT ? c.INTERNAL_TOKEN_LEGACY_ACCEPT === "true" : c.NODE_ENV !== "production";
+  const perCaller = (c.INTERNAL_TOKENS_ACCEPT ?? "").split(",").map((t) => t.trim()).filter((t) => t.length >= 32);
+  const internalTokensAccept = perCaller.length === 0 || legacyAccept ? [...new Set([...perCaller, c.INTERNAL_API_TOKEN])] : perCaller;
   return {
     ...c,
     apps,
     appOrigins,
+    internalTokensAccept,
+    internalTokenTo: {
+      interview: c.INTERNAL_TOKEN_TO_INTERVIEW ?? c.INTERNAL_API_TOKEN,
+      labs: c.INTERNAL_TOKEN_TO_LABS ?? c.INTERNAL_API_TOKEN,
+      reasoning: c.INTERNAL_TOKEN_TO_AR ?? c.INTERNAL_API_TOKEN,
+    },
     adminEmails: new Set(
       (c.ADMIN_EMAILS ?? "")
         .split(",")

@@ -26,6 +26,13 @@ function atomicWrite(file, text) {
   }
 }
 
+// An unreadable (corrupt, truncated) file is moved to `<file>.corrupt-<timestamp>` so the next save
+// never overwrites what might still be recoverable. Returns the new path, or null when the move failed.
+export function quarantine(file) {
+  const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try { fs.renameSync(file, kept); return kept; } catch { return null; }
+}
+
 // One JSON document on disk with a debounced, atomic writer.
 export class JsonFile {
   constructor(file, empty) {
@@ -33,10 +40,15 @@ export class JsonFile {
     this.empty = empty;
     this.db = empty();
     this.timer = null;
-    try {
-      if (fs.existsSync(file)) this.db = { ...empty(), ...JSON.parse(fs.readFileSync(file, 'utf8')) };
-    } catch (err) {
-      console.error(`Could not read ${file}: ${err.message}. Starting empty.`);
+    if (fs.existsSync(file)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
+        this.db = { ...empty(), ...parsed };
+      } catch (err) {
+        const kept = quarantine(file);
+        console.error(`Could not read ${file}: ${err.message}. ${kept ? `Kept as ${kept}.` : 'Could not move it aside.'} Starting empty.`);
+      }
     }
     FILES.push(this);
   }
