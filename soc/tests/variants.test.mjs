@@ -8,8 +8,9 @@ after(stop);
 const scn = getScenario('F3');
 const CANON = ['SCAN01', '10.10.0.60', 'CHG-4471', 'DC01', 'p.nair', 'Priya Nair', 'WS-FIN-014', 'plugins.vulnscan-cloud'];
 
-async function openF3(user) {
-  const a = await api('POST', '/api/attempts', { scenarioId: 'F3' }, { user });
+// A fixed seed (test mode only) makes an attempt's renaming reproducible; without one it is random.
+async function openF3(user, seed) {
+  const a = await api('POST', '/api/attempts', { scenarioId: 'F3', ...(seed !== undefined ? { seed } : {}) }, { user });
   registerOwner(a.body.caseId, user);
   const id = a.body.caseId;
   for (let i = 0; i < 40; i++) { if ((await api('GET', `/api/cases/${id}`)).body.alert) break; await new Promise((r) => setTimeout(r, 400)); }
@@ -18,8 +19,9 @@ async function openF3(user) {
 }
 
 test('two attempts get different names, addresses and identifiers', async () => {
-  const x = await openF3('var.one');
-  const y = await openF3('var.two');
+  // Fixed seeds: two random attempts share an address about 1 time in 150 (each is drawn from .100-.249).
+  const x = await openF3('var.one', 1001);
+  const y = await openF3('var.two', 2002);
   const cx = (await api('GET', `/api/cases/${x.id}`)).body;
   const cy = (await api('GET', `/api/cases/${y.id}`)).body;
   assert.notEqual(cx.alert.entity.ip, cy.alert.entity.ip);

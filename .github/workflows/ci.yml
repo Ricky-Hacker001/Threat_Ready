@@ -60,6 +60,8 @@ jobs:
             test: skip
           - dir: InterviewPrep
             build: build
+            # The apps import the workspace packages through their built dist/ types.
+            prepare: npm run build -w @threatready/shared -w @threatready/contracts -w @threatready/db
             # `npm test` at the root runs the Postgres-backed e2e suites; CI gates the unit suite (the e2e suites
             # run in the InterviewPrep job when one is added). `npm run lint` has 5 pre-existing eslint errors in
             # apps/web (InterviewerPhoto.tsx unused `dt`, `any` in test/brave-voice.test.tsx): fix those, then
@@ -102,6 +104,9 @@ jobs:
           cache: npm
           cache-dependency-path: ${{ matrix.dir }}/package-lock.json
       - run: npm ci --no-audit --no-fund
+      - name: build workspace packages
+        if: matrix.prepare
+        run: ${{ matrix.prepare }}
       - name: typecheck
         run: npm run typecheck --if-present
       - name: lint
