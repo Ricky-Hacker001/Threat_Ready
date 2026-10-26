@@ -136,4 +136,31 @@ describe('progress storage', () => {
     expect(localStorage.getItem('threatwall:lab-state:u:user-c')).toBe('{"c":1}');
     expect(shared()).toEqual([]);
   });
+
+  // Security patch 2 (lib/storage.test.ts there): never overwrite an existing namespaced copy; once a namespaced
+  // copy exists the legacy keys are dropped, not handed over.
+  it("never overwrites the account's own namespaced copy, and both legacy keys are cleared", async () => {
+    localStorage.setItem('tw-last-route', '/old');
+    localStorage.setItem('tw-last-route:u:user-a', '/mine');
+    localStorage.setItem('threatwall:lab-state', 'old');
+    const p = await boot();
+    p.setStorageNamespace('user-a');
+    p.migrateLegacyKeys(p.LEGACY_STORAGE_KEYS, p.LEGACY_DISCARD_KEYS);
+    expect(p.labStorage().getItem(p.lastRouteKey())).toBe('/mine');
+    expect(p.labStorage().getItem(p.labStateKey())).toBeNull();
+    expect(localStorage.getItem('tw-last-route')).toBeNull();
+    expect(localStorage.getItem('threatwall:lab-state')).toBeNull();
+    expect(shared()).toEqual([]);
+  });
+
+  // Security patch 2: the legacy keys are claimed eagerly at boot by the account that boots, before any page reads
+  // storage, not by whichever account first opens the page that happens to read one.
+  it('main.tsx migrates both legacy keys at boot, before the app renders', async () => {
+    const main = (await import('./main.tsx?raw')).default;
+    const migrate = main.indexOf('migrateLegacyKeys(LEGACY_STORAGE_KEYS');
+    expect(migrate).toBeGreaterThan(main.indexOf('setStorageNamespace(user.id)'));
+    expect(migrate).toBeLessThan(main.indexOf('<App />'));
+    const p = await boot();
+    expect(p.LEGACY_STORAGE_KEYS).toEqual(['threatwall:lab-state', 'tw-last-route']);
+  });
 });

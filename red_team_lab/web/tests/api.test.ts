@@ -158,8 +158,8 @@ describe('API security', () => {
     expect(meta).not.toMatch(/sandbox|frame-ancestors/);
     expect(r.headers['x-content-type-options']).toBe('nosniff');
     // the bootstrap that reports ready and renders the posted target HTML
-    expect(r.text).toContain("type:'ready'");
-    expect(r.text).toContain("d.type==='render'");
+    expect(r.text).toContain("type: 'ready'");
+    expect(r.text).toContain("d.type !== 'render'");
   });
 
   it('TR-26: the /internal/v1 summary is served with the hub internalToken and refused without it', async () => {

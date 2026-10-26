@@ -24,13 +24,13 @@ import { Database, type Tx } from '../../platform/db/database.js';
 import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
 import { CACHE_PORT, type CachePort } from '../../platform/ports/cache.port.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
-import { answerSecondsOf, attemptView, loadEvaluation, loadItem, loadOwnedAttempt, publicOf, readyDeadline, transition, type AttemptRow } from './attempt.repo.js';
+import { answerSecondsOf, attemptView, ITEM_COLUMNS, loadEvaluation, loadItem, loadItemPrivate, loadOwnedAttempt, publicOf, readyDeadline, transition, type AttemptRow } from './attempt.repo.js';
 import { catalogue, getDomain, isAvailable } from './domains/index.js';
 import { logger } from '../../platform/logging/logger.js';
 import type { GeneratedItem } from './item.types.js';
-import { evaluationItemOf, type StoredFeedback } from './evaluation.service.js';
+import type { StoredFeedback } from './evaluation.service.js';
 import { GenerationService, poolBucket } from './generation.service.js';
-import { evaluatorRequest, evaluatorRequestBound } from './prompts/evaluation.prompts.js';
+import { evaluatorRequestBound } from './prompts/evaluation.prompts.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
 
 const OPEN_STATES = ['generating', 'ready', 'evaluating'] as const;
@@ -93,20 +93,24 @@ export class ReasoningService {
       await this.lockLearner(tx, p);
       await this.makeRoom(tx, p, req.skipOldest === true);
       const [picked] = await tx.db
-        .select()
+        .select(ITEM_COLUMNS)
         .from(reasoningItems)
         .where(
           and(
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
             eq(reasoningItems.difficulty, bucket),
+            // Retired once enough learners have seen it: bounds how far one answer key travels (A5).
+            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         )
         .orderBy(sql`random()`)
         .limit(1);
       if (picked) {
-        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(domain, evaluationItemOf(picked))));
+        // The answer key is not readable here (migration 0016), so the evaluation is estimated at the
+        // item-context bound: the same room one evaluation needs that on-demand generation keeps free.
+        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(domain, null)));
         const [a] = await tx.db
           .insert(reasoningAttempts)
           .values({ orgId: p.orgId, userId: p.userId, domain: req.domain, difficulty: bucket, state: 'ready', itemId: picked.id, openedAt: new Date() })
@@ -137,6 +141,7 @@ export class ReasoningService {
             eq(reasoningItems.pool, true),
             eq(reasoningItems.domain, req.domain),
             eq(reasoningItems.difficulty, bucket),
+            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
             sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
           ),
         );
@@ -324,7 +329,8 @@ export class ReasoningService {
       if (!item || !(item.public as GeneratedItem['public']).options.some((o) => o.id === req.selectedOption)) throw new DomainError('VALIDATION_FAILED', { details: [{ path: 'selectedOption', message: 'not one of the options' }] });
       try {
         await this.assertEvaluationQuota(tx, p);
-        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequest(getDomain(a.domain)!, evaluationItemOf(item), req.selectedOption, req.justification.trim())));
+        // This answer, with the item's context at its bound (the key is not readable here, migration 0016).
+        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(getDomain(a.domain)!, null, { selected: req.selectedOption, justification: req.justification.trim() })));
       } catch (err) {
         // Returned, not thrown, so the transaction commits the extended deadline before the refusal is sent.
         if (err instanceof DomainError && SUBMIT_REFUSALS.has(err.code)) return { refused: await this.holdOpen(tx, a, err) };
@@ -393,7 +399,7 @@ export class ReasoningService {
         await this.assertEvaluationQuota(tx, p, a.submittedAt && a.submittedAt >= startOfUtcDay() ? 1 : 0);
         const item = a.itemId ? await loadItem(tx, a.itemId) : null;
         if (item && a.selectedOption && a.justification) {
-          await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequest(getDomain(a.domain)!, evaluationItemOf(item), a.selectedOption as OptionId, a.justification)));
+          await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(getDomain(a.domain)!, null, { selected: a.selectedOption as OptionId, justification: a.justification })));
         }
         const next = await transition(tx, a, ['evaluation_failed'], { state: 'evaluating', failureCode: null, failureStage: null, evaluationRetries: a.evaluationRetries + counted });
         await this.queue.enqueue(JOBS.reasoningEvaluate, { kind: 'reasoning_evaluate', attemptId: a.id }, { key: `${a.id}:retry:${next.version}` }, tx);
@@ -404,35 +410,39 @@ export class ReasoningService {
 
   /** The correct answer and the feedback exist only after the learner's own reasoning was evaluated. */
   async result(p: Principal, id: string): Promise<ReasoningResult> {
-    return this.db.user(p, async (tx) => {
+    const { a, item, ev } = await this.db.user(p, async (tx) => {
       const a = await loadOwnedAttempt(tx, p.userId, id);
       if (a.state !== 'evaluated' || !a.itemId) throw new DomainError('REASONING_INVALID_STATE', { message: 'The result is available once the evaluation has finished' });
       const [item, ev] = await Promise.all([loadItem(tx, a.itemId), loadEvaluation(tx, a.id)]);
       if (!item || !ev) throw new DomainError('REASONING_INVALID_STATE');
-      const pub = publicOf(item, a);
-      const stored = ev.feedback as StoredFeedback;
-      const priv = item.private as GeneratedItem['private'];
-      return {
-        attemptId: a.id,
-        domain: pub.domain,
-        totalScore: ev.totalScore,
-        correct: ev.correct,
-        selectedOption: a.selectedOption as OptionId,
-        correctOption: priv.correctOption,
-        options: stored.options,
-        dimensions: ev.dimensions as ReasoningResult['dimensions'],
-        feedback: stored.feedback,
-        confidence: ev.confidence,
-        reviewFlag: ev.reviewFlag,
-        degraded: ev.degraded,
-        notices: stored.notices,
-        scoring: { version: ev.scoringVersion, weights: pub.weights, notes: stored.scoringNotes },
-        techniques: pub.techniques,
-        concepts: pub.concepts,
-        answerSeconds: answerSecondsOf(a),
-        evaluatedAt: ev.createdAt.toISOString(),
-      };
+      return { a, item, ev };
     });
+    // The answer key is read with the owner role, only after the learner's evaluated attempt on this
+    // item was confirmed above: the API role cannot select the column at all (migration 0016).
+    const priv = await this.db.system((tx) => loadItemPrivate(tx, item.id));
+    if (!priv) throw new DomainError('REASONING_INVALID_STATE');
+    const pub = publicOf(item, a);
+    const stored = ev.feedback as StoredFeedback;
+    return {
+      attemptId: a.id,
+      domain: pub.domain,
+      totalScore: ev.totalScore,
+      correct: ev.correct,
+      selectedOption: a.selectedOption as OptionId,
+      correctOption: priv.correctOption,
+      options: stored.options,
+      dimensions: ev.dimensions as ReasoningResult['dimensions'],
+      feedback: stored.feedback,
+      confidence: ev.confidence,
+      reviewFlag: ev.reviewFlag,
+      degraded: ev.degraded,
+      notices: stored.notices,
+      scoring: { version: ev.scoringVersion, weights: pub.weights, notes: stored.scoringNotes },
+      techniques: pub.techniques,
+      concepts: pub.concepts,
+      answerSeconds: answerSecondsOf(a),
+      evaluatedAt: ev.createdAt.toISOString(),
+    };
   }
 
   async list(p: Principal, cursor: string | undefined, limit = 20): Promise<ReasoningAttemptList> {

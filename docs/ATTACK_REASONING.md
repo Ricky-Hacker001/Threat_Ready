@@ -59,6 +59,7 @@ So a correct guess with an empty justification scores at most 30; a correct answ
 - `reasoning_attempts`: id, org_id, user_id, domain, state (`generating | ready | evaluating | evaluated | generation_failed | evaluation_failed`), item_id, selected_option, justification (≤ 4000), client_submission_id, submitted_at, generation_tries, failure_code, failure_stage, version, created_at, updated_at. RLS owner policy, unique (id, client_submission_id).
 - `reasoning_evaluations`: id, org_id, user_id, attempt_id (unique), scoring_version, total_score (0–100 check), correct, dimensions (jsonb), feedback (jsonb), stages (jsonb: raw evaluator, challenger, reconciler outputs for audit), confidence, review_flag, degraded, prompt_version, rubric_version, model, tier, latency_ms, created_at. RLS owner policy.
 - Grants to `tr_app_user`; existing `platform_llm_usage()` already covers the new `reasoning.*` features.
+- Security patch 2 (InterviewPrep migration `0016_security_patch_2`, numbered after this branch's 0011-0015; details in `docs/SECURITY_PATCH_2_2026-10-23.md`, A2/A5/A6): `reasoning_attempts.evaluating_lease_until` (120 s) lets the sweeper recover an attempt stuck in `evaluating` as a failed evaluation; a column-level grant hides `reasoning_items.private` from `tr_app_user` (the result reads it as the owner role only after ownership is confirmed); items retire after `REASONING_ITEM_MAX_SERVES` serves (25); `LLM_MODEL_SMALL` must be set in production (InterviewPrep refuses to boot without it).
 
 ## 6. API (contracts in `packages/contracts/src/reasoning.ts`)
 

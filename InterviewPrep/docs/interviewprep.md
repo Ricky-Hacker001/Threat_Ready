@@ -154,6 +154,12 @@ BYPASSRLS and owns nothing; every user-scoped transaction runs `SET LOCAL ROLE t
 user transaction step out of the RLS role for the queue's own tables only, so an enqueue commits
 or rolls back with its state change. Grant `tr_api` usage on schema `pgboss` and on the auth tables.
 
+`0016_security_patch_2` narrows `tr_app_user` on `reasoning_items` to a column-level SELECT that
+leaves out `private` (the answer key, read only through the owner role after ownership is checked)
+and no INSERT/UPDATE/DELETE; a SECURITY DEFINER trigger on `reasoning_served` keeps `serve_count`.
+A later column on `reasoning_items` needs its own grant. It also adds
+`interview_sessions.evaluating_lease_until`, after which a lost answer evaluation is recovered.
+
 ## 6. API
 
 24 routes, generated into `packages/contracts/openapi.json` (`npm run openapi`). Each route

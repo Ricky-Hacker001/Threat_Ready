@@ -1028,4 +1028,31 @@ describe('attack reasoning: budget gates, quota, retries, pool switch-off, share
       await tp.close();
     }
   });
+
+  it('backfills a question retired by REASONING_ITEM_MAX_SERVES, and its bucket stays in demand (security patch 2, A5, with the demand-driven pool)', async () => {
+    const tp = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_POOL_ENABLED: 'true', REASONING_POOL_TARGET: '2', REASONING_POOL_IDLE_TARGET: '1', REASONING_POOL_BATCH: '4', REASONING_POOL_MAX_ITEMS: '4', REASONING_POOL_MIN_AVAILABLE: '1', REASONING_ITEM_MAX_SERVES: '1' });
+    try {
+      const gen = tp.app.get(GenerationService);
+      const bucket = async () =>
+        (await tp.pool.query(`SELECT count(*)::int AS total, (count(*) FILTER (WHERE serve_count < 1))::int AS live FROM reasoning_items WHERE pool AND domain = 'zero_trust' AND difficulty = 'advanced'`)).rows[0] as { total: number; live: number };
+      expect(await bucket()).toEqual({ total: 0, live: 0 });
+      await gen.refillPool({ domain: 'zero_trust', difficulty: 'advanced' });
+      expect(await bucket()).toEqual({ total: 1, live: 1 }); // idle: the idle target
+      const l = await signUp(tp, 'Retire Learner');
+      const r = await l.post('/v1/reasoning/attempts').set('Origin', ORIGIN).send({ domain: 'zero_trust', difficulty: 'advanced' });
+      expect(r.body.state).toBe('ready'); // from the pool; with a cap of 1 that serve retires the question
+      expect(await bucket()).toEqual({ total: 1, live: 0 });
+      // The retired question no longer counts toward the target, and the serve of it still marks the bucket in demand
+      // (the idle target would ask for 1, and counting the retired question would ask for 1).
+      expect(await gen.needed('zero_trust', 'advanced')).toBe(2);
+      await gen.refillPool({ domain: 'zero_trust', difficulty: 'advanced' });
+      expect(await bucket()).toEqual({ total: 3, live: 2 });
+      expect(await gen.needed('zero_trust', 'advanced')).toBe(0);
+      // A learner-triggered refill tops up to the target in live questions too.
+      expect(await gen.headroom('zero_trust', 'advanced')).toBe(0);
+    } finally {
+      await tp.pool.query(`DELETE FROM pgboss.job WHERE name = 'reasoning.pool_refill'`);
+      await tp.close();
+    }
+  });
 });

@@ -16,20 +16,30 @@ function envInt(name: string, fallback: number): number {
 }
 /** Runs kept per learner per lab; older archived runs are evicted so one learner can't grow the store without bound (TR-15), except the ones the caller protects (BIZ-06). 0 disables. */
 const MAX_RUNS_PER_LAB = envInt('REDTEAM_MAX_RUNS_PER_LAB', 20);
-const isData = (d: any): d is Data => !!d && typeof d === 'object' && typeof d.users === 'object' && d.users !== null && typeof d.sessions === 'object' && d.sessions !== null;
+/** A store file's shape: an object whose `sessions` is an object; `users` (a cache of display names) may be absent. */
+const isData = (d: any): d is Data => !!d && typeof d === 'object' && !Array.isArray(d) && typeof d.sessions === 'object' && d.sessions !== null && !Array.isArray(d.sessions)
+  && (d.users === undefined || (typeof d.users === 'object' && d.users !== null && !Array.isArray(d.users)));
+
+/** Moves an unreadable store file to `<file>.corrupt-<timestamp>`; returns the new path, or null when that failed. */
+export function quarantine(file: string): string | null {
+  const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try { fs.renameSync(file, kept); return kept; } catch { return null; }
+}
 
 export class Store {
   private data: Data = { users: {}, sessions: {} };
   constructor(private file: string | null) {
     if (file && fs.existsSync(file)) {
-      let parsed: any;
-      try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { parsed = undefined; }
-      if (isData(parsed)) this.data = parsed;
-      else {
-        // Preserve an unreadable or wrong-shaped store instead of silently overwriting it on the next
-        // save, so a corrupt file can be recovered rather than lost (TR-15 / LAB-04).
-        try { fs.renameSync(file, `${file}.corrupt.${Date.now()}`); console.warn(`store: ${file} is unreadable; moved it aside (.corrupt.*) and started empty`); }
-        catch { console.warn('store: could not parse data file, starting empty'); }
+      try {
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        // A wrong-shaped store (an array, a missing or null sessions map) is treated exactly like an
+        // unparseable one (TR-15 / LAB-04).
+        if (!isData(parsed)) throw new Error('not a store (a sessions object)');
+        this.data = { ...parsed, users: parsed.users ?? {} };
+      } catch (err) {
+        // A corrupt, truncated or wrong-shaped file is kept for recovery, never overwritten by the next save.
+        const kept = quarantine(file);
+        console.error(`store: ${file} could not be read (${(err as Error).message}); ${kept ? `kept as ${kept}` : 'could not be moved aside'}, starting empty`);
       }
     }
   }

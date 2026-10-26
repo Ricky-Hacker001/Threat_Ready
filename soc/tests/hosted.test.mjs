@@ -116,6 +116,29 @@ test('inside ThreatReady (DAILY_WIPE=false) no daily-reset claim is made; the in
   assert.equal(out.summary.attempts, 0);
 });
 
+test('the internal summary never opens with the shared INTERNAL_API_TOKEN in production (per-caller tokens, patch 2 A9)', () => {
+  const status = (extra) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'soc-token-'));
+    const code = `
+      const { app } = await import('./server/index.js');
+      const srv = app.listen(0, '127.0.0.1'); await new Promise((r) => srv.once('listening', r));
+      const b = 'http://127.0.0.1:' + srv.address().port;
+      const r = await fetch(b + '/internal/v1/users/x.user/summary', { headers: { authorization: 'Bearer ' + process.env.SOC_INTERNAL_TOKEN } });
+      console.log(JSON.stringify({ status: r.status })); srv.close(); process.exit(0);`;
+    const env = { ...process.env, SOC_SIM_NO_LISTEN: '1', SOC_SIM_DATA: path.join(dir, 'cases.json'), DAILY_WIPE: 'false', NODE_ENV: 'production', SOC_SESSION_SECRET: crypto.randomBytes(32).toString('hex'), DEV_USER: '', SOC_SIM_TEST: '', INTERNAL_TOKEN_LEGACY_ACCEPT: '', ...extra };
+    for (const [k, v] of Object.entries(env)) if (v === '') delete env[k];
+    const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { cwd: root, encoding: 'utf8', env });
+    assert.equal(r.status, 0, r.stderr);
+    return { status: JSON.parse(r.stdout.trim().split('\n').pop()).status, stderr: r.stderr };
+  };
+  const shared = 's'.repeat(40);
+  const refused = status({ SOC_INTERNAL_TOKEN: shared, INTERNAL_API_TOKEN: shared });
+  assert.equal(refused.status, 404); // off: the shared token is not this route's own
+  assert.match(refused.stderr, /SOC_INTERNAL_TOKEN is the shared INTERNAL_API_TOKEN/);
+  assert.equal(status({ SOC_INTERNAL_TOKEN: shared, INTERNAL_API_TOKEN: shared, INTERNAL_TOKEN_LEGACY_ACCEPT: 'true' }).status, 200);
+  assert.equal(status({ SOC_INTERNAL_TOKEN: 'o'.repeat(40), INTERNAL_API_TOKEN: shared }).status, 200);
+});
+
 // Runs the SOC app in a child process (its config is read when it loads), mounted the way ThreatReady
 // mounts it, and returns what `body` collected (with `b` the base URL).
 function mounted(env, body) {
@@ -203,7 +226,7 @@ test('a data file that does not parse is kept aside, not overwritten', () => {
   assert.equal(fs.readFileSync(path.join(dir, casesAside[0]), 'utf8'), '{"seq": 1001, "cases": {');
   assert.equal(files.filter((f) => f.startsWith('attempts.json.corrupt-')).length, 1);
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).seq, 1001, 'a fresh store was written beside it');
-  assert.match(r.stderr, /kept it as .*cases\.json\.corrupt-/);
+  assert.match(r.stderr, /Kept as .*cases\.json\.corrupt-/);
 });
 
 // ---------------------------------------------------------------------------

@@ -136,6 +136,8 @@ export class GenerationService {
    *    fewer than REASONING_POOL_MIN_AVAILABLE questions left unseen, it grows that bucket past the
    *    target, up to REASONING_POOL_MAX_ITEMS, on the pool budget. On-demand generation (billed to the
    *    learner) covers them until the next scheduled run.
+   * A question served REASONING_ITEM_MAX_SERVES times is retired (security patch 2, A5): it no longer
+   * counts toward any of these sizes, so the refill backfills it.
    */
   async needed(domain: string, difficulty: string, userId?: string): Promise<number> {
     if (!this.cfg.REASONING_POOL_ENABLED) return 0;
@@ -155,17 +157,19 @@ export class GenerationService {
   }
 
   /**
-   * A bucket's size, whether it is in demand, and how many of its questions the most-served of its
-   * recently active learners has seen (null when nobody was served from it in the demand window).
+   * A bucket's size in questions still in service (served fewer than REASONING_ITEM_MAX_SERVES times),
+   * whether it is in demand, and how many of those questions the most-served of its recently active
+   * learners has seen (null when nobody was served from it in the demand window). Demand counts serves
+   * of retired questions too: a bucket whose served questions all retired is still in use.
    */
   private async demand(domain: string, difficulty: string): Promise<{ total: number; mostSeen: number | null }> {
     const { rows } = await this.db.system((tx) =>
       tx.sql.executeSql(
-        `WITH bucket AS (SELECT id FROM reasoning_items WHERE pool AND domain = $1 AND difficulty = $2),
+        `WITH bucket AS (SELECT id, serve_count < $4 AS live FROM reasoning_items WHERE pool AND domain = $1 AND difficulty = $2),
               active AS (SELECT DISTINCT s.user_id FROM reasoning_served s JOIN bucket b ON b.id = s.item_id WHERE s.served_at >= now() - make_interval(days => $3::int))
-         SELECT (SELECT count(*)::int FROM bucket) AS total,
-                (SELECT max(n)::int FROM (SELECT count(*) AS n FROM reasoning_served s JOIN bucket b ON b.id = s.item_id JOIN active a ON a.user_id = s.user_id GROUP BY s.user_id) seen) AS most_seen`,
-        [domain, difficulty, this.cfg.REASONING_POOL_DEMAND_DAYS],
+         SELECT (SELECT count(*)::int FROM bucket WHERE live) AS total,
+                (SELECT max((SELECT count(*) FROM reasoning_served s JOIN bucket b ON b.id = s.item_id AND b.live WHERE s.user_id = a.user_id))::int FROM active a) AS most_seen`,
+        [domain, difficulty, this.cfg.REASONING_POOL_DEMAND_DAYS, this.cfg.REASONING_ITEM_MAX_SERVES],
       ),
     );
     const r = rows[0] as { total: number | string; most_seen: number | string | null } | undefined;

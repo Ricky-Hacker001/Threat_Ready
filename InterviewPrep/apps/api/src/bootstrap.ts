@@ -39,6 +39,16 @@ export function initSentry(cfg: AppConfig): void {
   });
 }
 
+/**
+ * The request id the gateway stamped on the inbound request is echoed in error envelopes and logs,
+ * so one id follows a request through gateway, API and Sentry (A13). Only a bounded, log-safe token
+ * is accepted (no whitespace, control characters or JSON-breaking punctuation); anything else, or
+ * no header, gets a fresh `req_...`.
+ */
+export function requestIdFrom(incoming: string | string[] | undefined): string {
+  return typeof incoming === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(incoming) ? incoming : newRequestId();
+}
+
 /** Asserts every contract route is served by a handler (and vice versa) at boot. */
 function assertRouteCoverage(app: NestExpressApplication): void {
   const router = app.getHttpAdapter().getInstance().router as { stack: { route?: { path: string; methods: Record<string, boolean> } }[] } | undefined;
@@ -61,8 +71,7 @@ export async function createApiApp(cfg: AppConfig): Promise<NestExpressApplicati
   http.set('trust proxy', 1);
 
   http.use((req: Request, res: Response, next: NextFunction) => {
-    const incoming = req.headers['x-request-id'];
-    const requestId = typeof incoming === 'string' && /^req_[\w-]{8,40}$/.test(incoming) ? incoming : newRequestId();
+    const requestId = requestIdFrom(req.headers['x-request-id']);
     res.setHeader('X-Request-Id', requestId);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');

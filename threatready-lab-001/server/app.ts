@@ -4,9 +4,10 @@ import fs from 'node:fs';
 import { Store, Session } from './store';
 import { cloudLab001, LabEngine } from './engine';
 import { CATALOG } from './catalog';
-import { IdentityResolver, internalTokenMatches } from './identity';
+import { IdentityResolver, acceptedInternalTokens, internalTokenMatches } from './identity';
 import { HostedLab, HostedSummary, hostedLabs } from './hosted';
 import { clientIp, limitFromEnv, rateLimiter } from './ratelimit';
+import { requestId, requestIds } from './requestId';
 export { loadHostedLabs } from './hosted';
 
 const ENGINES: Record<string, LabEngine> = { [cloudLab001.labId]: cloudLab001 };
@@ -19,6 +20,10 @@ export interface AppOptions {
   identity: IdentityResolver;
   /** Secret onboard sends on /internal/v1/* (INTERNAL_API_TOKEN). */
   internalToken: string;
+  /** Per-caller tokens also accepted on /internal/v1/* (default: env INTERNAL_TOKENS_ACCEPT; see identity.ts). */
+  internalTokensAccept?: string[];
+  /** Whether the raw `internalToken` is accepted next to the per-caller list (default: env INTERNAL_TOKEN_LEGACY_ACCEPT, false in production). */
+  internalTokenLegacyAccept?: boolean;
   /** This app's public origin (labs.threatready.io). State-changing requests must come from it. */
   appOrigin: string;
   /** Public onboard origin, for sign-in/sign-out links. */
@@ -62,6 +67,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
   // and a cached 304 must not stand in for a fresh list).
   app.set('etag', false);
+  // First: the request id (from the gateway, or minted) for every response, error envelope and log line below.
+  app.use(requestIds());
   // Token-bucket rate limits for every API call, this app's and the hosted labs' alike (one process on Render).
   const limiter = rateLimiter({
     perUserPerMin: opts.ratePerMin ?? limitFromEnv('LABS_RATE_PER_MIN', 120),
@@ -75,7 +82,9 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
   // Reached in-VPC only, never routed through Cloudflare, and every call carries the internal token.
   const internal = express.Router();
-  internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, opts.internalToken)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
+  const acceptedTokens = acceptedInternalTokens(opts.internalToken, { accept: opts.internalTokensAccept, legacyAccept: opts.internalTokenLegacyAccept });
+  if (!acceptedTokens.length) console.warn('labs: no internal token is accepted (INTERNAL_TOKENS_ACCEPT empty and legacy acceptance off); /internal/v1 will answer 401');
+  internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, acceptedTokens)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
   internal.get('/users/:userId/summary', async (req, res) => {
     const userId = req.params.userId;
     if (!userId || userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
@@ -145,7 +154,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
       for (const c of r.setCookies) res.append('Set-Cookie', c);
       if (r.user.isTrial) return res.status(403).json({ error: 'Labs need a ThreatReady account. Create one to continue.', code: 'AUTH_ACCOUNT_REQUIRED' });
       if (!limiter.user(req, res, r.user.id)) return;
-      (req as any).user = store.upsertUser(r.user.id, r.user.name);
+      // Reads never write: the user mirror is refreshed on the first state-changing request only.
+      (req as any).user = req.method === 'GET' || req.method === 'HEAD' ? { id: r.user.id, name: r.user.name } : store.upsertUser(r.user.id, r.user.name);
       (req as any).platformUser = r.user;
       next();
     } catch (e) { next(e); }
@@ -258,12 +268,13 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
   if (staticDir && fs.existsSync(staticDir)) { app.use(express.static(staticDir)); app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html'))); }
   // A request the parsers refuse (a malformed or too large body, an unsupported encoding or charset, an
-  // undecodable URL parameter) is the client's fault: a 4xx, never a 500 with a stack in the log.
-  app.use((err: any, _req: any, res: any, _next: any) => {
+  // undecodable URL parameter) is the client's fault: a 4xx, never a 500 with a stack in the log. A real
+  // fault is logged with the request id (also in the reply), so a learner's report matches the log line.
+  app.use((err: any, req: any, res: any, _next: any) => {
     if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.' });
     const status = Number(err?.status ?? err?.statusCode);
     if (status >= 400 && status < 500) return res.status(status).json({ error: err.type ? 'Invalid request body.' : 'Invalid request.' });
-    console.error(err); res.status(500).json({ error: 'Internal error.' });
+    console.error(`[${requestId(req)}] ${req.method} ${req.originalUrl}:`, err); res.status(500).json({ error: 'Internal error.' });
   });
   return app;
 }

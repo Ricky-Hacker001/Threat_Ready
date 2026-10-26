@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { runMigrations } from '@threatready/db';
 import { loadConfig } from './config/config.js';
+import { installCrashHandlers } from './platform/crash.js';
 
 /**
  * One image, three commands (ADD L1/L20): `api` serves HTTP, `worker` runs pg-boss jobs with no
@@ -15,6 +16,15 @@ const cfg = loadConfig();
 const HOST = process.env.HOST ?? '0.0.0.0';
 const { createApiApp, createWorker, initSentry, logger } = await import('./bootstrap.js');
 initSentry(cfg);
+installCrashHandlers({
+  log: logger,
+  flush: () => (cfg.SENTRY_DSN ? import('@sentry/node').then((s) => s.flush(2_000)) : Promise.resolve()),
+  exit: (code) => process.exit(code),
+});
+logger.info(
+  { model_small: cfg.LLM_MODEL_SMALL, model_large: cfg.LLM_MODEL_LARGE, ...cfg.interviewCostEstimate, session_cap_usd: cfg.AI_SESSION_CAP_USD, user_daily_cap_usd: cfg.AI_USER_DAILY_CAP_USD, global_daily_cap_usd: cfg.AI_GLOBAL_DAILY_CAP_USD },
+  'AI budget resolved from the pricing table',
+);
 
 if (role === 'migrate') {
   await runMigrations(cfg.WORKER_DATABASE_URL ?? cfg.DATABASE_URL);

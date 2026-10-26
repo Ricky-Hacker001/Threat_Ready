@@ -159,7 +159,10 @@ test('a body the JSON parser refuses gets its own 4xx, not a 500 with a stack in
     const post = (body, headers = {}) => fetch(`${baseUrl()}/api/attempts`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-test-user': 't.body', ...headers }, body });
     const big = await post(JSON.stringify({ scenarioId: 'F1', pad: 'x'.repeat(300 * 1024) }));
     assert.equal(big.status, 413);
-    assert.deepEqual(await big.json(), { error: 'payload_too_large', message: 'The request is too large.' });
+    // Every error envelope also carries the request id (security patch 2, A13).
+    const { requestId, ...bigBody } = await big.json();
+    assert.deepEqual(bigBody, { error: 'payload_too_large', message: 'The request is too large.' });
+    assert.match(requestId, /^req_/);
     const enc = await post('{}', { 'Content-Encoding': 'compress' });
     assert.equal(enc.status, 415);
     assert.equal((await enc.json()).error, 'unsupported_media_type');

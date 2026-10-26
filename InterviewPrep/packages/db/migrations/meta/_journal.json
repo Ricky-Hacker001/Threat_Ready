@@ -106,6 +106,13 @@
       "when": 1792922679977,
       "tag": "0015_reasoning_submit_refused",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792996241406,
+      "tag": "0016_security_patch_2",
+      "breakpoints": true
     }
   ]
 }

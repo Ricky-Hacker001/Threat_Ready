@@ -3,17 +3,18 @@ import type { DocumentKind } from '@threatready/contracts';
 import { interviewSessions, jobDescriptions, llmCallLog, reasoningAttempts, resumes } from '@threatready/db';
 import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
-import { Database } from '../../platform/db/database.js';
 import { queuePolicy, stageDeadlineSec } from '../../platform/adapters/pgboss-queue.adapter.js';
+import { Database, type Tx } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
 import { JOBS, QUEUE_PORT, type JobContext, type QueuePort } from '../../platform/ports/queue.port.js';
 import { LlmService } from '../ai/llm.service.js';
 import { DocumentsService, FILE_RETENTION_DAYS } from '../documents/documents.service.js';
 import { AnalysisService } from '../interview/analysis.service.js';
 import { InterviewService } from '../interview/interview.service.js';
-import { EVALUATING_LEASE_MS, evaluationStalled, recoverStalledEvaluation } from '../interview/recovery.js';
+import { EVALUATING_LEASE_MS, evaluationStalled } from '../interview/recovery.js';
 import { startPause } from '../interview/session.repo.js';
 import { IDLE_PAUSE_MS, stopClock } from '../interview/timing.js';
+import { TurnService } from '../interview/turn.service.js';
 import { EvaluationService } from '../reasoning/evaluation.service.js';
 import { registeredDomains } from '../reasoning/domains/index.js';
 import { GenerationService } from '../reasoning/generation.service.js';
@@ -39,6 +40,7 @@ export class JobsService {
     @Inject(ReportsService) private readonly reports: ReportsService,
     @Inject(SkillsService) private readonly skills: SkillsService,
     @Inject(InterviewService) private readonly interviews: InterviewService,
+    @Inject(TurnService) private readonly turns: TurnService,
     @Inject(GenerationService) private readonly generation: GenerationService,
     @Inject(EvaluationService) private readonly evaluation: EvaluationService,
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -118,13 +120,57 @@ export class JobsService {
     }
   }
 
-  /** Timeouts from the state machine (LLD-3), ledger reconciliation and file retention. */
+  /**
+   * Timeouts from the state machine (LLD-3), ledger reconciliation and file retention. Each step runs
+   * in its own transaction and is logged on failure, so one bad row (or one statement that times out)
+   * never aborts the rest of the sweep (A2).
+   */
   async sweep(): Promise<void> {
     const now = Date.now();
     const at = (ms: number) => new Date(now - ms);
-    await this.db.system(async (tx) => {
-      const { db } = tx;
-      // awaiting_answer, 10 minutes idle -> paused
+    const step = async (name: string, fn: (tx: Tx) => Promise<void>): Promise<void> => {
+      try {
+        await this.db.system(fn);
+      } catch (err) {
+        logger.error({ step: name, err: { name: (err as Error).name, message: (err as Error).message } }, 'sweep step failed');
+      }
+    };
+    const outside = async (name: string, fn: () => Promise<void>): Promise<void> => {
+      try {
+        await fn();
+      } catch (err) {
+        logger.error({ step: name, err: { name: (err as Error).name, message: (err as Error).message } }, 'sweep step failed');
+      }
+    };
+
+    // evaluating past its lease: the evaluation was lost mid-call (the API process died) -> continue as
+    // after a failed evaluation (A2, TR-23). Sessions without a lease column (entered evaluating before
+    // it existed) fall back to their progress lease, else to the last activity plus the lease length.
+    const stuck = await this.db
+      .system(({ db }) =>
+        db
+          .select({ id: interviewSessions.id })
+          .from(interviewSessions)
+          .where(
+            and(
+              eq(interviewSessions.state, 'evaluating'),
+              or(lt(interviewSessions.evaluatingLeaseUntil, new Date(now)), and(isNull(interviewSessions.evaluatingLeaseUntil), lt(interviewSessions.lastActivityAt, at(EVALUATING_LEASE_MS)))),
+            ),
+          ),
+      )
+      .catch((err: unknown) => {
+        logger.error({ step: 'evaluating_lease', err: { message: (err as Error).message } }, 'sweep step failed');
+        return [] as { id: string }[];
+      });
+    for (const { id } of stuck) {
+      await step(`evaluating_lease:${id}`, async (tx) => {
+        const [s] = await tx.db.select().from(interviewSessions).where(eq(interviewSessions.id, id)).for('update');
+        if (!s || !evaluationStalled(s, now)) return;
+        await this.turns.recoverEvaluating(tx, s);
+      });
+    }
+    // awaiting_answer, 10 minutes idle -> paused
+    await step('idle_pause', async ({ db }) => {
       const idle = await db.select().from(interviewSessions).where(and(eq(interviewSessions.state, 'awaiting_answer'), lt(interviewSessions.lastActivityAt, at(IDLE_PAUSE_MS))));
       for (const s of idle) {
         const pausedAt = new Date(s.lastActivityAt.getTime() + IDLE_PAUSE_MS);
@@ -134,45 +180,65 @@ export class JobsService {
           .set({ state: 'paused', ...clock, integrity: startPause('idlePauseCount', pausedAt), version: sql`${interviewSessions.version} + 1` })
           .where(and(eq(interviewSessions.id, s.id), eq(interviewSessions.state, 'awaiting_answer')));
       }
-      // evaluating past its lease (the evaluation was lost mid-call) -> continue as after a failed evaluation (TR-23)
-      const stalled = await db.select().from(interviewSessions).where(and(eq(interviewSessions.state, 'evaluating'), lt(interviewSessions.lastActivityAt, at(EVALUATING_LEASE_MS))));
-      for (const s of stalled) {
-        if (evaluationStalled(s, now)) await recoverStalledEvaluation(tx, s, (t, row, reason, extra) => this.interviews.complete(t, row, reason, extra)).catch(() => undefined);
-      }
-      // paused 24 hours, or a question stream abandoned for 24 hours -> completed with what exists
-      const stale = await db
-        .select()
-        .from(interviewSessions)
-        .where(and(inArray(interviewSessions.state, ['paused', 'asking', 'evaluating']), lt(interviewSessions.lastActivityAt, at(24 * 3600_000))));
-      for (const s of stale) await this.interviews.complete(tx, s, 'inactive_24h').catch(() => undefined);
-      // planned or profiled for 7 days -> expired
+    });
+    // paused 24 hours, or a question stream abandoned for 24 hours -> completed with what exists
+    const stale = await this.db
+      .system(({ db }) =>
+        db
+          .select({ id: interviewSessions.id })
+          .from(interviewSessions)
+          .where(and(inArray(interviewSessions.state, ['paused', 'asking', 'evaluating']), lt(interviewSessions.lastActivityAt, at(24 * 3600_000)))),
+      )
+      .catch((err: unknown) => {
+        logger.error({ step: 'inactive_24h', err: { message: (err as Error).message } }, 'sweep step failed');
+        return [] as { id: string }[];
+      });
+    for (const { id } of stale) {
+      await step(`inactive_24h:${id}`, async (tx) => {
+        const [s] = await tx.db.select().from(interviewSessions).where(eq(interviewSessions.id, id)).for('update');
+        if (!s || !['paused', 'asking', 'evaluating'].includes(s.state)) return;
+        await this.interviews.complete(tx, s, 'inactive_24h');
+      });
+    }
+    // planned or profiled for 7 days -> expired
+    await step('unused_7d', async ({ db }) => {
       await db
         .update(interviewSessions)
         .set({ state: 'expired', endReason: 'unused_7d' })
         .where(and(inArray(interviewSessions.state, ['planned', 'profiled']), lt(interviewSessions.updatedAt, at(7 * 24 * 3600_000))));
-      // a parse job that never finished (past every attempt and backoff the queue may still run) -> failed
+    });
+    // a parse job that never finished (past every attempt and backoff the queue may still run) -> failed
+    await step('parse_timeout', async ({ db }) => {
       await db
         .update(interviewSessions)
         .set({ state: 'failed', failureCode: 'PARSE_FAILED', failureStage: 'analysis' })
         .where(and(eq(interviewSessions.state, 'parsing'), lt(interviewSessions.updatedAt, at(this.deadlineMs('analyse')))));
-      // budget reservations never settled (process died mid-call) -> failed
+    });
+    // budget reservations never settled (process died mid-call) -> failed
+    await step('abandoned_reservations', async ({ db }) => {
       await db.update(llmCallLog).set({ status: 'failed', errorKind: 'abandoned' }).where(and(eq(llmCallLog.status, 'reserved'), lt(llmCallLog.createdAt, at(3600_000))));
-      // Attack Reasoning: a stage left running past its queue window (every attempt, expiry and backoff) -> failed with a retry.
+    });
+    // Attack Reasoning: a stage left running past its queue window (every attempt, expiry and backoff) -> failed with a retry.
+    await step('reasoning_generation_timeout', async ({ db }) => {
       await db
         .update(reasoningAttempts)
         .set({ state: 'generation_failed', failureCode: 'REASONING_GENERATION_FAILED', failureStage: 'generation', updatedAt: new Date() })
         .where(and(eq(reasoningAttempts.state, 'generating'), lt(reasoningAttempts.updatedAt, at(this.deadlineMs('generate')))));
+    });
+    await step('reasoning_evaluation_timeout', async ({ db }) => {
       await db
         .update(reasoningAttempts)
         .set({ state: 'evaluation_failed', failureCode: 'REASONING_EVALUATION_FAILED', failureStage: 'evaluation', updatedAt: new Date() })
         .where(and(eq(reasoningAttempts.state, 'evaluating'), lt(reasoningAttempts.updatedAt, at(this.deadlineMs('evaluate')))));
-      // Attack Reasoning: a question left unanswered for REASONING_READY_TTL_HOURS is skipped, so a shared
-      // question cannot stay open indefinitely while its answer key circulates (audit TR-42). The skip
-      // counts as 0 only for questions opened under that rule (skip_counts, audit BIZ-09); the view's
-      // expiresAt told the learner when. After a submission the daily quota or an AI budget refused, not
-      // before the TTL has also passed since the next 00:00 UTC (readyDeadline, audit final review BIZ-07):
-      // next midnight after submit_refused_at + TTL <= now exactly when submit_refused_at < the UTC day of now - TTL.
-      if (this.cfg.REASONING_READY_TTL_HOURS > 0) {
+    });
+    // Attack Reasoning: a question left unanswered for REASONING_READY_TTL_HOURS is skipped, so a shared
+    // question cannot stay open indefinitely while its answer key circulates (audit TR-42). The skip
+    // counts as 0 only for questions opened under that rule (skip_counts, audit BIZ-09); the view's
+    // expiresAt told the learner when. After a submission the daily quota or an AI budget refused, not
+    // before the TTL has also passed since the next 00:00 UTC (readyDeadline, audit final review BIZ-07):
+    // next midnight after submit_refused_at + TTL <= now exactly when submit_refused_at < the UTC day of now - TTL.
+    if (this.cfg.REASONING_READY_TTL_HOURS > 0) {
+      await step('reasoning_ready_ttl', async ({ db }) => {
         const ttlAgo = at(this.cfg.REASONING_READY_TTL_HOURS * 3600_000);
         const ttlAgoDay = new Date(ttlAgo);
         ttlAgoDay.setUTCHours(0, 0, 0, 0);
@@ -186,14 +252,21 @@ export class JobsService {
               or(isNull(reasoningAttempts.submitRefusedAt), lt(reasoningAttempts.submitRefusedAt, ttlAgoDay)),
             ),
           );
-      }
+      });
+    }
+    // File retention, abandoned uploads and paused reports: each on its own, so one failing never skips the others.
+    await outside('retention', async () => {
+      const purged = await this.documents.purgeOldFiles(new Date(now - FILE_RETENTION_DAYS * 24 * 3600_000));
+      if (purged) logger.info({ purged }, 'retention: uploaded files deleted');
     });
-    const purged = await this.documents.purgeOldFiles(new Date(now - FILE_RETENTION_DAYS * 24 * 3600_000));
-    if (purged) logger.info({ purged }, 'retention: uploaded files deleted');
-    const abandoned = await this.documents.sweepAbandonedUploads(new Date(now - ABANDONED_UPLOAD_MS));
-    if (abandoned) logger.info({ abandoned }, 'abandoned uploads deleted');
-    const resumed = await this.resumePausedScoring();
-    if (resumed) logger.info({ resumed }, 'paused report generation resumed');
+    await outside('abandoned_uploads', async () => {
+      const abandoned = await this.documents.sweepAbandonedUploads(new Date(now - ABANDONED_UPLOAD_MS));
+      if (abandoned) logger.info({ abandoned }, 'abandoned uploads deleted');
+    });
+    await outside('resume_paused_scoring', async () => {
+      const resumed = await this.resumePausedScoring();
+      if (resumed) logger.info({ resumed }, 'paused report generation resumed');
+    });
   }
 
   /**

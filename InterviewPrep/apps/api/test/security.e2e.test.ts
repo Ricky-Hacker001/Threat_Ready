@@ -698,7 +698,10 @@ describe('storage links, identity lookups and limits (audit 2026-10-23, second p
     const agent = await signUp(t, 'Bomb Thrower');
     const rssBefore = process.memoryUsage().rss;
     const doc = await uploadDocument(t, agent, 'resume', bomb);
-    expect(doc).toMatchObject({ status: 'failed', failureCode: 'RESUME_UNREADABLE' });
+    // Its directory declares a 100 MB part: refused for size (security patch 2, A4) with the
+    // "expands to far more than a resume" warning, before anything is inflated.
+    expect(doc).toMatchObject({ status: 'failed', failureCode: 'RESUME_TOO_LARGE' });
+    expect(doc.warnings[0]).toMatch(/expands to far more/);
     // The same bomb with the EOCD counting only [Content_Types].xml: mammoth's unzipper still reads the
     // uncounted document.xml record, so the scan must walk every record too (fix-up review of TR-06).
     const undercount = Buffer.from(bomb);

@@ -93,6 +93,25 @@ async function remediateViaApi(p: Page, origin: string, sid: string) {
 }
 
 try {
+  console.log('UI-1: the lab server not answering (/api/me 503 from the ThreatReady gateway) shows a retry, not the display-name form');
+  {
+    const down = await browser.newContext();
+    const dp = await down.newPage();
+    // The exact body the gateway sends under /labs while the labs child restarts (deploy/gateway.mjs errorBody).
+    const text = 'The Web Pentest Lab is briefly unavailable. Try again in 5 seconds.';
+    await dp.route('**/lab/api/me', r => r.fulfill({ status: 503, headers: { 'retry-after': '5' }, contentType: 'application/json', body: JSON.stringify({ error: text, message: text, code: 'UPSTREAM_UNAVAILABLE', retryable: true, requestId: 'e2e' }) }));
+    await dp.goto(`${base}/lab/`);
+    await dp.getByRole('heading', { name: "Can't open the Web Pentest Lab" }).waitFor({ timeout: 10000 });
+    assert(await dp.getByRole('alert').getByText(text).isVisible(), 'the gateway message is shown as text');
+    assert(!(await dp.getByText('[object Object]').count()), 'never "[object Object]"');
+    assert(!(await dp.getByPlaceholder('Your name').count()), 'no standalone display-name form while the server is down');
+    await dp.unroute('**/lab/api/me');
+    await dp.getByRole('button', { name: 'Try again' }).click();
+    await dp.getByPlaceholder('Your name').waitFor({ timeout: 10000 });
+    assert(true, 'Try again asks the server again (here: standalone, not signed in → the display-name form)');
+    await down.close();
+  }
+
   console.log('Dev login and start the engagement');
   await page.goto(`${base}/lab/`);
   await page.getByPlaceholder('Your name').fill('E2E Tester');
@@ -109,8 +128,9 @@ try {
 
   console.log('SEC-5: with no target frame mounted, the browser tool ignores navigation messages from other windows');
   {
-    // The served sandbox fails to load, so after 2.5 s the tool falls back to the inline view, which shows
-    // a placeholder card (no frame) until the first page. Any window may post to this one then.
+    // Before the first page the tool shows a placeholder card (no frame), so there is no legitimate
+    // sender at all. Any window may post to this one then. The served target document is also refused
+    // here, for the fallback check below.
     const lp = await context.newPage();
     await lp.route('**/target-frame.html', r => r.abort());
     await lp.goto(`${base}/lab/`);
@@ -119,6 +139,13 @@ try {
     await lp.waitForTimeout(1500);
     const hist = await lp.evaluate(async (b) => (await (await fetch(`${b}/lab/api/labs/TR-RED-001/sessions`, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: '{}' })).json()).view.history, base);
     assert(!hist.some((h: any) => h.request.path === '/sec5-probe'), 'a message from a window that is not the target frame drove no request');
+
+    console.log('TR-44 fallback: when the served target document cannot load, the page renders inline with a note');
+    await lp.getByPlaceholder('/path?query').fill('/products');
+    await lp.getByRole('button', { name: 'Go', exact: true }).click();
+    await lp.locator('iframe[title="target"][srcdoc]').waitFor({ timeout: 10000 });
+    await lp.frameLocator('iframe[title="target"][srcdoc]').locator('a[href="/product?id=101"]').first().waitFor({ timeout: 5000 });
+    assert(await lp.getByRole('note').filter({ hasText: "Scripts on the target page can't run in this view" }).isVisible(), 'the inline fallback shows the page and says scripts do not run there');
     await lp.close();
   }
 

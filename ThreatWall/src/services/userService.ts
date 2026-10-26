@@ -38,9 +38,11 @@ export function saveUser(cfg: FirewallConfig, f: UserForm, originalId: string | 
 /**
  * After a successful simulated login (NetExtender, user login): a local user's hash from an older save (FNV,
  * unsalted SHA-256, fewer iterations) replaced by its salted upgrade, as the administrator's is on login. Only
- * while it is still the hash that was checked; no audit entry, since the administrator changed nothing.
+ * while it is still the hash that was checked; no audit entry, since the administrator changed nothing. Returns
+ * the config unchanged when the user is gone, the replacement is empty, or the user already holds that hash.
  */
 export function upgradeUserHash(cfg: FirewallConfig, id: string, checked: string, passwordHash: string): FirewallConfig {
+  if (!passwordHash || passwordHash === checked) return cfg;
   if (!cfg.users.local.some((u) => u.id === id && u.passwordHash === checked)) return cfg;
   return { ...cfg, users: { ...cfg.users, local: cfg.users.local.map((u) => (u.id === id ? { ...u, passwordHash } : u)) } };
 }

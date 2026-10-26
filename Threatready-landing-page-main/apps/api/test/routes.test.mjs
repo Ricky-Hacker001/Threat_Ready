@@ -44,3 +44,64 @@ test("every route is public or declares a known permission", async () => {
   assert.ok(checked >= 6, `only ${checked} handlers found`);
   assert.deepEqual(missing, [], `routes without a permission: ${missing.join(", ")}`);
 });
+
+/* ---------------- Per-caller internal tokens (deploy/README.md "Internal tokens") ---------------- */
+import { internalTokenMatches } from "../dist/platform/internal-token.js";
+import { loadConfig } from "../dist/config.js";
+
+const RAW = "r".repeat(48);
+const LABS = "l".repeat(64);
+const AR = "a".repeat(64);
+const INTERVIEW = "i".repeat(64);
+const baseEnv = {
+  DATABASE_URL: "postgresql://u:p@localhost:5432/db",
+  BETTER_AUTH_SECRET: "s".repeat(40),
+  BETTER_AUTH_URL: "https://tr.example",
+  WEB_ORIGIN: "https://tr.example",
+  INTERVIEW_APP_URL: "https://tr.example/interview-prep/",
+  LABS_APP_URL: "https://tr.example/labs/",
+  REASONING_APP_URL: "https://tr.example/ar/",
+  INTERNAL_API_TOKEN: RAW,
+  EMAIL_DRIVER: "resend",
+  RESEND_API_KEY: "re_x",
+  ALLOW_NO_CAPTCHA: "true",
+};
+const bearer = (t) => `Bearer ${t}`;
+
+test("internal token: each caller's token is accepted, another app's derived token and garbage are not", () => {
+  const accept = [LABS, AR, INTERVIEW];
+  for (const t of accept) assert.equal(internalTokenMatches(bearer(t), accept), true);
+  assert.equal(internalTokenMatches(bearer("o".repeat(64)), accept), false, "a token minted for another callee");
+  assert.equal(internalTokenMatches(bearer(LABS.slice(0, 63)), accept), false, "near miss");
+  assert.equal(internalTokenMatches(bearer(RAW), accept), false, "raw token not in the list");
+  assert.equal(internalTokenMatches(undefined, accept), false);
+  assert.equal(internalTokenMatches("Basic abc", accept), false);
+  assert.equal(internalTokenMatches(bearer(LABS), LABS), true, "single-token form still works");
+});
+
+test("config: production accepts only INTERNAL_TOKENS_ACCEPT (raw token rejected); legacy flag or non-production adds the raw token", () => {
+  const prod = loadConfig({ ...baseEnv, NODE_ENV: "production", INTERNAL_TOKENS_ACCEPT: `${LABS}, ${AR},${INTERVIEW}` });
+  assert.deepEqual([...prod.internalTokensAccept], [LABS, AR, INTERVIEW]);
+  assert.equal(internalTokenMatches(bearer(RAW), prod.internalTokensAccept), false, "production rejects the raw INTERNAL_API_TOKEN");
+  assert.equal(internalTokenMatches(bearer(AR), prod.internalTokensAccept), true);
+
+  const legacy = loadConfig({ ...baseEnv, NODE_ENV: "production", INTERNAL_TOKENS_ACCEPT: LABS, INTERNAL_TOKEN_LEGACY_ACCEPT: "true" });
+  assert.deepEqual([...legacy.internalTokensAccept], [LABS, RAW]);
+
+  const dev = loadConfig({ ...baseEnv, NODE_ENV: "development", INTERNAL_TOKENS_ACCEPT: LABS });
+  assert.deepEqual([...dev.internalTokensAccept], [LABS, RAW], "outside production the raw token is accepted too");
+  const devStrict = loadConfig({ ...baseEnv, NODE_ENV: "development", INTERNAL_TOKENS_ACCEPT: LABS, INTERNAL_TOKEN_LEGACY_ACCEPT: "false" });
+  assert.deepEqual([...devStrict.internalTokensAccept], [LABS]);
+
+  const none = loadConfig({ ...baseEnv, NODE_ENV: "production" });
+  assert.deepEqual([...none.internalTokensAccept], [RAW], "no per-caller list → the raw token (local dev unchanged)");
+  const short = loadConfig({ ...baseEnv, NODE_ENV: "production", INTERNAL_TOKENS_ACCEPT: "too-short" });
+  assert.deepEqual([...short.internalTokensAccept], [RAW], "tokens under 32 characters are ignored");
+});
+
+test("config: onboard presents the token minted for each target, falling back to INTERNAL_API_TOKEN", () => {
+  const c = loadConfig({ ...baseEnv, NODE_ENV: "production", INTERNAL_TOKEN_TO_INTERVIEW: INTERVIEW, INTERNAL_TOKEN_TO_LABS: LABS });
+  assert.deepEqual(c.internalTokenTo, { interview: INTERVIEW, labs: LABS, reasoning: RAW });
+  const d = loadConfig({ ...baseEnv, NODE_ENV: "development" });
+  assert.deepEqual(d.internalTokenTo, { interview: RAW, labs: RAW, reasoning: RAW });
+});

@@ -10,7 +10,7 @@
     "apps/web"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=24"
   },
   "scripts": {
     "build": "npm run build -w @threatready/shared -w @threatready/contracts -w @threatready/db && npm run build -w @threatready/api && npm run build -w @threatready/web",
@@ -21,7 +21,8 @@
     "db:migrate": "npm run migrate -w @threatready/db",
     "dev:api": "npm run dev -w @threatready/api",
     "dev:worker": "npm run dev:worker -w @threatready/api",
-    "dev:web": "npm run dev -w @threatready/web"
+    "dev:web": "npm run dev -w @threatready/web",
+    "lint:regexp": "node ../tools/check-regexp-from-input.mjs apps/api/src"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
@@ -34,6 +35,7 @@
   "overrides": {
     "@esbuild-kit/core-utils": {
       "esbuild": ">=0.25.0 <1"
-    }
+    },
+    "multer": "^2.5.0"
   }
 }

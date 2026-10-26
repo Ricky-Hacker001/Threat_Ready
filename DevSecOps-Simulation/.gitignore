@@ -1,3 +1,9 @@
 node_modules
 dist
 .claude/
+
+# Secrets and logs: same rules as the root .gitignore (templates are .env.example)
+.env
+.env.*
+!.env.example
+*.log

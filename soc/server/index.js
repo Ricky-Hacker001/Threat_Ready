@@ -31,6 +31,19 @@ app.disable('x-powered-by');
 // Before the first route: /API/... must not reach the API under another spelling (the ThreatReady host
 // counts API calls against its rate limits by path).
 app.set('case sensitive routing', true);
+// Request correlation: the gateway's x-request-id (or one minted here) is echoed on the response, in every
+// JSON error envelope (`requestId`) and in the error log, so a reported error can be matched across logs.
+const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,128}$/;
+export const requestIdOf = (req) => (REQUEST_ID.test(String(req.headers['x-request-id'] || '')) ? String(req.headers['x-request-id']) : `req_${crypto.randomUUID()}`);
+app.use((req, res, next) => {
+  const id = requestIdOf(req);
+  req.requestId = id;
+  req.headers['x-request-id'] = id;
+  res.setHeader('X-Request-Id', id);
+  const json = res.json.bind(res);
+  res.json = (body) => json(res.statusCode >= 400 && body && typeof body === 'object' && !Array.isArray(body) && !('requestId' in body) ? { ...body, requestId: id } : body);
+  next();
+});
 app.use(express.json({ limit: '256kb' }));
 app.use('/api', sessionMiddleware);
 
@@ -330,7 +343,7 @@ app.use((err, req, res, next) => {
   if (err?.type === 'encoding.unsupported' || err?.type === 'charset.unsupported') return res.status(415).json({ error: 'unsupported_media_type', message: 'The request body encoding is not supported.' });
   const status = Number(err?.status ?? err?.statusCode);
   if (status >= 400 && status < 500) return res.status(status).json({ error: 'bad_request', message: 'The request could not be read.' });
-  console.error(err);
+  console.error(`[${req.requestId || requestIdOf(req)}] ${req.method} ${req.originalUrl}:`, err);
   return res.status(500).json({ error: 'internal', message: 'Internal error.' });
 });
 

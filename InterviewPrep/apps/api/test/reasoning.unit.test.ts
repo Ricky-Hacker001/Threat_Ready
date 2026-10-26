@@ -13,7 +13,9 @@ import { fakeReasoningItem } from '../src/platform/adapters/fake/reasoning.fake.
 /** Configuration and prompt rules for Attack Reasoning that need no database (audit 2026-10-23). */
 
 const base = { DATABASE_URL: 'postgres://x', APP_ORIGIN: 'http://localhost:5173', API_BASE_URL: 'http://localhost:3000', BETTER_AUTH_SECRET: 's'.repeat(40), INTERNAL_API_TOKEN: 't'.repeat(40), STORAGE_DRIVER: 'fs', LLM_DRIVER: 'fake' };
-const production = { ...base, NODE_ENV: 'production', LLM_DRIVER: 'anthropic', ANTHROPIC_API_KEY: 'k', ALLOW_EPHEMERAL_STORAGE: 'true', ALLOW_NO_SENTRY: 'true', ONBOARD_URL: 'https://threatready.onrender.com' };
+const production = { ...base, NODE_ENV: 'production', LLM_DRIVER: 'anthropic', ANTHROPIC_API_KEY: 'k', ALLOW_EPHEMERAL_STORAGE: 'true', ALLOW_NO_SENTRY: 'true', ONBOARD_URL: 'https://threatready.onrender.com',
+  // Required in production since security patch 2: the small model's price sets the AI budget, and internal calls use per-caller tokens.
+  LLM_MODEL_SMALL: 'claude-haiku-4-5', INTERNAL_TOKENS_ACCEPT: 'a'.repeat(64), INTERNAL_TOKEN_FROM_ONBOARD: 'a'.repeat(64) };
 
 describe('attack reasoning: when an unanswered question is skipped automatically (audit final review BIZ-07)', () => {
   const at = (iso: string) => new Date(iso);
@@ -113,5 +115,19 @@ describe('attack reasoning: learner text cannot reshape a later stage’s prompt
     expect(size(bound)).toBeGreaterThan(size(exact) + 3900);
     expect(size(unknown)).toBeGreaterThan(size(bound));
     expect(bound.maxOutputTokens).toBe(exact.maxOutputTokens);
+  });
+
+  it('bounds a written answer without the answer key: the item context at its bound, the learner’s own text (security patch 2, A5)', () => {
+    // The API's submit and retry checks: a learner's transaction cannot read reasoning_items.private (migration 0016).
+    const answer = { selected: 'B' as const, justification: 'short answer' };
+    const exact = evaluatorRequest(CLOUD_SECURITY, item, 'B', 'short answer');
+    const written = evaluatorRequestBound(CLOUD_SECURITY, null, answer);
+    const unknown = evaluatorRequestBound(CLOUD_SECURITY, null);
+    const size = (r: typeof exact) => r.system.length + r.messages.reduce((n, m) => n + m.content.length, 0);
+    expect(size(written)).toBeGreaterThan(size(exact)); // never under the real item's request
+    expect(size(written)).toBeLessThan(size(unknown)); // and tighter than the longest justification
+    expect(written.messages[0]!.content).toContain('short answer');
+    expect(written.messages[0]!.content).not.toContain(item.private.referenceAnswer);
+    expect(evaluatorRequestBound(CLOUD_SECURITY, item, answer).messages[0]!.content).toBe(exact.messages[0]!.content);
   });
 });

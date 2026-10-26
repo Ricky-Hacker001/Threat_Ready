@@ -205,7 +205,7 @@ export class IdentityAdapter {
     let res: Response;
     try {
       res = await fetch(`${this.cfg.IDENTITY_URL.replace(/\/+$/, '')}/api/internal/identity/session`, {
-        headers: { cookie, authorization: `Bearer ${this.cfg.INTERNAL_API_TOKEN}`, accept: 'application/json' },
+        headers: { cookie, authorization: `Bearer ${this.cfg.internalTokenToOnboard}`, accept: 'application/json' },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (err) {

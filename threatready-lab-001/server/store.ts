@@ -16,18 +16,27 @@ const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'obj
 const LARGE_FILE_BYTES = 6 * 1024 * 1024;
 const LARGE_LOG_MS = 10 * 60_000;
 
+/** Moves an unreadable store file to `<file>.corrupt-<timestamp>`; returns the new path, or null when that failed. */
+export function quarantine(file: string): string | null {
+  const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try { fs.renameSync(file, kept); return kept; } catch { return null; }
+}
+
 /**
  * A data file that does not parse (or is not a store) is moved aside as `<file>.corrupt-<time>` before
  * the store starts empty, so the next save cannot overwrite what may still be recovered by hand.
  */
 function load(file: string): Data | null {
   if (!fs.existsSync(file)) return null;
-  let parsed: unknown;
-  try { parsed = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { parsed = e; }
-  if (isObj(parsed) && isObj(parsed.sessions) && (parsed.users === undefined || isObj(parsed.users))) return { users: {}, tokens: {}, ...parsed } as Data;
-  const aside = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-  try { fs.renameSync(file, aside); console.error(`store: ${file} is not a valid data file; kept it as ${aside} and started empty`); }
-  catch (e) { console.error(`store: ${file} is not a valid data file and could not be moved aside (${(e as Error).message}); started empty`); }
+  let reason: string;
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (isObj(parsed) && isObj(parsed.sessions) && (parsed.users === undefined || isObj(parsed.users))) return { users: {}, tokens: {}, ...parsed } as Data;
+    reason = isObj(parsed) ? 'not a lab store' : 'not a JSON object';
+  } catch (e) { reason = (e as Error).message; }
+  // A corrupt or truncated file is kept for recovery, never overwritten by the next save.
+  const kept = quarantine(file);
+  console.error(`store: ${file} could not be read (${reason}); ${kept ? `kept as ${kept}` : 'could not be moved aside'}, starting empty`);
   return null;
 }
 

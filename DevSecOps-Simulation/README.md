@@ -14,7 +14,7 @@ npm run dev        # http://localhost:5180
 npm run build      # type-check + production build into dist/
 ```
 
-Tests use Node's own runner (no extra dependencies; Node 22.15+ or 24):
+Tests use Node's own runner (no extra dependencies; Node 24+, as `engines.node` requires):
 
 ```bash
 node --import ./tests/setup.mjs --test 'tests/*.test.mjs'   # sandbox, identity lookup, storage, scoring

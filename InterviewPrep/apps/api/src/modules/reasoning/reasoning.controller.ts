@@ -144,7 +144,7 @@ export class ReasoningInternalController {
   @Get('users/:userId/summary')
   @Public()
   summary(@Req() req: Request, @Param('userId') userId: string, @Query('appOrigin') appOrigin?: string) {
-    assertInternalCaller(req, this.cfg.INTERNAL_API_TOKEN);
+    assertInternalCaller(req, this.cfg.internalTokensAccept);
     if (!userId || userId.length > 100) throw new DomainError('VALIDATION_FAILED');
     const origin = typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin) && appOrigin.length < 200 ? appOrigin : `${this.cfg.APP_ORIGIN}/ar`;
     return this.reasoning.platformSummary(userId, origin);
@@ -153,7 +153,7 @@ export class ReasoningInternalController {
   @Get('ai-usage')
   @Public()
   aiUsage(@Req() req: Request, @Query() query: Record<string, unknown>): Promise<AppAiUsage> {
-    assertInternalCaller(req, this.cfg.INTERNAL_API_TOKEN);
+    assertInternalCaller(req, this.cfg.internalTokensAccept);
     const q = UsageQuery.safeParse(query);
     if (!q.success) throw new DomainError('VALIDATION_FAILED', { details: q.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) });
     const from = new Date(q.data.from);

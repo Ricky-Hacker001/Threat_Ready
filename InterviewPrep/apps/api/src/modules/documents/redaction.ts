@@ -18,6 +18,9 @@ export interface RedactionResult {
  * collapsed longer runs), which keeps "DOB:\n01/02/1999" matching across one line break.
  */
 const RULES: { name: string; marker: string; re: RegExp }[] = [
+  // The lookbehind anchors the match to the start of its run: without it a 30,000-character run of
+  // address characters with no "@" is rescanned from every position (1.6 s per document, A11c / TR-04).
+  // The bounded runs (RFC 5321 local part 64, domain 253, TLD 24) keep the work per start linear too.
   { name: 'email', marker: '[EMAIL]', re: /(?<![A-Z0-9._%+-])[A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{1,253}\.[A-Z]{2,24}\b/gi },
   { name: 'url', marker: '[PROFILE_URL]', re: /\b(?:https?:\/\/)?(?:www\.)?(?:linkedin\.com|github\.com|gitlab\.com|twitter\.com|x\.com|medium\.com|behance\.net|dribbble\.com)\/[^\s)|,;]+/gi },
   { name: 'url', marker: '[URL]', re: /\bhttps?:\/\/[^\s)|,;]+/gi },

@@ -6,6 +6,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { Request, Response } from 'express';
 import { CLIENT_IP_HEADER } from './ratelimit';
+import { requestId } from './requestId';
 
 export interface ProxyOptions {
   /** Where this server reaches the monolith's API (in-VPC in AWS), e.g. http://localhost:3100 */
@@ -25,7 +26,8 @@ export interface ProxyOptions {
 }
 
 const MAX_BODY_BYTES = 256 * 1024;
-const engineError = (code: string, message: string, retryable = false) => ({ error: { code, message, retryable, request_id: 'req_gateway' } });
+/** The engine's error envelope, with the request's id (the gateway's, or minted by this app). */
+const engineError = (rid: string, code: string, message: string, retryable = false) => ({ error: { code, message, retryable, request_id: rid } });
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
 /** Headers never copied from the browser's request: hop-by-hop, any Proxy-*, and any client-IP header (written below from what this app decided). */
@@ -64,12 +66,13 @@ export function proxyToApi(opts: ProxyOptions) {
   const ipHeader = opts.clientIpHeader?.toLowerCase();
   const maxBody = opts.maxBodyBytes ?? MAX_BODY_BYTES;
   return (req: Request, res: Response) => {
+    const rid = requestId(req);
     const upstreamPath = opts.mountPath !== undefined ? `${opts.mountPath}${req.url}` : req.originalUrl;
-    if (reachesInternal(req.originalUrl) || reachesInternal(upstreamPath)) { res.status(404).json(engineError('NOT_FOUND', 'Not found.')); return; }
+    if (reachesInternal(req.originalUrl) || reachesInternal(upstreamPath)) { res.status(404).json(engineError(rid, 'NOT_FOUND', 'Not found.')); return; }
     const declared = req.headers['content-length'];
     // Node's parser already refuses both framings at once; this keeps the rule explicit here.
-    if (declared !== undefined && req.headers['transfer-encoding'] !== undefined) { res.status(400).set('Connection', 'close').json(engineError('BAD_REQUEST', 'Conflicting request framing.')); req.resume(); return; }
-    const tooLarge = () => { res.status(413).set('Connection', 'close').json(engineError('PAYLOAD_TOO_LARGE', 'The request is too large.')); req.resume(); };
+    if (declared !== undefined && req.headers['transfer-encoding'] !== undefined) { res.status(400).set('Connection', 'close').json(engineError(rid, 'BAD_REQUEST', 'Conflicting request framing.')); req.resume(); return; }
+    const tooLarge = () => { res.status(413).set('Connection', 'close').json(engineError(rid, 'PAYLOAD_TOO_LARGE', 'The request is too large.')); req.resume(); };
     if (declared !== undefined && Number(declared) > maxBody) { tooLarge(); return; }
     const headers: http.OutgoingHttpHeaders = {};
     // The cookie header goes through: the monolith resolves the ThreatReady session from it.
@@ -79,6 +82,7 @@ export function proxyToApi(opts: ProxyOptions) {
     // The visitor's IP is what this app decided (the trusted gateway's header, or the connection):
     // a learner-supplied value is never forwarded.
     if (ipHeader) headers[ipHeader] = opts.ipOf?.(req) ?? req.ip ?? '';
+    headers['x-request-id'] = rid; // the gateway's id follows the request into the engine's logs
     const withBody = !BODYLESS.has(req.method) && (req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined);
     // Node checked an incoming Content-Length against the bytes it delivers; a chunked body is re-chunked by Node.
     if (withBody && req.headers['content-length'] !== undefined) headers['content-length'] = req.headers['content-length'];
@@ -94,9 +98,10 @@ export function proxyToApi(opts: ProxyOptions) {
     );
     upstream.setTimeout(0);
     let refused = false;
-    upstream.on('error', () => {
-      if (refused) return;
-      if (!res.headersSent) res.status(502).json(engineError('UPSTREAM_UNAVAILABLE', 'The assessment service is restarting. Try again shortly.', true));
+    upstream.on('error', (err) => {
+      if (refused) return; // destroyed here on purpose (body over the cap): already answered 413
+      console.error(`[${rid}] ${req.method} ${req.originalUrl}: reasoning engine unreachable: ${err.message}`);
+      if (!res.headersSent) res.status(502).json(engineError(rid, 'UPSTREAM_UNAVAILABLE', 'The assessment service is restarting. Try again shortly.', true));
       else res.end();
     });
     req.on('aborted', () => upstream.destroy());
@@ -119,9 +124,9 @@ export function proxyToApi(opts: ProxyOptions) {
   };
 }
 
-/** One JSON call to the monolith's internal API with the shared token (summary and AI usage for onboard). */
-export async function internalGet(target: string, path: string, token: string, timeoutMs = 5000): Promise<{ status: number; body: unknown }> {
-  const res = await fetch(`${target.replace(/\/+$/, '')}${path}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/json' }, signal: AbortSignal.timeout(timeoutMs) });
+/** One JSON call to the monolith's internal API with this app's caller token (summary and AI usage for onboard). */
+export async function internalGet(target: string, path: string, token: string, rid?: string, timeoutMs = 5000): Promise<{ status: number; body: unknown }> {
+  const res = await fetch(`${target.replace(/\/+$/, '')}${path}`, { headers: { authorization: `Bearer ${token}`, accept: 'application/json', ...(rid ? { 'x-request-id': rid } : {}) }, signal: AbortSignal.timeout(timeoutMs) });
   const body: unknown = await res.json().catch(() => null);
   return { status: res.status, body };
 }

@@ -13,6 +13,10 @@ if (production && givenSessionSecret === DEV_SESSION_SECRET) {
   throw new Error('SOC_SESSION_SECRET / SIM_SESSION_SECRET is the development default; set a real secret (e.g. `openssl rand -hex 32`) for production.');
 }
 
+// SOC_INTERNAL_TOKEN set to the platform's shared raw INTERNAL_API_TOKEN, where that token is no longer accepted.
+const legacyAccept = env.INTERNAL_TOKEN_LEGACY_ACCEPT !== undefined ? env.INTERNAL_TOKEN_LEGACY_ACCEPT === 'true' : !production;
+const sharedRawToken = !!env.SOC_INTERNAL_TOKEN && env.SOC_INTERNAL_TOKEN === env.INTERNAL_API_TOKEN && !legacyAccept;
+
 export const config = {
   production,
   // Optional ThreatReady hand-off. Off unless TR_SIM_SECRET is set.
@@ -29,7 +33,9 @@ export const config = {
   webhookSecret: env.TR_WEBHOOK_SECRET || '',
   exportToken: env.TR_EXPORT_TOKEN || '',
   // Profile summary for a platform host (GET /internal/v1/users/:uid/summary). Off unless 32+ characters.
-  internalToken: env.SOC_INTERNAL_TOKEN || '',
+  // A token of its own (per caller): the platform's shared INTERNAL_API_TOKEN is refused here in production
+  // unless INTERNAL_TOKEN_LEGACY_ACCEPT=true, as on every other /internal/v1 router (security patch 2, A9).
+  internalToken: sharedRawToken ? '' : env.SOC_INTERNAL_TOKEN || '',
   sessionHours: 8,       // ThreatReady token sessions
   localSessionHours: 24, // name sign-in sessions (records are wiped daily anyway)
   // Test runs may pin a variant (no renaming, no jitter). Never honoured
@@ -58,5 +64,6 @@ export function checkConfig() {
     if (config.sessionSecretGenerated) warn.push('SOC_SESSION_SECRET / SIM_SESSION_SECRET is not set: using a random secret, so sessions end when the server restarts.');
     if (env.DEV_USER) warn.push('DEV_USER is set but ignored in production.');
   }
+  if (sharedRawToken) warn.push('SOC_INTERNAL_TOKEN is the shared INTERNAL_API_TOKEN, which is not accepted here (INTERNAL_TOKEN_LEGACY_ACCEPT is off): the internal summary is off. Give it a token of its own.');
   return warn;
 }

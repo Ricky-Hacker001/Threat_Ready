@@ -11,7 +11,7 @@ documentation ranges (RFC 5737); test "malware" is the harmless EICAR string; th
 
 ## Run locally
 
-Requires **Node.js 20.19+ or 22+**.
+Requires **Node.js 24+** (`engines.node` `>=24`, as everywhere in ThreatReady).
 
 ```bash
 npm install
@@ -21,9 +21,9 @@ npm run dev        # http://localhost:5173
 | Command | What it does |
 | --- | --- |
 | `npm run build` then `npm run preview` | production build on http://localhost:4173 |
-| `npm test` | unit/verification tests (incl. notebook coverage): engine + every task's checks against an answer key, including "no later task makes an earlier one stale"; per-account storage and the tab-only fallback; lab password hashing |
+| `npm test` | unit/verification tests (incl. notebook coverage): engine + every task's checks against an answer key, including "no later task makes an earlier one stale"; per-account storage, the tab-only fallback and the one-time legacy-key migration at boot; lab password hashing and the upgrade of older hashes on login |
 | `npm run e2e` | browser walkthrough of all 30 tasks through the GUI (needs `npm run preview` running and `npx playwright install chromium` once; `TW_URL` points it elsewhere) |
-| `node e2e/platform.mjs <dir>` | inside-ThreatReady checks against a `npx vite build --base /labs/threatwall/ --outDir <dir>` build with a mocked `/labs/api/me`: tab-only progress and notice when the account can't be confirmed, the one short retry, no sideways scroll on phones |
+| `node e2e/platform.mjs <dir>` | inside-ThreatReady checks against a `npx vite build --base /labs/threatwall/ --outDir <dir>` build with a mocked `/labs/api/me`: tab-only progress and notice when the account can't be confirmed, the one short retry, a local user's older hash upgraded on a simulated login, no sideways scroll on phones |
 | `npm run lint` | oxlint |
 
 **Screens:** `#/start` home (levels, badges, continue, reset) · lab (any appliance route) · `#/record` training record · `#/notebook[/task]` learning notebook.

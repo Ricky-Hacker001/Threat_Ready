@@ -46,7 +46,7 @@ None is required.
 | `DEV_USER` | – | Development only: skips the sign-in page as this user. Ignored in production. |
 | `TR_SIM_SECRET`, `TR_HOME_URL` | – | Optional. Only to also accept ThreatReady `?t=<token>` links (HS256, `aud` "soc-sim", see `signToken` in `server/auth.js`). Not needed for the standalone simulation. |
 | `TR_WEBHOOK_URL`, `TR_WEBHOOK_SECRET`, `TR_EXPORT_TOKEN` | – | Optional record export to another system. Off unless set. |
-| `SOC_INTERNAL_TOKEN` | – | Optional. 32+ characters: serves one analyst's progress summary at `GET /internal/v1/users/:uid/summary` (Bearer token) for a platform host. Inside ThreatReady the labs server reads the same summary in process. |
+| `SOC_INTERNAL_TOKEN` | – | Optional. 32+ characters: serves one analyst's progress summary at `GET /internal/v1/users/:uid/summary` (Bearer token) for a platform host. Inside ThreatReady the labs server reads the same summary in process. A token of its own: in production the platform's shared `INTERNAL_API_TOKEN` is refused here (the route stays off) unless `INTERNAL_TOKEN_LEGACY_ACCEPT=true`. |
 | `SOC_MAX_STREAMS_PER_USER` | `3` | Live log streams one analyst may hold open at once (`0` = no limit; empty = the default). A reconnect from the same page replaces its own stream. |
 | `TR_STATE_DURABLE` | – | Set by the ThreatReady launcher while it keeps the records across restarts. Inside ThreatReady the console then says records are saved to the ThreatReady account; otherwise that they are kept on the lab server. |
 

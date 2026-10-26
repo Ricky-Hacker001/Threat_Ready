@@ -266,9 +266,10 @@ export class InterviewService {
       .from(interviewTurns)
       .where(and(eq(interviewTurns.sessionId, s.id), isNotNull(interviewTurns.answer)));
     if (n === 0) {
-      return transition(tx, s, [s.state], { ...extra, state: 'expired', ...clock, completedAt: new Date(), endReason: `${reason}_no_answers` });
+      return transition(tx, s, [s.state], { evaluatingLeaseUntil: null, ...extra, state: 'expired', ...clock, completedAt: new Date(), endReason: `${reason}_no_answers` });
     }
-    const next = await transition(tx, s, [s.state], { ...extra, state: 'scoring', ...clock, completedAt: new Date(), endReason: reason });
+    // An ended interview holds no evaluating lease (security patch 2, A2), whichever path ended it.
+    const next = await transition(tx, s, [s.state], { evaluatingLeaseUntil: null, ...extra, state: 'scoring', ...clock, completedAt: new Date(), endReason: reason });
     await this.queue.enqueue(JOBS.interviewFinalScoring, { kind: 'final_scoring', sessionId: s.id }, { key: `${s.id}:${SCORING_VERSION}` }, tx);
     return next;
   }

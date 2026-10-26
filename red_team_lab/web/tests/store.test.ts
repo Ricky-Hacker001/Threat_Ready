@@ -16,7 +16,7 @@ describe('Red Team store — TR-15 (caps + corrupt-file preservation) and LAB-RE
     const store = new Store(file);
     expect(store.session('anything')).toBe(null);
     // The original bytes were moved aside (not destroyed) so the file can be recovered.
-    const corrupt = fs.readdirSync(dir).filter(f => f.startsWith('store.json.corrupt.'));
+    const corrupt = fs.readdirSync(dir).filter(f => f.startsWith('store.json.corrupt-'));
     expect(corrupt.length).toBe(1);
     expect(fs.readFileSync(path.join(dir, corrupt[0]), 'utf8')).toBe('{ this is not valid json ');
     // A subsequent write creates a fresh, valid file.
@@ -29,7 +29,7 @@ describe('Red Team store — TR-15 (caps + corrupt-file preservation) and LAB-RE
     const file = path.join(dir, 'store.json');
     fs.writeFileSync(file, '[1,2,3]');
     new Store(file);
-    expect(fs.readdirSync(dir).some(f => f.startsWith('store.json.corrupt.'))).toBe(true);
+    expect(fs.readdirSync(dir).some(f => f.startsWith('store.json.corrupt-'))).toBe(true);
   });
 
   it('caps stored runs per learner+lab (default 20), evicting the oldest archived runs only', () => {

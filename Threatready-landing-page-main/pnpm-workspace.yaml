@@ -9,3 +9,6 @@ onlyBuiltDependencies:
   - "@embedded-postgres/darwin-x64"
   - "@embedded-postgres/linux-x64"
   - "@embedded-postgres/linux-arm64"
+overrides:
+  "body-parser@>=2.0.0 <2.4.0": "^2.4.0"
+  "multer@>=2.0.0 <2.5.0": "^2.5.0"

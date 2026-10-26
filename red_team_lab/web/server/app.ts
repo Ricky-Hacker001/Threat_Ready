@@ -4,62 +4,13 @@ import fs from 'node:fs';
 import { Store, Session } from './store';
 import { webLab, LabEngine } from './engine';
 import { CATALOG } from './catalog';
-import { IdentityResolver, internalTokenMatches, devUserCookie, devLogoutCookie } from './identity';
+import { IdentityResolver, acceptedInternalTokens, internalTokenMatches, devUserCookie, devLogoutCookie } from './identity';
 import { clientIp, limitFromEnv, rateLimiter } from './ratelimit';
+import { requestId, requestIds } from './requestId';
+import { TARGET_FRAME_CSP, TARGET_FRAME_HTML } from './frame';
 
 const ENGINES: Record<string, LabEngine> = { [webLab.labId]: webLab };
 
-// The target frame's own policy (TR-44): inline scripts and eval are allowed so XSS payloads run, but
-// the document reaches nothing — no network (connect-src 'none'), no forms submitting out (the shim
-// intercepts them), and `sandbox` forces an opaque origin even if the file is opened directly. This is
-// scoped to GET /target-frame.html only and never relaxes the platform origin's CSP.
-const TARGET_SANDBOX_CSP = "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'";
-// The response header replaces the gateway policy, so it must restore the platform's framing rule:
-// only the Red Team's own pages may frame this document, never another site ('self' is the URL's
-// origin, so it holds despite the sandbox). `sandbox` and frame-ancestors go in the header only:
-// browsers ignore both in <meta> (and log the ignored sandbox as a console error on every load).
-const TARGET_FRAME_HEADER_CSP = `${TARGET_SANDBOX_CSP}; sandbox allow-scripts allow-forms; frame-ancestors 'self'`;
-// The sandbox shell: it posts "ready", then on each "render" message writes the server-rendered target
-// HTML into itself (document.write executes the inline/XSS scripts), turns alert()/confirm()/prompt()
-// raised by payloads into a visible banner (proof the script ran, without blocking the frame), and
-// forwards link clicks and form submits to the parent so navigation stays inside the simulation. The
-// dialog overrides live on `window` so they survive each rewrite and catch scripts that run on parse.
-const SANDBOX_DOC = `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="${TARGET_SANDBOX_CSP}">
-<title>AeroCart (sandboxed target)</title></head>
-<body>
-<div id="tr-ph" style="font:14px system-ui,sans-serif;color:#5f6880;padding:18px;line-height:1.5">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation. Vulnerability detection is server-side; the Proxy logs every request.</div>
-<script>(function(){
-  'use strict';
-  function send(method,url,body){ try{ parent.postMessage({__trlab:1,type:'nav',method:method,url:url,body:body||''}, '*'); }catch(e){} }
-  function banner(m){ try{ var d=document.createElement('div'); d.textContent='\\u26A0 script executed in your session: '+m; d.style.cssText='position:fixed;top:0;left:0;right:0;background:#b4231c;color:#fff;font:600 13px system-ui,sans-serif;padding:7px 12px;z-index:99999'; (document.body||document.documentElement).appendChild(d); setTimeout(function(){try{d.remove();}catch(e){}},5000);}catch(e){} }
-  window.alert=function(m){ banner('alert('+m+')'); };
-  window.confirm=function(m){ banner('confirm('+m+')'); return false; };
-  window.prompt=function(m){ banner('prompt('+m+')'); return null; };
-  function installShim(){
-    document.addEventListener('click', function(e){
-      var a = e.target && e.target.closest && e.target.closest('a[href]'); if(!a) return;
-      var href = a.getAttribute('href')||'';
-      if(/^(https?:|mailto:|tel:)/i.test(href)){ e.preventDefault(); return; }
-      if(href.indexOf('#')===0 || href.toLowerCase().indexOf('javascript:')===0){ e.preventDefault(); return; }
-      e.preventDefault(); send('GET', href);
-    }, true);
-    document.addEventListener('submit', function(e){
-      var f=e.target; if(!f||f.tagName!=='FORM') return; e.preventDefault();
-      var method=(f.getAttribute('method')||'GET').toUpperCase();
-      var action=f.getAttribute('action')||location.pathname;
-      var p=new URLSearchParams();
-      for(var i=0;i<f.elements.length;i++){ var el=f.elements[i]; if(!el.name||el.disabled) continue; if((el.type==='checkbox'||el.type==='radio')&&!el.checked) continue; p.append(el.name, el.value); }
-      if(method==='GET') send('GET', action + (action.indexOf('?')>-1?'&':'?') + p.toString());
-      else send('POST', action, p.toString());
-    }, true);
-  }
-  function render(html){ try{ document.open('text/html','replace'); document.write(String(html)); document.close(); installShim(); }catch(e){} }
-  window.addEventListener('message', function(e){ var d=e.data; if(!d||d.__trlab!==1) return; if(d.type==='render'&&typeof d.html==='string') render(d.html); });
-  try { parent.postMessage({__trlab:1,type:'ready'}, '*'); } catch(e){}
-})();</script>
-</body></html>`;
 const hasOwn = (o: object, k: unknown) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
 /** A lab engine by id from the URL ("constructor" and friends are not labs). */
 const engineOf = (labId: unknown): LabEngine | undefined => (hasOwn(ENGINES, labId) ? ENGINES[labId as string] : undefined);
@@ -67,6 +18,10 @@ const engineOf = (labId: unknown): LabEngine | undefined => (hasOwn(ENGINES, lab
 export interface AppOptions {
   identity: IdentityResolver;
   internalToken?: string;
+  /** Per-caller tokens also accepted on /internal/v1/* (default: env INTERNAL_TOKENS_ACCEPT; see identity.ts). */
+  internalTokensAccept?: string[];
+  /** Whether the raw `internalToken` is accepted next to the per-caller list (default: env INTERNAL_TOKEN_LEGACY_ACCEPT, false in production). */
+  internalTokenLegacyAccept?: boolean;
   appOrigin: string;
   onboardUrl?: string;
   /** Standalone dev login (cookie-based). */
@@ -85,6 +40,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   const app = express();
   app.disable('x-powered-by');
   app.set('etag', false);
+  // First: the request id (from the gateway, or minted) for every response, error envelope and log line below.
+  app.use(requestIds());
   const limiter = rateLimiter({
     perUserPerMin: opts.ratePerMin ?? limitFromEnv('REDTEAM_RATE_PER_MIN', 120),
     perIpPerMin: opts.rateIpPerMin ?? limitFromEnv('REDTEAM_RATE_IP_PER_MIN', 300),
@@ -92,10 +49,24 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   });
   app.use(express.json({ limit: '128kb' }));
 
+  // The embedded target browser's document (TR-44 / A15b): a same-origin page with its own sandboxed
+  // policy (see frame.ts), so the learner's reflected/stored XSS payloads and the navigation shim actually
+  // execute there — a srcdoc frame would inherit the strict platform CSP (script-src 'self') and silently
+  // drop them. The header replaces the gateway default for this one response only; behind the gateway the
+  // Red Team *pages* additionally need `frame-src 'self'` to embed it, which the labs host sets
+  // (threatready-lab-001/server/hosted.ts), never this app. Served from a route (not dist) to keep the
+  // header under our control, before the static handler so the built client never shadows it; the
+  // extension keeps it out of the hosted SPA fallback.
+  app.get('/target-frame.html', (_req, res) => {
+    res.set({ 'Content-Security-Policy': TARGET_FRAME_CSP, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+    res.type('html').send(TARGET_FRAME_HTML);
+  });
+
   /* ---------- internal API for onboard (optional platform parity) ---------- */
-  if (opts.internalToken) {
+  const acceptedTokens = opts.internalToken || opts.internalTokensAccept?.length ? acceptedInternalTokens(opts.internalToken, { accept: opts.internalTokensAccept, legacyAccept: opts.internalTokenLegacyAccept }) : [];
+  if (acceptedTokens.length) {
     const internal = express.Router();
-    internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, opts.internalToken!)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
+    internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, acceptedTokens)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
     internal.get('/users/:userId/summary', (req, res) => {
       const userId = req.params.userId;
       if (!userId || userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
@@ -181,7 +152,8 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
       for (const c of r.setCookies) res.append('Set-Cookie', c);
       if (r.user.isTrial) return res.status(403).json({ error: 'A ThreatReady account is required.', code: 'AUTH_ACCOUNT_REQUIRED' });
       if (!limiter.user(req, res, r.user.id)) return;
-      (req as any).user = store.upsertUser(r.user.id, r.user.name);
+      // Reads never write: the user mirror is refreshed on the first state-changing request only.
+      (req as any).user = req.method === 'GET' || req.method === 'HEAD' ? { id: r.user.id, name: r.user.name } : store.upsertUser(r.user.id, r.user.name);
       (req as any).platformUser = r.user;
       next();
     } catch (e) { next(e); }
@@ -266,21 +238,7 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   app.use('/api', api);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.', code: 'SCENARIO_NOT_FOUND' }));
 
-  // The vulnerable target renders inside this sandboxed document, which carries its OWN relaxed CSP so
-  // the learner's reflected/stored XSS payloads and the navigation shim actually execute — a srcdoc
-  // frame would inherit the strict platform CSP (script-src 'self') and silently drop them (TR-44).
-  // The document is forced into an opaque sandbox by the CSP `sandbox` directive, so it can read/write
-  // nothing of the platform; the parent frames it and postMessages the server-rendered HTML in. Behind
-  // the gateway the Red Team *pages* additionally need `frame-src 'self'` to embed it — set by the labs
-  // host (handoff), never here. We set the header ourselves so it overrides the gateway default for this
-  // one response only. Served from a route (not dist) to keep the header under our control.
-  app.get('/target-frame.html', (_req, res) => {
-    res.setHeader('Content-Security-Policy', TARGET_FRAME_HEADER_CSP);
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.set('Cache-Control', 'no-cache').type('html').send(SANDBOX_DOC);
-  });
-
   if (staticDir && fs.existsSync(staticDir)) { app.use(express.static(staticDir)); app.get(/^(?!\/api).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html'))); }
-  app.use((err: any, _req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.', code: 'VALIDATION_FAILED' }); console.error(err); res.status(500).json({ error: 'Internal error.', code: 'INTERNAL_ERROR' }); });
+  app.use((err: any, req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.', code: 'VALIDATION_FAILED' }); console.error(`[${requestId(req)}] ${req.method} ${req.originalUrl}:`, err); res.status(500).json({ error: 'Internal error.', code: 'INTERNAL_ERROR' }); });
   return app;
 }

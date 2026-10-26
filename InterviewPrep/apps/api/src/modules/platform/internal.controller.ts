@@ -10,12 +10,21 @@ import { PlatformService } from './platform.service.js';
 
 const DAY = 86_400_000;
 
-/** Constant-time check of `Authorization: Bearer <INTERNAL_API_TOKEN>`; shared by every internal controller. */
-export function assertInternalCaller(req: Request, token: string): void {
+/**
+ * Constant-time check of `Authorization: Bearer <token>` against every accepted internal token
+ * (per-caller derived tokens from the launcher, plus the raw INTERNAL_API_TOKEN when legacy
+ * acceptance is on); shared by every internal controller. Every candidate is compared, so timing
+ * does not reveal which one matched.
+ */
+export function assertInternalCaller(req: Request, accepted: string | readonly string[]): void {
   const m = /^Bearer (.+)$/.exec(req.headers.authorization ?? '');
-  const a = createHash('sha256').update(m?.[1] ?? '').digest();
-  const b = createHash('sha256').update(token).digest();
-  if (!m || !timingSafeEqual(a, b)) throw new DomainError('AUTH_REQUIRED');
+  const presented = createHash('sha256').update(m?.[1] ?? '').digest();
+  let ok = false;
+  for (const token of typeof accepted === 'string' ? [accepted] : accepted) {
+    const expected = createHash('sha256').update(token).digest();
+    if (timingSafeEqual(presented, expected)) ok = true;
+  }
+  if (!m || !ok) throw new DomainError('AUTH_REQUIRED');
 }
 const UsageQuery = z.object({
   from: z.iso.datetime({ offset: true }),
@@ -24,9 +33,12 @@ const UsageQuery = z.object({
 });
 
 /**
- * Service-to-service API for onboard.threatready.io (profile overview, admin console).
+ * Service-to-service API for onboard.threatready.io (profile overview, admin console, account erasure).
  * Not routed through Cloudflare: onboard reaches it in-VPC, and every call must carry
- * `Authorization: Bearer <INTERNAL_API_TOKEN>`. Browsers have no way in.
+ * `Authorization: Bearer <token>`: the per-caller token the launcher derived for onboard
+ * (INTERNAL_TOKEN_FROM_ONBOARD), or the raw INTERNAL_API_TOKEN where legacy acceptance is on, as in
+ * local development. Attack Reasoning's token (also in INTERNAL_TOKENS_ACCEPT, for the reasoning
+ * routes) is refused here: it must never erase a learner (merge review M-SEC-1). Browsers have no way in.
  */
 @Controller('internal/v1')
 export class InternalController {
@@ -36,7 +48,7 @@ export class InternalController {
   ) {}
 
   private assertCaller(req: Request): void {
-    assertInternalCaller(req, this.cfg.INTERNAL_API_TOKEN);
+    assertInternalCaller(req, this.cfg.internalTokensFromOnboard);
   }
 
   @Get('users/:userId/summary')

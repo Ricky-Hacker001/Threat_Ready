@@ -2,3 +2,8 @@ node_modules
 dist
 data/*.json
 .env
+
+# Secrets and logs: same rules as the root .gitignore (templates are .env.example)
+.env.*
+!.env.example
+*.log

@@ -10,7 +10,9 @@ import { remainingSec } from './timing.js';
 /**
  * Longest an answer evaluation can take: a SMALL call (20 s) with the SDK's retries (up to
  * LLM_MAX_RETRIES=4) and their backoff, and LlmService's one structured retry, is under four and a
- * half minutes; the lease adds slack. Set when a turn enters evaluating.
+ * half minutes; the lease adds slack. Set when a turn enters evaluating, in the
+ * interview_sessions.evaluating_lease_until column (security patch 2, A2; before it, in
+ * progress.evaluatingLeaseUntil, which is still honoured for sessions written that way).
  */
 export const EVALUATING_LEASE_MS = 5 * 60_000;
 
@@ -19,8 +21,12 @@ export type CompleteFn = (tx: Tx, s: SessionRow, reason: string, extra?: Session
 /** True when a session has been 'evaluating' past its lease: the evaluation is presumed lost. */
 export function evaluationStalled(s: SessionRow, now = Date.now()): boolean {
   if (s.state !== 'evaluating') return false;
-  const lease = progressOf(s).evaluatingLeaseUntil;
-  const until = lease ? new Date(lease).getTime() : s.lastActivityAt.getTime() + EVALUATING_LEASE_MS;
+  const legacy = progressOf(s).evaluatingLeaseUntil;
+  const until = s.evaluatingLeaseUntil
+    ? s.evaluatingLeaseUntil.getTime()
+    : legacy
+      ? new Date(legacy).getTime()
+      : s.lastActivityAt.getTime() + EVALUATING_LEASE_MS;
   return until < now;
 }
 
@@ -37,7 +43,7 @@ export async function recoverStalledEvaluation(tx: Tx, s: SessionRow, complete: 
   const progress = progressOf(s);
   const [turn] = s.currentTurnId ? await tx.db.select().from(interviewTurns).where(eq(interviewTurns.id, s.currentTurnId)) : [];
   const updated: SessionProgress = { ...progress, evaluatingLeaseUntil: undefined };
-  if (!plan || !config || !turn) return complete(tx, s, 'evaluation_lost', { progress: updated });
+  if (!plan || !config || !turn) return complete(tx, s, 'evaluation_lost', { progress: updated, evaluatingLeaseUntil: null });
   await tx.db
     .update(interviewTurns)
     .set({ evaluationStatus: 'failed' })
@@ -48,11 +54,12 @@ export async function recoverStalledEvaluation(tx: Tx, s: SessionRow, complete: 
   const step = item
     ? decideNext({ plan, progress: updated, currentItem: item, evaluation: null, remainingSec: remaining, difficulty: config.difficulty })
     : ({ action: 'complete', reason: 'plan_complete' } as const);
-  if (step.action !== 'next') return complete(tx, s, step.action === 'complete' ? step.reason : 'plan_complete', { progress: updated });
+  if (step.action !== 'next') return complete(tx, s, step.action === 'complete' ? step.reason : 'plan_complete', { progress: updated, evaluatingLeaseUntil: null });
   const pending: PendingTurn = { turnId: randomUUID(), planItemId: step.item.id, kind: 'question', seq: turn.seq + 1, questionNumber: turn.questionNumber + 1, directive: step.directive };
   return transition(tx, s, ['evaluating'], {
     state: 'asking',
     progress: { ...updated, itemIndex: step.itemIndex, directive: step.directive, pendingTurn: pending, askingLeaseUntil: new Date(Date.now() - 1000).toISOString() },
     lastActivityAt: new Date(),
+    evaluatingLeaseUntil: null,
   });
 }

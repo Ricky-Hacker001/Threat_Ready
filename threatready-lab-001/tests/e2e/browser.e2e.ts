@@ -21,7 +21,9 @@ const axeSource = fs.existsSync(axePath) ? fs.readFileSync(axePath, 'utf8') : nu
 const server = http.createServer(); await new Promise<void>(r => server.listen(Number(process.env.E2E_PORT) || 0, r)); // E2E_PORT pins it; default any free port
 const base = `http://localhost:${(server.address() as any).port}`;
 // Mounted under /labs as the gateway does: the client is built with base '/labs/'.
-server.on('request', express().use('/labs', makeApp(new Store(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tr-e2e-')), 'store.json')), path.join(root, 'dist'), base)));
+// /api outside /labs is onboard in every deployment; its activity ping (public/activity.js, about 5 s after a
+// page loads) gets a stand-in answer, so a slow run does not log a 404 for it.
+server.on('request', express().post('/api/activity/ping', (_req, res) => { res.status(204).end(); }).use('/labs', makeApp(new Store(path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'tr-e2e-')), 'store.json')), path.join(root, 'dist'), base)));
 const exe = fs.existsSync('/opt/pw-browsers/chromium') && fs.statSync('/opt/pw-browsers/chromium').isFile() ? '/opt/pw-browsers/chromium' : undefined;
 const browser = await chromium.launch({ executablePath: exe });
 const context = await browser.newContext({ viewport: { width: 1500, height: 900 } });

@@ -10,7 +10,11 @@
     "start": "tsx server/index.ts",
     "test": "vitest run",
     "test:e2e": "tsx tests/e2e/browser.e2e.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint:regexp": "node ../../tools/check-regexp-from-input.mjs server"
+  },
+  "engines": {
+    "node": ">=24"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.3.0",

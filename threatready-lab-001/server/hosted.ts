@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { IdentityResolver, PlatformUser } from './identity';
+import { acceptedInternalTokens, type IdentityResolver, type PlatformUser } from './identity';
 import { clientIp, type RateLimiter } from './ratelimit';
 
 type Handler = (req: express.Request, res: express.Response, next: express.NextFunction) => void;
@@ -186,15 +186,26 @@ export function socHandler(socApp: Handler, index: string): Handler {
 export interface HostedLoadOptions {
   catalogUrl: string;
   socDataFile?: string;
-  /** For the Red Team lab, which checks the platform session itself (same resolver as this app). */
+  /**
+   * For the Red Team lab, which checks the platform session itself. In-process (deploy/start.mjs) it is
+   * this app's resolver; the labs child passes one presenting the Red Team's own to-onboard token.
+   */
   identity: IdentityResolver;
   appOrigin: string;
   onboardUrl: string;
   redTeamDataFile?: string;
   /** Folder with the Red Team lab's server modules (app, store). Default: its TypeScript sources. */
   redTeamServer?: string;
-  /** Onboard's internal token, so the Red Team lab's /internal/v1 summary (progress on the profile) is served. Default: INTERNAL_API_TOKEN. */
+  /**
+   * The token onboard sends this app on /internal/v1 (onboard→labs); the Red Team lab's /internal/v1 accepts
+   * what this app accepts. Its summary (folded into the labs summary) is fetched with a process-local token,
+   * so it is served whatever is passed here. Default: INTERNAL_API_TOKEN.
+   */
   internalToken?: string;
+  /** Per-caller tokens the Red Team lab's /internal/v1 also accepts (same list as this app: onboard→labs). Default: env INTERNAL_TOKENS_ACCEPT. */
+  internalTokensAccept?: string[];
+  /** Whether the raw token stays accepted beside the per-caller list. Default: env INTERNAL_TOKEN_LEGACY_ACCEPT (false in production). */
+  internalTokenLegacyAccept?: boolean;
 }
 
 const SUMMARY_FETCH_MS = 1200;
@@ -259,11 +270,16 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
     const { createApp } = await import(pathToFileURL(path.join(srv, `app${ext}`)).href);
     const { Store } = await import(pathToFileURL(path.join(srv, `store${ext}`)).href);
     const given = opts.internalToken ?? process.env.INTERNAL_API_TOKEN;
-    // Same token onboard sends this app, so its /internal/v1 router stays token-checked; without one, a
-    // token only this process knows (the labs summary below is its one caller).
-    const internalToken = given && given.length >= 32 ? given : crypto.randomBytes(32).toString('hex');
+    // Its /internal/v1 router stays token-checked. It accepts exactly what this app's /internal/v1 accepts
+    // (onboard's per-caller tokens; the shared raw INTERNAL_API_TOKEN only with legacy acceptance), plus a
+    // token only this process knows, which the labs summary below (its one real caller) presents, so the
+    // summary works whatever tokens the launcher passes. (Calls to onboard go through the identity
+    // resolver above, which already presents the to-onboard token.)
+    const ownToken = crypto.randomBytes(32).toString('hex');
+    const accepted = acceptedInternalTokens(given && given.length >= 32 ? given : undefined, { accept: opts.internalTokensAccept, legacyAccept: opts.internalTokenLegacyAccept });
     const app = createApp(new Store(opts.redTeamDataFile ?? path.join(red, 'data', 'store.json')), path.join(red, 'dist'), {
-      identity: opts.identity, appOrigin: opts.appOrigin, onboardUrl: opts.onboardUrl, devLogin: false, internalToken,
+      identity: opts.identity, appOrigin: opts.appOrigin, onboardUrl: opts.onboardUrl, devLogin: false,
+      internalToken: ownToken, internalTokensAccept: accepted, internalTokenLegacyAccept: opts.internalTokenLegacyAccept,
       // The gate in front (hostedLabs) already applies the shared per-user and per-IP limits.
       ratePerMin: 0, rateIpPerMin: 0,
     });
@@ -276,13 +292,14 @@ export async function loadHostedLabs(root: string, opts: HostedLoadOptions): Pro
       srv.listen(0, '127.0.0.1', () => { srv.unref(); resolve(`http://127.0.0.1:${(srv.address() as any).port}`); });
     }));
     const summary = async (userId: string) => {
-      const r = await fetch(`${await base()}/internal/v1/users/${encodeURIComponent(userId)}/summary`, { headers: { authorization: `Bearer ${internalToken}`, accept: 'application/json' }, signal: AbortSignal.timeout(SUMMARY_FETCH_MS) });
+      const r = await fetch(`${await base()}/internal/v1/users/${encodeURIComponent(userId)}/summary`, { headers: { authorization: `Bearer ${ownToken}`, accept: 'application/json' }, signal: AbortSignal.timeout(SUMMARY_FETCH_MS) });
       return r.ok ? redTeamSummary(await r.json(), origin) : null;
     };
     const redIndex = path.join(red, 'dist', 'index.html');
     labs.push({ slug: 'redteam', summary, handler: (req, res, next) => {
       // The browser tool frames the lab's own target-frame.html (TR-44), which the Red Team app serves
-      // with its own policy (sandboxed, no network, framed only by this origin).
+      // with its own policy (sandboxed, no network, framed only by this origin). Only the lab's pages may
+      // frame it (frame-src 'self' added to the base policy); everything else keeps the strict policy.
       if (isPage(req)) { allowSameOriginFrames(res); sendPage(res, redIndex); return; }
       app(req, res, next);
     } });

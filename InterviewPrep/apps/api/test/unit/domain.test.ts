@@ -463,7 +463,8 @@ describe('configuration', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/STORAGE_DRIVER|LLM_DRIVER|SENTRY_DSN/);
   });
   it('refuses the log email driver for report emails in production, and accepts the demo setup (TR-62)', () => {
-    const prod = { ...base, NODE_ENV: 'production', LLM_DRIVER: 'anthropic', ANTHROPIC_API_KEY: 'k', ALLOW_EPHEMERAL_STORAGE: 'true', ALLOW_NO_SENTRY: 'true', ONBOARD_URL: 'https://threatready.example' };
+    // LLM_MODEL_SMALL and per-caller internal tokens are required in production since security patch 2 (A6, A9).
+    const prod = { ...base, NODE_ENV: 'production', LLM_DRIVER: 'anthropic', ANTHROPIC_API_KEY: 'k', ALLOW_EPHEMERAL_STORAGE: 'true', ALLOW_NO_SENTRY: 'true', ONBOARD_URL: 'https://threatready.example', LLM_MODEL_SMALL: 'claude-haiku-4-5', INTERNAL_TOKENS_ACCEPT: 'a'.repeat(64), INTERNAL_TOKEN_FROM_ONBOARD: 'a'.repeat(64) };
     expect(() => loadConfig({ ...prod, EMAIL_DRIVER: 'log', REPORT_EMAIL_ENABLED: 'true' })).toThrow(/EMAIL_DRIVER/);
     expect(loadConfig({ ...prod, EMAIL_DRIVER: 'log', REPORT_EMAIL_ENABLED: 'false' }).EMAIL_DRIVER).toBe('log');
   });

@@ -2,15 +2,20 @@ import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs';
 import { DIMENSIONS, LEVELS, SCENARIOS, scenarioById } from './scenarios';
-import { IdentityResolver, internalTokenMatches } from './identity';
+import { IdentityResolver, acceptedInternalTokens, callerInternalToken, internalTokenMatches } from './identity';
 import { internalGet, proxyToApi } from './proxy';
 import { CLIENT_IP_HEADER, limitFromEnv, rateLimiter } from './ratelimit';
+import { requestId, requestIds } from './requestId';
 
 export interface AppOptions {
   /** Resolves the shared ThreatReady session (onboard.threatready.io). */
   identity: IdentityResolver;
   /** Secret onboard sends on /internal/v1/* (INTERNAL_API_TOKEN). */
   internalToken: string;
+  /** Per-caller tokens also accepted on /internal/v1/* (default: env INTERNAL_TOKENS_ACCEPT; see identity.ts). */
+  internalTokensAccept?: string[];
+  /** Whether the raw `internalToken` is accepted next to the per-caller list (default: env INTERNAL_TOKEN_LEGACY_ACCEPT, false in production). */
+  internalTokenLegacyAccept?: boolean;
   /** This app's public origin (ar.threatready.io). State-changing requests must come from it. */
   appOrigin: string;
   /** Public onboard origin, for sign-in/sign-out links. */
@@ -22,7 +27,7 @@ export interface AppOptions {
    * proxied there for the browser and onboard's summary and AI-usage calls are answered from it.
    * Unset (tests, or before the engine is configured): /v1 answers 503 and the summary reports zeros.
    */
-  reasoningApi?: { url: string; clientIpHeader?: string };
+  reasoningApi?: { url: string; clientIpHeader?: string; /** Token presented to the engine's internal API (ar→interview). Default: INTERNAL_TOKEN_TO_INTERVIEW, else `internalToken`. */ token?: string };
   /**
    * Requests per minute per signed-in user / per client IP (defaults 120 / 300; env AR_RATE_PER_MIN,
    * AR_RATE_IP_PER_MIN; 0 disables). The per-IP limit applies only to traffic without a session this
@@ -38,8 +43,11 @@ export interface AppOptions {
   clientIpHeader?: string | false;
 }
 
-/** The engine's error envelope, for errors this app answers on the engine's /v1 paths (the SPA reads only this shape). */
-const engineError = (status: number, code: string, message: string, retryable: boolean) => ({ status, body: { error: { code, message, retryable, request_id: 'req_gateway' } } });
+/**
+ * The engine's error envelope, for errors this app answers on the engine's /v1 paths (the SPA reads only
+ * this shape). `request_id` is the request's id (the gateway's, or minted here), as in every other envelope.
+ */
+const engineError = (req: express.Request, status: number, code: string, message: string, retryable: boolean) => ({ status, body: { error: { code, message, retryable, request_id: requestId(req) } } });
 
 /**
  * ar.threatready.io. The Attack Reasoning SPA, the scenario catalogue, and this origin's gateway to
@@ -53,6 +61,8 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
   // Per-user API data must never be cached or revalidated by the browser (privacy on shared machines,
   // and a cached 304 must not stand in for a fresh list).
   app.set('etag', false);
+  // First: the request id (from the gateway, or minted) for every response, error envelope and log line below.
+  app.use(requestIds());
   const limiter = rateLimiter({
     perUserPerMin: opts.ratePerMin ?? limitFromEnv('AR_RATE_PER_MIN', 120),
     perIpPerMin: opts.rateIpPerMin ?? limitFromEnv('AR_RATE_IP_PER_MIN', 300),
@@ -66,27 +76,31 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
   // SPA's calls (/v1/reasoning/...) work unchanged in every layout: the Vite dev proxy locally, the
   // single-origin gateway on Render, this server on ar.threatready.io.
   if (opts.reasoningApi) {
-    const engineLimited = (wait: number) => engineError(429, 'RATE_LIMITED', `Too many requests. Try again in ${wait} s.`, true).body;
+    const engineLimited = (req: express.Request) => (wait: number) => engineError(req, 429, 'RATE_LIMITED', `Too many requests. Try again in ${wait} s.`, true).body;
     app.use('/v1', async (req, res, next) => {
       // Belt and braces: the monolith checks Origin too, but a state change must come from this origin.
-      if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) { const e = engineError(403, 'AUTH_FORBIDDEN', 'Cross-origin request refused.', false); return res.status(e.status).json(e.body); }
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.headers.origin !== opts.appOrigin) { const e = engineError(req, 403, 'AUTH_FORBIDDEN', 'Cross-origin request refused.', false); return res.status(e.status).json(e.body); }
       // Signed-in learners are limited per user by the engine. Traffic without a session this app
       // recognises pays the per-IP bucket, then its session is resolved (and cached) so the learner's
       // next requests skip the bucket; the engine still decides who is signed in.
       if (knownUser(req)) return next();
-      if (!limiter.ip(req, res, engineLimited)) return;
+      if (!limiter.ip(req, res, engineLimited(req))) return;
       await opts.identity(req.headers, limiter.clientKey(req)).catch(() => null);
       next();
     }, proxyToApi({ target: opts.reasoningApi.url, clientIpHeader: opts.reasoningApi.clientIpHeader, ipOf: (req) => limiter.clientKey(req), mountPath: '/v1' }));
   } else {
-    app.use('/v1', (_req, res) => { const e = engineError(503, 'REASONING_ENGINE_UNAVAILABLE', 'The reasoning engine is not configured.', true); res.status(e.status).set('Retry-After', '60').json(e.body); });
+    app.use('/v1', (req, res) => { const e = engineError(req, 503, 'REASONING_ENGINE_UNAVAILABLE', 'The reasoning engine is not configured.', true); res.status(e.status).set('Retry-After', '60').json(e.body); });
   }
 
   app.use(express.json({ limit: '16kb' }));
 
   /* ---------------- Internal API for onboard (profile overview, admin console) ---------------- */
   const internal = express.Router();
-  internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, opts.internalToken)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
+  const acceptedTokens = acceptedInternalTokens(opts.internalToken, { accept: opts.internalTokensAccept, legacyAccept: opts.internalTokenLegacyAccept });
+  if (!acceptedTokens.length) console.warn('attack-reasoning: no internal token is accepted (INTERNAL_TOKENS_ACCEPT empty and legacy acceptance off); /internal/v1 will answer 401');
+  // What this app presents to the engine's internal API (ar→interview), distinct from what it accepts.
+  const engineToken = opts.reasoningApi?.token ?? callerInternalToken('interview', opts.internalToken);
+  internal.use((req, res, next) => { if (!internalTokenMatches(req.headers.authorization, acceptedTokens)) return res.status(401).json({ error: 'Internal token required.' }); next(); });
   const noEngine = () => ({
     app: 'reasoning',
     stats: [
@@ -101,7 +115,7 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
     if (!req.params.userId || req.params.userId.length > 100) return res.status(400).json({ error: 'Invalid user.' });
     if (!opts.reasoningApi) return res.json(noEngine());
     try {
-      const r = await internalGet(opts.reasoningApi.url, `/internal/v1/reasoning/users/${encodeURIComponent(req.params.userId)}/summary?appOrigin=${encodeURIComponent(`${opts.appOrigin}/ar`)}`, opts.internalToken);
+      const r = await internalGet(opts.reasoningApi.url, `/internal/v1/reasoning/users/${encodeURIComponent(req.params.userId)}/summary?appOrigin=${encodeURIComponent(`${opts.appOrigin}/ar`)}`, engineToken, requestId(req));
       res.status(r.status).json(r.body ?? { error: 'Reasoning engine returned no body.' });
     } catch (e) { next(e); }
   });
@@ -109,7 +123,7 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
     if (!opts.reasoningApi) return res.json({ app: 'reasoning', users: [], byModel: [], byFeature: [] });
     try {
       const q = new URL(req.originalUrl, 'http://local').search;
-      const r = await internalGet(opts.reasoningApi.url, `/internal/v1/reasoning/ai-usage${q}`, opts.internalToken);
+      const r = await internalGet(opts.reasoningApi.url, `/internal/v1/reasoning/ai-usage${q}`, engineToken, requestId(req));
       res.status(r.status).json(r.body ?? { error: 'Reasoning engine returned no body.' });
     } catch (e) { next(e); }
   });
@@ -155,6 +169,6 @@ export function createApp(staticDir: string | undefined, opts: AppOptions) {
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found.' }));
 
   if (staticDir && fs.existsSync(staticDir)) { app.use(express.static(staticDir)); app.get(/^(?!\/api|\/internal|\/v1).*/, (_req, res) => res.sendFile(path.join(staticDir, 'index.html'))); }
-  app.use((err: any, _req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.' }); console.error(err); res.status(500).json({ error: 'Internal error.' }); });
+  app.use((err: any, req: any, res: any, _next: any) => { if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') return res.status(400).json({ error: 'Invalid request body.' }); console.error(`[${requestId(req)}] ${req.method} ${req.originalUrl}:`, err); res.status(500).json({ error: 'Internal error.' }); });
   return app;
 }

@@ -37,7 +37,9 @@ export async function level0(h) {
   await p.click('[data-guide="wiz-next"]'); await W();
   await p.fill('#wz-pw', 'Lab-Firewall#2026'); await p.fill('#wz-pw2', 'Lab-Firewall#2026'); await W(); await p.click('[data-guide="wiz-next"]'); await W();
   await p.fill('#wz-host', 'AERO-HQ-FW'); await W();
-  for (let i=0;i<5;i++) { await p.click('[data-guide="wiz-next"]'); await W(); }
+  for (let i=0;i<4;i++) { await p.click('[data-guide="wiz-next"]'); await W(); }
+  // Apply hashes the new password (salted PBKDF2, lib/hash.ts), which takes a moment: wait for Done rather than a fixed delay.
+  await p.click('[data-guide="wiz-next"]:has-text("Done")'); await W();
   await p.fill('#tw-user', 'admin'); await p.fill('#tw-pass', 'Lab-Firewall#2026'); await p.click('[data-guide="login-submit"]'); await W(700);
   await h.gotIt();
   for (const r of ['home/dashboard/topology','monitor/realtime/system-monitor','device/settings/administration','network/system/interfaces','object/match/addresses','policy/rules/access','monitor/logs/system-logs']) await h.go(r);

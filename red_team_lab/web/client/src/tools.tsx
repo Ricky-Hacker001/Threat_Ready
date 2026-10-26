@@ -17,12 +17,15 @@ export interface ToolProps {
 
 const histById = (view: any, id: string) => view.history.find((h: any) => h.id === id);
 
-// Trusted navigation shim appended to the sandboxed target frame. It keeps clicks and form submits
-// inside the simulation (posting them to the parent, which calls browser.navigate) instead of letting
-// the frame navigate the real origin. It also turns blocking dialogs (alert/confirm/prompt) raised by
-// XSS payloads into a non-blocking on-page banner — a safe, visible proof that script executed.
-const NAV_SHIM = `<script>(function(){
-  function send(method,url,body){ try{ parent.postMessage({__trlab:1,type:'nav',method:method,url:url,body:body||''}, '*'); }catch(e){} }
+// Trusted navigation shim for the inline fallback view only (see BrowserTool); the served target frame
+// installs the same shim itself (server/frame.ts). It keeps clicks and form submits inside the
+// simulation (posting them to the parent, which calls browser.navigate) instead of letting the frame
+// navigate the real origin. It also turns blocking dialogs (alert/confirm/prompt) raised by XSS payloads
+// into a non-blocking on-page banner — a safe, visible proof that script executed. The per-frame nonce
+// ties its messages to the frame instance the lab page created.
+const navShim = (nonce: string) => `<script>(function(){
+  var nonce=${JSON.stringify(nonce)};
+  function send(method,url,body){ try{ parent.postMessage({__trlab:1,type:'nav',nonce:nonce,method:method,url:url,body:body||''}, '*'); }catch(e){} }
   document.addEventListener('click', function(e){
     var a = e.target && e.target.closest && e.target.closest('a[href]'); if(!a) return;
     var href = a.getAttribute('href')||'';
@@ -70,43 +73,59 @@ export function BrowserTool({ def, view, status, act, pushRepeater, browserPrefi
   const lastBrowser = useMemo(() => [...view.history].reverse().find((h: any) => h.tool === 'browser' || h.tool === 'retest'), [view.history]);
   const resp = lastBrowser?.response;
 
-  // Keep the embedded browser inside the simulation. The target renders in a sandboxed frame whose shim
-  // forwards link clicks / form submits to the lab (browser.navigate) instead of the real origin. By
-  // default the frame is a dedicated served document (target-frame.html) with its own relaxed CSP, so the
-  // learner's XSS payloads and the shim actually execute under the platform gateway CSP (TR-44); we
-  // postMessage the server-rendered HTML into it. If that document cannot load (e.g. the platform has
-  // not granted the Red Team pages `frame-src 'self'`), we fall back to the inline srcdoc render below.
+  // Keep the embedded browser inside the simulation. The target renders in the server's
+  // /target-frame.html (its own sandboxed policy, so the lab's pages keep the strict platform policy while
+  // the learner's XSS payloads and the navigation shim still run in the target, TR-44): a fresh instance
+  // per response, which announces `ready` and is then handed the response body with this instance's
+  // nonce; its own trusted shim forwards link clicks and form submits (carrying that nonce) to the lab
+  // (browser.navigate) instead of the real origin. If that document cannot load (e.g. the platform has not
+  // granted the Red Team pages `frame-src 'self'`), we fall back to the inline srcdoc render below.
   const frameRef = useRef<HTMLIFrameElement>(null);
   const actRef = useRef(act); actRef.current = act;
-  const readyRef = useRef(false);
-  const pendingRef = useRef<string | null>(null);
+  const frameKey = lastBrowser?.id ?? '';
+  const nonce = useMemo(() => newNonce(), [frameKey]);
+  // The HTML the frame shows: the target page (scripts run inside the sandbox) or a plain-text preview
+  // for non-HTML responses.
+  const frameHtml = useMemo(() => !resp ? '' : resp.contentType === 'text/html' ? resp.body : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`, [resp]);
+  const frameState = useRef({ key: frameKey, nonce, frameHtml, rendered: '' }); Object.assign(frameState.current, { key: frameKey, nonce, frameHtml });
   const [legacy, setLegacy] = useState(false);
   const legacyRef = useRef(false); legacyRef.current = legacy;
-  const SANDBOX_URL = `${BASE}target-frame.html`;
-  const postRender = () => {
-    const w = frameRef.current?.contentWindow;
-    if (legacyRef.current || !readyRef.current || !w || pendingRef.current == null) return;
-    w.postMessage({ __trlab: 1, type: 'render', html: pendingRef.current }, '*');
-  };
+  // Set once any served frame has said `ready`: from then on a slow frame never flips the view.
+  const servedOk = useRef(false);
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
-      // Only our own target frame may drive the lab. With no frame mounted (the fallback view before
-      // the first page) there is no legitimate sender, so another window's message is dropped (SEC-5).
+      // Only the current sandboxed frame may drive the lab (an opaque origin serialises as "null"). With
+      // no frame mounted (before the first page) there is no legitimate sender, so another window's
+      // message is dropped (SEC-5).
       const own = frameRef.current?.contentWindow;
-      if (!own || e.source !== own) return;
+      if (!own || e.source !== own || e.origin !== 'null') return;
       const d: any = e.data;
       if (!d || d.__trlab !== 1) return;
-      if (d.type === 'ready') { readyRef.current = true; postRender(); }
-      else if (d.type === 'nav' && typeof d.url === 'string')
+      const st = frameState.current;
+      if (d.type === 'ready') {
+        // One body per frame instance: a later `ready` (the frame navigated itself to another document)
+        // is never handed the page or its nonce.
+        if (legacyRef.current || st.rendered === st.key) return;
+        st.rendered = st.key; servedOk.current = true;
+        own.postMessage({ __trlab: 1, type: 'render', nonce: st.nonce, html: st.frameHtml }, '*');
+        return;
+      }
+      if (d.type === 'nav' && d.nonce === st.nonce && typeof d.url === 'string')
         actRef.current('browser.navigate', { url: d.url, method: d.method === 'POST' ? 'POST' : 'GET', body: d.body || undefined });
     };
     window.addEventListener('message', onMsg);
-    // The sandbox frame is mounted immediately (hidden) below, so it has a chance to report "ready"
-    // before any navigation. If it never does (its document could not load — e.g. the platform has not
-    // granted the pages frame-src 'self'), fall back to the inline srcdoc render.
-    const t = setTimeout(() => { if (!readyRef.current) setLegacy(true); }, 2500);
-    return () => { window.removeEventListener('message', onMsg); clearTimeout(t); };
+    return () => window.removeEventListener('message', onMsg);
   }, []);
+  // The served frame loaded but never said `ready` (its document was refused or failed): render inline.
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  const onFrameLoad = () => {
+    if (legacyRef.current || servedOk.current) return;
+    const key = frameState.current.key;
+    timers.current.push(setTimeout(() => {
+      if (!servedOk.current && frameState.current.key === key && frameState.current.rendered !== key) setLegacy(true);
+    }, 1500));
+  };
 
   const links = useMemo(() => {
     if (!resp || resp.contentType !== 'text/html') return [] as { href: string; text: string }[];
@@ -117,11 +136,6 @@ export function BrowserTool({ def, view, status, act, pushRepeater, browserPrefi
       return out.slice(0, 20);
     } catch { return []; }
   }, [resp]);
-
-  // The HTML the frame should show: the target page (scripts run inside the sandbox) or a plain-text
-  // preview for non-HTML responses. Pushed into the served sandbox via postMessage as it changes.
-  const frameHtml = resp ? (resp.contentType === 'text/html' ? resp.body : `<pre style="font-family:monospace;padding:12px;white-space:pre-wrap">${escapeHtml(resp.body)}</pre>`) : null;
-  useEffect(() => { pendingRef.current = frameHtml; postRender(); }, [frameHtml]);
 
   const go = (u = url, m = method) => { act('browser.navigate', { url: u, method: m, body: m === 'POST' ? body : undefined }).then(() => setUrl(u)); };
 
@@ -153,14 +167,11 @@ export function BrowserTool({ def, view, status, act, pushRepeater, browserPrefi
       <SaveEvidence act={act} historyId={lastBrowser?.id} complete={status.complete} />
     </div>
 
-    {legacy
-      ? (resp
-          ? <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" srcDoc={resp.contentType === 'text/html' ? resp.body + NAV_SHIM : frameHtml!} />
-          : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>)
-      : // Mounted from the start (visible, with its own placeholder body) so the served sandbox loads early
-        // and the target HTML can be posted straight in — the only way its inline/XSS scripts run under the
-        // gateway CSP. Kept visible (not hidden) so content blockers don't treat it as a tracking frame.
-        <iframe ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" src={SANDBOX_URL} />}
+    {resp
+      ? (legacy
+          ? <iframe key={`inline-${frameKey}`} ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" srcDoc={resp.contentType === 'text/html' ? resp.body + navShim(nonce) : frameHtml} />
+          : <iframe key={frameKey} ref={frameRef} className="bframe" sandbox="allow-scripts allow-forms" title="target" src={`${BASE}target-frame.html`} onLoad={onFrameLoad} />)
+      : <div className="card muted">Enter a path and press Go to load a page. Links and forms inside the page work and stay inside the simulation (isolated sandbox). Vulnerability detection is server-side; the Proxy logs every request.</div>}
     {/* The inline fallback inherits the page's strict policy, so scripts in the target do not run there.
         Say so rather than let a working payload look like a failed one (detection stays server-side). */}
     {legacy && resp && <p className="muted small" role="note" style={{ margin: '6px 0 0' }}>Scripts on the target page can't run in this view, so payload effects such as alert boxes aren't shown. Detection happens on the server, so your findings still count.{links.length > 0 ? ' Use the link buttons below to follow links.' : ''}</p>}
@@ -467,4 +478,5 @@ function RenderedReport({ report }: { report: any }) {
 /* ---------------- helpers ---------------- */
 function parseHeaders(text: string): Record<string, string> { const o: Record<string, string> = {}; for (const line of text.split('\n')) { const i = line.indexOf(':'); if (i > 0) o[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim(); } return o; }
 function parseCookies(text: string): Record<string, string> { const o: Record<string, string> = {}; for (const p of text.split(';')) { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = p.slice(i + 1).trim(); } return o; }
+function newNonce() { return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function escapeHtml(s: string) { return s.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!)); }

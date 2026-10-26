@@ -23,6 +23,8 @@ const str = (v: unknown, max = 500) => (typeof v === 'string' && v.length <= max
 
 // ---------- dev login ----------
 const DEV_COOKIE = 'tr_lab_user';
+/** The dev cookie's value in a Cookie header (a literal pattern over DEV_COOKIE: the header is only ever the subject). */
+const DEV_COOKIE_VALUE = /(?:^|;\s*)tr_lab_user=([^;]+)/;
 function sign(name: string, secret: string) { const mac = crypto.createHmac('sha256', secret).update(name).digest('base64url'); return `${Buffer.from(name).toString('base64url')}.${mac}`; }
 function verify(value: string, secret: string): string | null {
   const [b, mac] = (value || '').split('.'); if (!b || !mac) return null;
@@ -41,7 +43,7 @@ export function devIdentity(secret: string): IdentityResolver {
   // The dev cookie is verified locally (an HMAC, no network), so `peek` is just the resolve body minus
   // the async wrapper — a signed-in dev learner is recognised synchronously and skips the per-IP charge.
   const read = (headers: IncomingHttpHeaders): PlatformUser | null => {
-    const m = new RegExp(`(?:^|;\\s*)${DEV_COOKIE}=([^;]+)`).exec(headers.cookie || '');
+    const m = DEV_COOKIE_VALUE.exec(headers.cookie || '');
     const name = m ? verify(decodeURIComponent(m[1]), secret) : null;
     if (!name) return null;
     const id = 'u_' + crypto.createHash('sha256').update(name).digest('hex').slice(0, 16);
@@ -108,7 +110,7 @@ const SHED_LOG_MS = 10_000;
  * confirmed in the last 12 hours is never shed when it is checked again. Both caps: env
  * REDTEAM_IDENTITY_MAX_IN_FLIGHT / REDTEAM_IDENTITY_MAX_PER_CLIENT, 0 = none.
  */
-export function onboardIdentity(opts: { identityUrl: string; internalToken: string; cacheSeconds?: number; timeoutMs?: number; maxInFlight?: number; maxPerClient?: number }): IdentityResolver {
+export function onboardIdentity(opts: { identityUrl: string; internalToken: string; cacheSeconds?: number; timeoutMs?: number; maxInFlight?: number; maxPerClient?: number; /** Token presented to onboard. Default: INTERNAL_TOKEN_TO_ONBOARD, else `internalToken`. */ callerToken?: string }): IdentityResolver {
   const cache = new Map<string, { at: number; ttl: number; user: PlatformUser | null }>();
   // Lookups by session key, queued or running: a second caller joins instead of taking another slot.
   const inflight = new Map<string, Promise<IdentityResult>>();
@@ -146,6 +148,7 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
     shed.count = 0; shed.at = Date.now();
   };
   const base = opts.identityUrl.replace(/\/+$/, '');
+  const bearer = opts.callerToken ?? callerInternalToken('onboard', opts.internalToken);
   const remember = (key: string, user: PlatformUser | null, entryTtl: number) => {
     if (entryTtl <= 0) return;
     cache.delete(key); // re-insert at the end: Map order is insertion order, so the oldest entries come first
@@ -162,7 +165,7 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
     let res: Response;
     try {
       res = await fetch(`${base}/api/internal/identity/session`, {
-        headers: { cookie, authorization: `Bearer ${opts.internalToken}`, accept: 'application/json' },
+        headers: { cookie, authorization: `Bearer ${bearer}`, accept: 'application/json' },
         signal: AbortSignal.timeout(opts.timeoutMs ?? 5000),
       });
     } catch (e: any) { console.error(`identity provider unreachable: ${e?.message ?? e}`); return { ok: false, reason: 'unavailable' }; }
@@ -212,9 +215,44 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
   return resolver;
 }
 
-export function internalTokenMatches(header: string | undefined, token: string): boolean {
+/**
+ * Constant-time check of `Authorization: Bearer <token>` for /internal/v1/* against one or more accepted
+ * tokens (every candidate is compared; no early exit).
+ */
+export function internalTokenMatches(header: string | undefined, token: string | readonly string[]): boolean {
   const m = /^Bearer (.+)$/.exec(header || '');
   const a = crypto.createHash('sha256').update(m?.[1] ?? '').digest();
-  const b = crypto.createHash('sha256').update(token).digest();
-  return !!m && crypto.timingSafeEqual(a, b);
+  let ok = false;
+  for (const t of typeof token === 'string' ? [token] : token) {
+    const b = crypto.createHash('sha256').update(t).digest();
+    if (crypto.timingSafeEqual(a, b)) ok = true;
+  }
+  return !!m && ok;
+}
+
+/**
+ * Per-caller internal tokens (deploy/start.mjs derives one per caller→callee pair with HKDF). The callee
+ * accepts every token in `INTERNAL_TOKENS_ACCEPT` (comma list) plus `configured` when it is a token of its
+ * own (not the shared raw `INTERNAL_API_TOKEN`); the shared raw token is accepted only when
+ * `INTERNAL_TOKEN_LEGACY_ACCEPT` is true (default: false in production, true elsewhere). With no derived
+ * list configured at all (local dev, older launcher) the configured token alone is accepted, as before.
+ */
+export function acceptedInternalTokens(configured: string | undefined, opts: { accept?: readonly string[]; legacyAccept?: boolean; env?: NodeJS.ProcessEnv } = {}): string[] {
+  const env = opts.env ?? process.env;
+  const list = (opts.accept ?? (env.INTERNAL_TOKENS_ACCEPT ?? '').split(',')).map(s => s.trim()).filter(Boolean);
+  const legacy = opts.legacyAccept ?? (env.INTERNAL_TOKEN_LEGACY_ACCEPT !== undefined ? env.INTERNAL_TOKEN_LEGACY_ACCEPT === 'true' : env.NODE_ENV !== 'production');
+  const isRaw = !!env.INTERNAL_API_TOKEN && configured === env.INTERNAL_API_TOKEN;
+  if (configured && (!isRaw || legacy || list.length === 0)) list.push(configured);
+  if (legacy && env.INTERNAL_API_TOKEN) list.push(env.INTERNAL_API_TOKEN);
+  return [...new Set(list)];
+}
+
+/**
+ * The token this app presents to `callee`: `INTERNAL_TOKEN_TO_<CALLEE>` when set, else `configured`.
+ * A `configured` value that is not the shared raw `INTERNAL_API_TOKEN` was chosen deliberately (the
+ * launcher passes the derived token straight in) and is used as given.
+ */
+export function callerInternalToken(callee: 'onboard' | 'interview', configured: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
+  if (configured && configured !== env.INTERNAL_API_TOKEN) return configured;
+  return env[`INTERNAL_TOKEN_TO_${callee.toUpperCase()}`] || configured || '';
 }

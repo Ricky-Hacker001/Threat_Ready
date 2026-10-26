@@ -97,18 +97,21 @@ export function evaluatorSchema(item: EvaluationItem): StructuredSchema<Evaluato
 }
 
 const EVALUATOR_MAX_OUTPUT_TOKENS = 3000;
-/** Upper bound of an item's context (scenario, diagram, key, rubric) for estimates before an item exists; real items run 6-14k characters. */
+/** Upper bound of an item's context (scenario, diagram, key, rubric) for estimates made without the item's key (before it exists, or in the API, which cannot read it); real items run 6-14k characters. */
 const ITEM_CONTEXT_BOUND_CHARS = 18_000;
 
 /**
- * The largest first-stage request this item (or, before one exists, any item) can produce: the
- * longest justification allowed. Its estimate is what a budget check needs to know an answer can be
- * evaluated before the learner writes it.
+ * The largest first-stage request this item (or, without one, any item) can produce: the longest
+ * justification allowed, or the learner's own answer once it is written. Its estimate is what a
+ * budget check needs to know an answer can be evaluated before the learner writes it (or before the
+ * submission is accepted). The API passes no item: since migration 0016 a learner's transaction
+ * cannot read the answer key, so the item's context is taken at ITEM_CONTEXT_BOUND_CHARS.
  */
-export function evaluatorRequestBound(domain: ReasoningDomain, item: EvaluationItem | null): LlmRequest {
-  const longest = 'x'.repeat(REASONING_LIMITS.justificationMaxChars);
-  if (item) return evaluatorRequest(domain, item, 'A', longest);
-  const req = evaluatorRequest(domain, null, 'A', longest);
+export function evaluatorRequestBound(domain: ReasoningDomain, item: EvaluationItem | null, answer?: { selected: OptionId; justification: string }): LlmRequest {
+  const selected = answer?.selected ?? 'A';
+  const justification = answer?.justification ?? 'x'.repeat(REASONING_LIMITS.justificationMaxChars);
+  if (item) return evaluatorRequest(domain, item, selected, justification);
+  const req = evaluatorRequest(domain, null, selected, justification);
   return { ...req, messages: [{ role: 'user', content: `${'x'.repeat(ITEM_CONTEXT_BOUND_CHARS)}\n\n${req.messages[0]!.content}` }] };
 }
 

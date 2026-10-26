@@ -6,7 +6,7 @@ import { DomainError } from '@threatready/shared';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Principal } from '../../platform/authz/principal.js';
 import { CRITERIA, ContentService } from '../../platform/content/content.service.js';
-import { Database } from '../../platform/db/database.js';
+import { Database, type Tx } from '../../platform/db/database.js';
 import type { SseStream } from '../../platform/http/sse.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
 import { LlmService, type CallMeta } from '../ai/llm.service.js';
@@ -16,12 +16,18 @@ import { decideNext, meanLevel } from './adaptive.js';
 import { analysisOf } from './analysis.service.js';
 import { InterviewService } from './interview.service.js';
 import { rubricKindFor, type InterviewPlan, type PendingTurn, type PlanItem, type SessionProgress } from './plan.types.js';
-import { EVALUATING_LEASE_MS } from './recovery.js';
+import { EVALUATING_LEASE_MS, recoverStalledEvaluation } from './recovery.js';
 import { configOf, loadOwnedSession, loadTurns, planOf, progressOf, transition, type SessionRow, type TurnRow } from './session.repo.js';
 import { remainingSec, startClock, stopClock } from './timing.js';
 
 const ASKING_LEASE_MS = 45_000;
 const EVALUATION_TIMEOUT_MS = 20_000;
+/**
+ * How long a session may sit in `evaluating` before the sweeper (A2) or the next read (TR-23) presumes
+ * the API process died mid-evaluation and moves it on. Defined in recovery.ts (five minutes: above the
+ * evaluation timeout times the largest LLM retry budget the configuration allows).
+ */
+export { EVALUATING_LEASE_MS };
 const QUESTION_TIMEOUT_MS = 30_000;
 const MAX_QUESTION_CHARS = 700;
 const MAX_CLARIFICATIONS = 3;
@@ -98,9 +104,15 @@ export class TurnService {
         .returning();
       if (!turn) throw new DomainError('INTERVIEW_INVALID_STATE');
       const clock = stopClock({ activeElapsedMs: s.activeElapsedMs, runningSince: s.runningSince });
-      // The lease lets a lost evaluation (process restart mid-call) be recovered instead of blocking the session (recovery.ts).
-      const progress = { ...progressOf(s), evaluatingLeaseUntil: new Date(Date.now() + EVALUATING_LEASE_MS).toISOString() };
-      const next = await transition(tx, s, ['awaiting_answer'], { state: 'evaluating', ...clock, lastActivityAt: new Date(), progress }, 'INTERVIEW_TURN_IN_PROGRESS');
+      // The lease lets a lost evaluation (process restart mid-call) be recovered instead of blocking the
+      // session (recovery.ts; the sweeper and the next read move it on once the lease has passed).
+      const next = await transition(
+        tx,
+        s,
+        ['awaiting_answer'],
+        { state: 'evaluating', ...clock, lastActivityAt: new Date(), evaluatingLeaseUntil: new Date(Date.now() + EVALUATING_LEASE_MS) },
+        'INTERVIEW_TURN_IN_PROGRESS',
+      );
       return { replay: false as const, session: next, turn };
     });
     if (stored.replay) return this.finishWithView(p, stored.session.id, sse);
@@ -109,7 +121,6 @@ export class TurnService {
 
     const plan = planOf(session)!;
     const config = configOf(session)!;
-    const progress = progressOf(session);
     const item = plan.items.find((i) => i.id === turn.planItemId)!;
 
     // 2. Provisional evaluation on SMALL.
@@ -128,6 +139,41 @@ export class TurnService {
     emitMetric('TurnEvaluationLatencyMs', Date.now() - started, 'Milliseconds');
 
     // 3. Decide in code, persist, then either complete or ask the next question.
+    const { session: after, feedback } = await this.db.user(p, async (tx) => {
+      const s = await loadOwnedSession(tx, p.userId, session.id);
+      return this.advance(tx, s, turn, { evaluation, evaluationStatus, budgetExhausted });
+    });
+
+    if (feedback) sse.send({ type: 'feedback', turnId: turn.id, feedback });
+    if (after.state === 'asking') return this.askPending(p, after, sse);
+    return this.finishWithView(p, after.id, sse);
+  }
+
+  /**
+   * Step 3 of submit(): records the (possibly missing) evaluation on the turn, decides the next step
+   * in code and moves the session from `evaluating` to `asking` or completes it. A session whose
+   * evaluation never finished is moved on by recoverStalledEvaluation (recovery.ts) instead, which also
+   * copes with a plan, item or turn that is missing.
+   */
+  private async advance(
+    tx: Tx,
+    s: SessionRow,
+    turn: TurnRow,
+    outcome: {
+      evaluation: TurnEvaluation | null;
+      evaluationStatus: 'done' | 'failed';
+      budgetExhausted: boolean;
+      /** submit() asks the next question in the same request and holds the asking lease; the sweeper does not. */
+      willAskNow?: boolean;
+    },
+  ): Promise<{ session: SessionRow; feedback: PracticeFeedback | null }> {
+    const { evaluation, evaluationStatus, budgetExhausted, willAskNow = true } = outcome;
+    const plan = planOf(s)!;
+    const config = configOf(s)!;
+    const progress = progressOf(s);
+    const item = plan.items.find((i) => i.id === turn.planItemId)!;
+    const answer = turn.answer ?? '';
+
     const level = meanLevel(evaluation);
     const updated: SessionProgress = {
       ...progress,
@@ -136,48 +182,61 @@ export class TurnService {
       runningSummary: [...progress.runningSummary, summaryLine(this.content, item, turn, evaluation)].slice(-12),
       integrityFlags: progress.integrityFlags + (evaluation?.answer_integrity.instructs_grader ? 1 : 0),
     };
-    const remaining = remainingSec({ activeElapsedMs: session.activeElapsedMs, runningSince: null }, config.durationMin);
+    const remaining = remainingSec({ activeElapsedMs: s.activeElapsedMs, runningSince: null }, config.durationMin);
     const step = budgetExhausted
       ? ({ action: 'complete', reason: 'budget_cap' } as const)
-      : decideNext({ plan, progress: updated, currentItem: item, evaluation, remainingSec: remaining, difficulty: config.difficulty, answer: req.answer });
+      : decideNext({ plan, progress: updated, currentItem: item, evaluation, remainingSec: remaining, difficulty: config.difficulty, answer });
     // Warm-up and wrap-up are conversational; skill feedback on them would be noise.
     const feedback = config.mode === 'practice' && evaluation && item.kind !== 'introduction' && item.kind !== 'closing' ? practiceFeedback(this.content, item, evaluation) : null;
 
-    const after = await this.db.user(p, async (tx) => {
-      const s = await loadOwnedSession(tx, p.userId, session.id);
-      await tx.db.update(interviewTurns).set({ turnEvaluation: evaluation, evaluationStatus, practiceFeedback: feedback }).where(eq(interviewTurns.id, turn.id));
-      if (step.action === 'complete') {
-        return this.interviews.complete(tx, s, step.reason, { progress: updated });
-      }
-      const pending: PendingTurn =
-        step.action === 'follow_up'
-          ? {
-              turnId: randomUUID(),
-              planItemId: item.id,
-              kind: 'follow_up',
-              seq: turn.seq + 1,
-              questionNumber: turn.questionNumber,
-              directive: step.directive,
-              followUpFocus: step.focus,
-              missingConcepts: step.missingConcepts,
-            }
-          : { turnId: randomUUID(), planItemId: step.item.id, kind: 'question', seq: turn.seq + 1, questionNumber: turn.questionNumber + 1, directive: step.directive };
-      const next: SessionProgress = {
-        ...updated,
-        itemIndex: step.action === 'next' ? step.itemIndex : updated.itemIndex,
-        followUpsUsed: updated.followUpsUsed + (step.action === 'follow_up' ? 1 : 0),
-        perItemFollowUps:
-          step.action === 'follow_up' ? { ...updated.perItemFollowUps, [item.id]: (updated.perItemFollowUps[item.id] ?? 0) + 1 } : updated.perItemFollowUps,
-        directive: step.directive,
-        pendingTurn: pending,
-        askingLeaseUntil: leaseUntil(),
-      };
-      return transition(tx, s, ['evaluating'], { state: 'asking', progress: next, lastActivityAt: new Date() });
-    });
+    await tx.db.update(interviewTurns).set({ turnEvaluation: evaluation, evaluationStatus, practiceFeedback: feedback }).where(eq(interviewTurns.id, turn.id));
+    if (step.action === 'complete') {
+      return { session: await this.interviews.complete(tx, s, step.reason, { progress: updated, evaluatingLeaseUntil: null }), feedback };
+    }
+    const pending: PendingTurn =
+      step.action === 'follow_up'
+        ? {
+            turnId: randomUUID(),
+            planItemId: item.id,
+            kind: 'follow_up',
+            seq: turn.seq + 1,
+            questionNumber: turn.questionNumber,
+            directive: step.directive,
+            followUpFocus: step.focus,
+            missingConcepts: step.missingConcepts,
+          }
+        : { turnId: randomUUID(), planItemId: step.item.id, kind: 'question', seq: turn.seq + 1, questionNumber: turn.questionNumber + 1, directive: step.directive };
+    const next: SessionProgress = {
+      ...updated,
+      itemIndex: step.action === 'next' ? step.itemIndex : updated.itemIndex,
+      followUpsUsed: updated.followUpsUsed + (step.action === 'follow_up' ? 1 : 0),
+      perItemFollowUps:
+        step.action === 'follow_up' ? { ...updated.perItemFollowUps, [item.id]: (updated.perItemFollowUps[item.id] ?? 0) + 1 } : updated.perItemFollowUps,
+      directive: step.directive,
+      pendingTurn: pending,
+      // No lease when nobody is about to generate the question: the client's recovery call must not see 409.
+      askingLeaseUntil: willAskNow ? leaseUntil() : undefined,
+    };
+    const session = await transition(tx, s, ['evaluating'], { state: 'asking', progress: next, lastActivityAt: new Date(), evaluatingLeaseUntil: null });
+    return { session, feedback };
+  }
 
-    if (feedback) sse.send({ type: 'feedback', turnId: turn.id, feedback });
-    if (after.state === 'asking') return this.askPending(p, after, sse);
-    return this.finishWithView(p, after.id, sse);
+  /**
+   * Sweeper recovery (A2): a session still `evaluating` after its lease expired lost its API process
+   * mid-evaluation. The answer is stored; the evaluation is recorded as failed and the interview moves
+   * on without a follow-up, exactly as a failed model call would, so the learner's next poll finds
+   * `asking` and the client asks for the next question (or the interview ends when the plan, turns or
+   * time are used up, or the plan cannot be continued). The same recovery as the read path's
+   * (recoverStalledEvaluation, TR-23). Returns false when there is nothing to recover.
+   */
+  async recoverEvaluating(tx: Tx, s: SessionRow): Promise<boolean> {
+    if (s.state !== 'evaluating' || !s.currentTurnId) return false;
+    const [turn] = await tx.db.select().from(interviewTurns).where(and(eq(interviewTurns.id, s.currentTurnId), eq(interviewTurns.sessionId, s.id)));
+    if (!turn || turn.answer === null) return false;
+    await recoverStalledEvaluation(tx, s, (t, row, reason, extra) => this.interviews.complete(t, row, reason, extra));
+    emitMetric('EvaluatingLeaseRecovered', 1, 'Count');
+    logger.warn({ session_id: s.id, turn_id: turn.id }, 'evaluation lease expired; session moved on without the evaluation');
+    return true;
   }
 
   /**

@@ -63,6 +63,13 @@ async function bootstrap() {
     // Opening the API port in a browser is a common mistake; send people to the UI.
     http.get("/", (_req, res) => res.redirect(302, config.WEB_ORIGIN));
   }
+  // Launcher probe (deploy/start.mjs): liveness plus the heap sample /readyz reports. Loopback peers
+  // only; the gateway never routes this path here, so it is unreachable from the internet either way.
+  http.get("/__health", (req, res) => {
+    if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "")) return res.status(404).end();
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ ok: true, heapUsed: process.memoryUsage().heapUsed });
+  });
 
   // Better Auth handler mounted directly (ADD L6: skip the NestJS wrapper).
   const auth = app.get<Auth>(AUTH);

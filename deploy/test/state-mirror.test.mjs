@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import pg from 'pg';
 import zlib from 'node:zlib';
-import { COPY_RETENTION_DAYS, createStateMirror, mirrorTable, stateMirrorConfig } from '../state-mirror.mjs';
+import { COPY_RETENTION_DAYS, JSON_PARSE_MAX_BYTES, createStateMirror, mirrorTable, stateMirrorConfig, wholeJson } from '../state-mirror.mjs';
 import { MIGRATION_LOCK_KEY, recordBoot, releaseBooted, withAdvisoryLock } from '../db.mjs';
 
 const url = process.env.STATE_MIRROR_TEST_DATABASE_URL || process.env.TEST_DATABASE_URL;
@@ -55,6 +55,20 @@ test('settings: defaults, off switch, 0 values, and only plain identifiers as th
   assert.deepEqual(stateMirrorConfig({ STATE_MIRROR_INTERVAL_MS: '0', STATE_MIRROR_MAX_BYTES: '0' }).intervalMs, 0);
   assert.throws(() => stateMirrorConfig({ STATE_MIRROR_TABLE: 'x; DROP TABLE users' }), /STATE_MIRROR_TABLE/);
   assert.throws(() => stateMirrorConfig({ STATE_MIRROR: 'maybe' }), /STATE_MIRROR/);
+});
+
+test('whole-JSON check: a full parse for small files, a heap-free structural check past JSON_PARSE_MAX_BYTES', () => {
+  assert.equal(wholeJson(Buffer.from('{"sessions":{}}')), true);
+  assert.equal(wholeJson(Buffer.from('{"sessions":{')), false, 'cut off');
+  assert.equal(wholeJson(Buffer.from('')), false);
+  // Past the limit (tiny limit here): no parse, but a cut-off or non-UTF-8 file is still refused.
+  const big = Buffer.from(` ${JSON.stringify({ sessions: { a: 'x'.repeat(200) } })}\n`);
+  assert.equal(wholeJson(big, 16), true);
+  assert.equal(wholeJson(Buffer.from('[1,2,3]'), 4), true);
+  assert.equal(wholeJson(big.subarray(0, big.length - 5), 16), false, 'truncated');
+  assert.equal(wholeJson(Buffer.concat([Buffer.from('{"a":"'), Buffer.from([0xff, 0xfe]), Buffer.from('"}')]), 4), false, 'not UTF-8');
+  assert.equal(wholeJson(Buffer.from('{"a":1]'), 4), false, 'mismatched brackets');
+  assert.ok(JSON_PARSE_MAX_BYTES >= 256 * 1024 && JSON_PARSE_MAX_BYTES <= 4 * 1024 * 1024);
 });
 
 test('a fresh instance gets back every saved file; unchanged files are not uploaded again', { skip }, async () => {

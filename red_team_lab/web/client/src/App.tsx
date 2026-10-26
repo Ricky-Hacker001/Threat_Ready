@@ -33,10 +33,20 @@ function Root() {
   const [user, setUser] = useState<User>(null);
   const [loading, setLoading] = useState(true);
   const [platformOut, setPlatformOut] = useState(false);
+  // The lab server (or, inside ThreatReady, the process hosting it) is not answering: say so and offer a
+  // retry, never the standalone display-name form, which could not work either (merge review UI-1).
+  const [unavailable, setUnavailable] = useState('');
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    api.me().then((u: any) => setUser(u)).catch((e) => { if (e instanceof ApiError && e.body?.devLogin === false) setPlatformOut(true); setUser(null); }).finally(() => setLoading(false));
-  }, []);
+    setLoading(true); setUnavailable('');
+    api.me().then((u: any) => setUser(u)).catch((e) => {
+      if (e instanceof ApiError && (e.status === 0 || e.status >= 500)) { setUnavailable(e.message); return; }
+      if (e instanceof ApiError && e.body?.devLogin === false) setPlatformOut(true);
+      setUser(null);
+    }).finally(() => setLoading(false));
+  }, [attempt]);
   if (loading) return <PlatformLoading app="the Web Pentest Lab" />;
+  if (!user && unavailable) return <Unavailable message={unavailable} onRetry={() => setAttempt(a => a + 1)} />;
   if (!user && platformOut) return <SessionEnded />;
   if (!user) return <Login onIn={setUser} />;
   return <Authed user={user} onOut={() => { if (user.onboardUrl) setPlatformOut(true); setUser(null); }} />;
@@ -51,6 +61,17 @@ function SessionEnded() {
       <button className="wl-btn primary" style={{ marginTop: 10 }} onClick={() => location.reload()}>Sign in again</button>
     </div>
   </div></div>;
+}
+
+/** The lab could not be reached (a restart, a network problem): what happened and a retry. */
+function Unavailable({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <main className="trp wl"><div className="center-wrap" style={{ maxWidth: 440 }}>
+    <div className="card" role="alert">
+      <div className="row" style={{ marginBottom: 12 }}><img src={`${BASE}logo-sm.png`} width="26" height="25" alt="" /><h1 style={{ fontSize: 18, margin: 0 }}>Can't open the Web Pentest Lab</h1></div>
+      <p className="muted small">{message}</p>
+      <button className="wl-btn primary" style={{ marginTop: 10 }} onClick={onRetry}>Try again</button>
+    </div>
+  </div></main>;
 }
 
 function Login({ onIn }: { onIn: (u: any) => void }) {

@@ -26,9 +26,16 @@ function atomicWrite(file, text) {
   }
 }
 
+// An unreadable (corrupt, truncated) file is moved to `<file>.corrupt-<timestamp>` so the next save
+// never overwrites what might still be recoverable. Returns the new path, or null when the move failed.
+export function quarantine(file) {
+  const kept = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try { fs.renameSync(file, kept); return kept; } catch { return null; }
+}
+
 // One JSON document on disk with a debounced, atomic writer. A file that does not parse, or is not
-// a JSON object, is moved aside as <file>.corrupt-<time> before starting empty, so the next write
-// cannot overwrite records that may still be recovered by hand.
+// a JSON object, is moved aside (quarantine) before starting empty, so the next write cannot
+// overwrite records that may still be recovered by hand.
 export class JsonFile {
   constructor(file, empty) {
     this.file = file;
@@ -36,23 +43,13 @@ export class JsonFile {
     this.db = empty();
     this.timer = null;
     if (fs.existsSync(file)) {
-      let parsed;
-      let problem = null;
       try {
-        parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) problem = 'not a JSON object';
+        const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a JSON object');
+        this.db = { ...empty(), ...parsed };
       } catch (err) {
-        problem = err.message;
-      }
-      if (!problem) this.db = { ...empty(), ...parsed };
-      else {
-        const aside = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`;
-        try {
-          fs.renameSync(file, aside);
-          console.error(`Could not read ${file} (${problem}); kept it as ${aside} and started empty.`);
-        } catch (err) {
-          console.error(`Could not read ${file} (${problem}) or move it aside (${err.message}). Starting empty.`);
-        }
+        const kept = quarantine(file);
+        console.error(`Could not read ${file}: ${err.message}. ${kept ? `Kept as ${kept}.` : 'Could not move it aside.'} Starting empty.`);
       }
     }
     FILES.push(this);

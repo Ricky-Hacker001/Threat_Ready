@@ -44,11 +44,17 @@ export class Database implements OnApplicationShutdown {
       max: cfg.DATABASE_POOL_MAX,
       application_name: `threatready-${process.env.APP_ROLE ?? 'api'}`,
       statement_timeout: 15_000,
-      // A saturated or unreachable database fails a request in 5 s instead of queueing it forever.
+      // A saturated or unreachable database fails a request in 5 s instead of queueing it forever;
+      // idle connections are returned after 30 s so a Neon/RDS-side close never surprises a borrowed client.
       connectionTimeoutMillis: 5_000,
+      idleTimeoutMillis: 30_000,
     });
-    // An idle client's connection dropping (database restart, network blip) must not crash the process.
-    this.pool.on('error', (err) => logger.error({ err: { message: err.message } }, 'database pool client error'));
+    // pg emits 'error' on the pool when an idle client drops (database restart, network blip). Without a
+    // listener that is an uncaught exception and the whole process dies; the client is already removed
+    // from the pool, so logging is all that is needed.
+    this.pool.on('error', (err) => {
+      logger.warn({ err: { name: err.name, message: err.message, code: (err as { code?: string }).code } }, 'database pool: idle client error');
+    });
     this.db = drizzle({ client: this.pool, schema });
   }
 

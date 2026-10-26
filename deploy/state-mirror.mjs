@@ -26,6 +26,7 @@
 //    read at boot, no file is held back (over the cap, refused, unreadable, owned by a newer
 //    instance) and uploads are not failing. The launcher turns it into TR_STATE_DURABLE, which the
 //    labs and SOC read to say where records are kept.
+import { isUtf8 } from 'node:buffer';
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,6 +45,31 @@ const REJECTED = '@rejected-';
 const RAW_READ_FACTOR = 4;
 /** Consecutive failed upload rounds after which progress no longer counts as durable. */
 const FAILED_ROUNDS_NOT_DURABLE = 2;
+/**
+ * Lab files up to this size are parsed in full before an upload. The mirror runs in the launcher, whose
+ * heap is capped at 48 MB (render.yaml): parsing a multi-megabyte file there would build several times
+ * its size in objects. A bigger file gets a check that allocates nothing on the heap instead.
+ */
+export const JSON_PARSE_MAX_BYTES = 1024 * 1024;
+const WHITESPACE = new Set([0x20, 0x09, 0x0a, 0x0d]);
+
+/**
+ * Whether `buf` is a whole JSON document (not a write caught half-way, not garbage). Small files: a full
+ * parse. Bigger ones: valid UTF-8 that starts with { or [ and ends with the matching } or ] (the stores
+ * write a complete JSON.stringify output to a temporary file and rename it, so a torn file is already
+ * unlikely; a truncated one fails this check).
+ */
+export function wholeJson(buf, parseMax = JSON_PARSE_MAX_BYTES) {
+  if (buf.length <= parseMax) {
+    try { JSON.parse(buf.toString('utf8')); return true; } catch { return false; }
+  }
+  if (!isUtf8(buf)) return false;
+  let i = 0;
+  while (i < buf.length && WHITESPACE.has(buf[i])) i += 1;
+  let j = buf.length - 1;
+  while (j > i && WHITESPACE.has(buf[j])) j -= 1;
+  return (buf[i] === 0x7b && buf[j] === 0x7d) || (buf[i] === 0x5b && buf[j] === 0x5d);
+}
 
 /** "[schema.]table" as quoted SQL, refusing anything but plain lower-case identifiers. */
 export function mirrorTable(name) {
@@ -286,7 +312,7 @@ export function createStateMirror({ connectionString, targets, table = 'threatre
       const sha = sha256(buf);
       // Same bytes as the last upload, or as the saved copy read at boot: nothing to send.
       if ((last && last.sha === sha) || known.get(key) === sha) { uploaded.set(key, { sha, mtimeMs: st.mtimeMs, size: st.size }); oversize.delete(key); continue; }
-      try { JSON.parse(buf.toString('utf8')); } catch { warnOnce(key, `json:${sha}`, `state mirror: ${key} is not valid JSON right now; skipped this round`); continue; }
+      if (!wholeJson(buf)) { warnOnce(key, `json:${sha}`, `state mirror: ${key} is not valid JSON right now; skipped this round`); continue; }
       const gz = zlib.gzipSync(buf);
       if (maxBytes && gz.length > maxBytes) { tooBig(`${kb(gz.length)} compressed`); continue; }
       changed.push({ key, buf, gz, sha, st });

@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Secrets and logs: same rules as the root .gitignore (templates are .env.example)
+.env
+.env.*
+!.env.example

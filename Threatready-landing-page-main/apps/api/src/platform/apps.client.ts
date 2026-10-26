@@ -37,7 +37,8 @@ export class AppsClient {
   private async get<T>(app: RegisteredApp, path: string, schema: ZodType<T>): Promise<Fetched<T>> {
     try {
       const res = await fetch(`${app.internalUrl}${path}`, {
-        headers: { authorization: `Bearer ${this.config.INTERNAL_API_TOKEN}`, accept: "application/json" },
+        // The token minted for this target (INTERNAL_TOKEN_TO_*); INTERNAL_API_TOKEN when none is set.
+        headers: { authorization: `Bearer ${this.config.internalTokenTo[app.key]}`, accept: "application/json" },
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       if (!res.ok) {

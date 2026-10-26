@@ -330,7 +330,14 @@ Merged from all teams. Each item says what is decided now and what needs a choic
     drop the legacy accounts/sessions/verifications tables in the InterviewPrep database (irreversible).
 13. Dependency bumps that need a lockfile change: body-parser and multer in InterviewPrep (mitigated in code); whether
     the CI audit gate also covers dev dependencies (AI Security lists dev-only findings). dompurify 3.4.17 was
-    accepted although it is 12 days old (the only fixed release).
+    accepted although it is 12 days old (the only fixed release). *Since the security patch 2 merge (review
+    M-SEC-3):* CI's runtime audit gate (`npm audit --omit=dev --audit-level=high`, onboard `pnpm audit --prod`)
+    fails in deploy, InterviewPrep, threatready-lab-001, attack-reasoning, red_team_lab/web, soc and onboard on
+    two advisories published with their fixes on 2026-10-22: body-parser GHSA-27r3-jxmh-p828 (mitigated: the
+    gateway refuses compressed bodies with 415 and InterviewPrep parses JSON with `inflate: false`) and multer
+    GHSA-q7qp-rjg7-q26m (InterviewPrep uploads; no mitigation in code). With Render "Wait for CI" on, every
+    deploy waits on this decision. Lockfile-only fixes are prepared and verified (audit 0 high), not applied:
+    `audit/2026-10-23/resume/auditfix-2026-10-26/apply.sh --check`, then `apply.sh` and the steps in its header.
 
 **Hosting**
 14. Durable uploads and PDFs: they still live on the instance disk and are lost on restart. AWS S3 works today

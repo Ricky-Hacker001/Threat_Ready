@@ -56,6 +56,8 @@ The contract (shapes of identity, summary and AI usage) lives in `Threatready-la
 
 ## Run everything locally
 
+Node 24 or newer: every `package.json` sets `engines.node` to `>=24`, matching Render's `NODE_VERSION` and CI (pnpm refuses to install onboard on older Node).
+
 | Service | Port | Command (from the project folder) |
 |---|---|---|
 | onboard API | 3200* | `apps/api`: `pnpm build && node --env-file=.env dist/main.js` |
@@ -83,7 +85,8 @@ For the live single-origin Render service, follow `deploy/README.md` instead.
 - Attack Reasoning: `APP_ORIGIN=https://ar.threatready.io`, `ONBOARD_URL`, `IDENTITY_URL`, same token, `REASONING_API_URL` = the InterviewPrep API in-VPC. Web build: `VITE_ONBOARD_URL`. Onboard: `REASONING_STATUS=live`, `REASONING_INTERNAL_URL`. InterviewPrep: `ALLOWED_APP_ORIGINS=https://ar.threatready.io`.
 - Cloudflare: route `/api/*` (onboard, labs, ar) and `/v1/*` (interviewprep) to their services; **do not route `/internal/*`**.
 - CAPTCHA: set **both** `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare Turnstile) before launch. Without them sign-up, sign-in and OTP requests rely on rate limits alone; the launcher logs a warning at start.
-- Internal routes (`/api/internal/*`, `/labs/internal/*`, `/ar/internal/*`, and `/internal/` under any lab) are protected by `INTERNAL_API_TOKEN` **and** the gateway's caller check (loopback peer, no edge headers). Behind a proxy every peer is loopback, so the token is the real control: keep it long, random and out of every other app's environment.
+- Internal routes (`/api/internal/*`, `/labs/internal/*`, `/ar/internal/*`, and `/internal/` under any lab) are protected by an internal bearer token **and** the gateway's caller check (loopback peer, no edge headers). Behind a proxy every peer is loopback, so the token is the real control: keep it long, random and out of every other app's environment.
+- Per-caller tokens (Render single-origin deployment): the launcher derives one token per caller→callee pair from `INTERNAL_API_TOKEN` with HKDF and passes each child only its own (`INTERNAL_TOKENS_ACCEPT`, `INTERNAL_TOKEN_TO_*`); no child is handed the raw token, and a token that opens one app's internal API opens no other. All processes run as one user, so this is defence in depth, not protection against code running in a child (`deploy/README.md`, "Limits of the isolation"). Every app falls back to `INTERNAL_API_TOKEN` when those variables are absent, so the local setup above is unchanged. Details and the labs child process: `deploy/README.md`.
 - CSP `connect-src` stays `'self'` everywhere (plus `blob:` on the gateway, for the 3D interviewer's textures, which three.js reads with `fetch(blob:)`): the browser only ever talks to its own app's origin.
 
 ## Publishing to GitHub

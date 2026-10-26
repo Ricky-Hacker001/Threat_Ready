@@ -28,9 +28,11 @@ let server;
 let base;
 export async function start() {
   await new Promise((resolve) => { server = app.listen(0, resolve); });
-  // A test that blocks the event loop for seconds (log generation) must not leave the next request a
-  // keep-alive socket the server is closing at that moment (ECONNRESET).
-  server.keepAliveTimeout = 120000;
+  // fetch() pools keep-alive connections; a test that pauses (or blocks the event loop for seconds
+  // generating logs) for about Node's default 5 s keep-alive timeout then reuses a socket the server
+  // has just closed (ECONNRESET). Keep test sockets open longer.
+  server.keepAliveTimeout = 120_000;
+  server.headersTimeout = 125_000;
   base = `http://127.0.0.1:${server.address().port}`;
 }
 export const baseUrl = () => base;
