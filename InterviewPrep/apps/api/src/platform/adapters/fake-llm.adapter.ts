@@ -1,6 +1,6 @@
 import { PortError, type PortErrorKind } from '@threatready/shared';
 import type { AppConfig } from '../../config/config.js';
-import type { LlmChunk, LlmObject, LlmPort, LlmRequest, LlmText, LlmTier, LlmUsage, StructuredSchema } from '../ports/llm.port.js';
+import { promptChars, type LlmChunk, type LlmObject, type LlmPort, type LlmRequest, type LlmText, type LlmTier, type LlmUsage, type StructuredSchema } from '../ports/llm.port.js';
 import { fakeReasoning } from './fake/reasoning.fake.js';
 
 /**
@@ -10,7 +10,16 @@ import { fakeReasoning } from './fake/reasoning.fake.js';
  * failures and overrides per schema name.
  */
 export class FakeLlmAdapter implements LlmPort {
-  readonly calls: { kind: 'text' | 'structured' | 'stream'; tier: LlmTier; name?: string; promptVersion: string; chars: number }[] = [];
+  readonly calls: { kind: 'text' | 'structured' | 'stream'; tier: LlmTier; name?: string; promptVersion: string; chars: number; prefixChars: number }[] = [];
+  /**
+   * Prompt-cache simulation, as the provider behaves (review COST-2): an entry per model, output format
+   * (the structured-output schema name: a different format invalidates the cache) and systemPrefix; the
+   * first call reports the prefix as cache_creation tokens, later calls as cache_read tokens; input
+   * tokens exclude them. Nothing is cached for a request with `cache: false` or a prefix under the
+   * model's minimum (4,096 tokens on Haiku 4.5, 512 on the current models; 4 characters a token here).
+   * reset() empties it.
+   */
+  private readonly cache = new Set<string>();
   /** schema name (or 'question' for streams) -> failure kinds to throw, consumed in order. */
   failures = new Map<string, PortErrorKind[]>();
   overrides = new Map<string, (req: LlmRequest) => unknown>();
@@ -32,13 +41,14 @@ export class FakeLlmAdapter implements LlmPort {
     this.failures.clear();
     this.overrides.clear();
     this.delayMs = 0;
+    this.cache.clear();
   }
 
   async generate(req: LlmRequest): Promise<LlmText> {
     this.record('text', req);
     await this.maybeFail('text', req);
     const text = 'OK';
-    return { text, usage: this.usage(req, text) };
+    return { text, usage: this.usage(req, text, '') };
   }
 
   async generateStructured<T>(req: LlmRequest, schema: StructuredSchema<T>): Promise<LlmObject<T>> {
@@ -48,7 +58,7 @@ export class FakeLlmAdapter implements LlmPort {
     const raw = override ? override(req) : this.produce(schema.name, req, schema.jsonSchema);
     const parsed = schema.zod.safeParse(schema.prepare ? schema.prepare(raw) : raw);
     if (!parsed.success) throw new PortError('invalid_output', `${schema.name}: fake output failed validation`, { retryable: true });
-    return { value: parsed.data, usage: this.usage(req, JSON.stringify(raw)) };
+    return { value: parsed.data, usage: this.usage(req, JSON.stringify(raw), schema.name) };
   }
 
   async *stream(req: LlmRequest): AsyncIterable<LlmChunk> {
@@ -57,11 +67,11 @@ export class FakeLlmAdapter implements LlmPort {
     const override = this.overrides.get('question');
     const text = override ? String(override(req)) : fakeQuestion(lastUser(req));
     for (const word of text.split(/(?<= )/)) yield { type: 'text', text: word };
-    yield { type: 'done', usage: this.usage(req, text) };
+    yield { type: 'done', usage: this.usage(req, text, '') };
   }
 
   private record(kind: 'text' | 'structured' | 'stream', req: LlmRequest, name?: string) {
-    this.calls.push({ kind, tier: req.tier, name, promptVersion: req.promptVersion, chars: req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0) });
+    this.calls.push({ kind, tier: req.tier, name, promptVersion: req.promptVersion, chars: promptChars(req), prefixChars: req.systemPrefix?.length ?? 0 });
   }
 
   private async maybeFail(name: string, req: LlmRequest) {
@@ -81,9 +91,23 @@ export class FakeLlmAdapter implements LlmPort {
     if (kind) throw new PortError(kind, `fake ${kind}`, { retryable: kind !== 'invalid_output' && kind !== 'refusal' ? undefined : kind === 'invalid_output' });
   }
 
-  private usage(req: LlmRequest, out: string): LlmUsage {
-    const inChars = req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0);
-    return { model: this.modelFor(req.tier), inputTokens: Math.ceil(inChars / 4), outputTokens: Math.ceil(out.length / 4), cacheReadTokens: 0, cacheWriteTokens: 0 };
+  private usage(req: LlmRequest, out: string, format: string): LlmUsage {
+    const model = this.modelFor(req.tier);
+    const prefix = req.systemPrefix ?? '';
+    const prefixTokens = Math.ceil(prefix.length / 4);
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
+    const minimum = /haiku-4-5/.test(model) ? 4096 : 512;
+    if (prefix && req.cache !== false && prefixTokens >= minimum) {
+      const key = `${model}\u0000${format}\u0000${prefix}`;
+      if (this.cache.has(key)) cacheReadTokens = prefixTokens;
+      else {
+        this.cache.add(key);
+        cacheWriteTokens = prefixTokens;
+      }
+    }
+    const rest = promptChars(req) - prefix.length;
+    return { model, inputTokens: Math.ceil(rest / 4), outputTokens: Math.ceil(out.length / 4), cacheReadTokens, cacheWriteTokens };
   }
 
   private produce(name: string, req: LlmRequest, schema: Record<string, unknown>): unknown {

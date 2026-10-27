@@ -1,5 +1,5 @@
 import type { DimensionResult, OptionId, OptionVerdict, PointStatus, ReasoningDimensionKey } from '@threatready/contracts';
-import { quoteIsIn } from '../ai/prompts/common.js';
+import { normaliseForQuote, quoteIsIn } from '../ai/prompts/common.js';
 import type { Weights } from './domain.types.js';
 import type { MustNotCredit, RubricPoint } from './item.types.js';
 
@@ -9,7 +9,54 @@ import type { MustNotCredit, RubricPoint } from './item.types.js';
  * numeric is computed here from configured weights. Changing any rule needs a new version so stored
  * evaluations stay comparable.
  */
-export const REASONING_SCORING_VERSION = 'reasoning-score.v1.2026-10-19';
+/**
+ * v2 (cost design 26 Oct 2026): a single-pass result takes the lower of the computed confidence and
+ * the evaluator's own (ScoringInput.singlePassConfidence). Every formula is unchanged, so totals stay
+ * comparable with v1.
+ * v3 (review AR-BIZ-3, 27 Oct 2026): an evidence quote stitched from verbatim pieces of the
+ * justification, in order, each at least QUOTE_PIECE_MIN_WORDS words, counts as verbatim (quoteSupported).
+ */
+export const REASONING_SCORING_VERSION = 'reasoning-score.v3.2026-10-27';
+
+/** The shortest piece of a stitched evidence quote, in words (the contiguous rule's 8 characters is for whole quotes). */
+export const QUOTE_PIECE_MIN_WORDS = 8;
+/** At most this many pieces: evidence, not a collage. */
+const QUOTE_MAX_PIECES = 4;
+
+const trimQuote = (q: string) => q.replace(/^["'.…\s]+|["'.…\s]+$/g, '');
+const words = (q: string) => q.split(/\s+/).filter((w) => /[a-z0-9]/.test(w)).length;
+
+/**
+ * Whether an evidence quote is the learner's own words. A verbatim span (quoteIsIn), or, since v3, a
+ * quote a grader stitched from several verbatim spans: split at an ellipsis ("..." or "…") or a sentence
+ * end, every piece must appear in the justification after the previous one, and every run of pieces that
+ * is not contiguous in the justification must be at least QUOTE_PIECE_MIN_WORDS words long. Haiku often
+ * joins two spans this way (review AR-BIZ-3); the rule that credit needs verbatim evidence is unchanged.
+ */
+export function quoteSupported(quote: string | null | undefined, source: string): boolean {
+  if (quoteIsIn(quote, source)) return true;
+  if (!quote) return false;
+  const pieces = normaliseForQuote(quote)
+    .split(/\.\.\.|…|(?<=[.!?;])\s+/)
+    .map(trimQuote)
+    .filter(Boolean);
+  if (pieces.length < 2 || pieces.length > QUOTE_MAX_PIECES * 3) return false;
+  const src = normaliseForQuote(source);
+  // Spans of the source the pieces cover, merged where only spaces and punctuation separate them.
+  const spans: { start: number; end: number; words: number }[] = [];
+  let from = 0;
+  for (const piece of pieces) {
+    const at = src.indexOf(piece, from);
+    if (at < 0) return false;
+    const last = spans.at(-1);
+    if (last && /^[\s.,;:!?'"…-]*$/.test(src.slice(last.end, at))) {
+      last.end = at + piece.length;
+      last.words += words(piece);
+    } else spans.push({ start: at, end: at + piece.length, words: words(piece) });
+    from = at + piece.length;
+  }
+  return spans.length <= QUOTE_MAX_PIECES && spans.every((x) => x.words >= QUOTE_PIECE_MIN_WORDS);
+}
 
 export const DIMENSION_KEYS: readonly ReasoningDimensionKey[] = ['correctness', 'reasoning', 'architecture', 'risk'];
 export const DIMENSION_LABELS: Record<ReasoningDimensionKey, string> = {
@@ -67,7 +114,10 @@ export interface ScoringInput {
   justification: string;
   /** Final judgements (reconciler, or the fallback assembled from the earlier stages). */
   final: PointJudgement[];
-  /** First-stage judgements, used only to measure disagreement for the confidence level. */
+  /**
+   * The disagreement baseline for the confidence level: the first stage's judgements, or (an escalated
+   * tiered evaluation) the first stage's with the challenger's objections applied.
+   */
   evaluator: PointJudgement[];
   /** must-not-credit ids the graders say the justification asserts. */
   assertedClaims: string[];
@@ -75,6 +125,12 @@ export interface ScoringInput {
   challenger: { hallucinatedReferences: number; fluentButWrong: boolean; missingCritical: number };
   integrity: { offTopic: boolean; instructsGrader: boolean; arguesForOption: OptionId | null };
   degraded: boolean;
+  /**
+   * Set when no later stage ran (the single-pass evaluation): the evaluator's self-reported confidence.
+   * With no second stage there is no disagreement to measure, so the result is no more confident than
+   * the grader says it is.
+   */
+  singlePassConfidence?: 'high' | 'medium' | 'low';
 }
 
 export interface ScoreOutcome {
@@ -87,7 +143,11 @@ export interface ScoreOutcome {
   notes: string[];
   /** Statuses after the quote check and the must-not-credit list, for feedback assembly. */
   adjusted: Map<string, PointJudgement>;
+  /** Credited points withdrawn because their quote is not in the justification (step 2). */
+  quoteDowngrades: number;
 }
+
+const CONFIDENCE_RANK = { low: 0, medium: 1, high: 2 } as const;
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -105,7 +165,7 @@ export function scoreAttempt(input: ScoringInput): ScoreOutcome {
   // 2. Evidence-quote check: credit without a verbatim quote from the justification is withdrawn (ADD L17b).
   let quoteDowngrades = 0;
   for (const j of adjusted.values()) {
-    if (j.status !== 'missed' && !quoteIsIn(j.quote, input.justification)) {
+    if (j.status !== 'missed' && !quoteSupported(j.quote, input.justification)) {
       j.status = 'missed';
       j.quote = null;
       j.rationale = 'Credited by the grader without a verbatim quote from your justification; not counted.';
@@ -210,10 +270,11 @@ export function scoreAttempt(input: ScoringInput): ScoreOutcome {
   let confidence: ScoreOutcome['confidence'] = 'high';
   if (major >= 1 || flagged || input.degraded || integrityFail) confidence = 'low';
   else if (minor >= 2 || input.challenger.missingCritical >= 1 || quoteDowngrades >= 2) confidence = 'medium';
+  if (input.singlePassConfidence && CONFIDENCE_RANK[input.singlePassConfidence] < CONFIDENCE_RANK[confidence]) confidence = input.singlePassConfidence;
   if (major || minor) notes.push(`Grader agreement: ${major} major and ${minor} minor disagreement${major + minor === 1 ? '' : 's'} between stages.`);
   if (flagged) notes.push(input.challenger.fluentButWrong ? 'Flagged as fluent but technically wrong.' : 'Flagged for references that could not be verified.');
   if (input.degraded) notes.push('Simplified scoring: one evaluation stage was unavailable, so this result is marked for review.');
   const reviewFlag = confidence === 'low' || input.degraded || input.integrity.instructsGrader;
 
-  return { version: REASONING_SCORING_VERSION, total, correct, dimensions, confidence, reviewFlag, notes, adjusted };
+  return { version: REASONING_SCORING_VERSION, total, correct, dimensions, confidence, reviewFlag, notes, adjusted, quoteDowngrades };
 }

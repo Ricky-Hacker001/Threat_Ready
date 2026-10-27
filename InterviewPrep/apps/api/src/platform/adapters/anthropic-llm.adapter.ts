@@ -139,12 +139,23 @@ export class AnthropicLlmAdapter implements LlmPort {
     return {
       model,
       max_tokens: Math.min(req.maxOutputTokens, pricing?.maxOutputTokens ?? req.maxOutputTokens),
-      // The system prompt is the stable prefix; marking it lets repeated turns read it from cache.
-      system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
+      system: systemBlocks(req),
       messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
       ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
     };
   }
+}
+
+/**
+ * The system prompt is the stable prefix; marking it lets repeated turns read it from cache. With a
+ * `systemPrefix` (shared by several calls: the grader's item context, a question writer's architecture)
+ * it becomes its own first block with its own breakpoint, so calls that differ only in `system` still
+ * read the prefix from cache. Two of the four breakpoints the API allows; learner text is never here.
+ * `cache: false` sends the same blocks unmarked: nothing is written that would never be read (COST-2).
+ */
+export function systemBlocks(req: Pick<LlmRequest, 'systemPrefix' | 'system' | 'cache'>): Anthropic.TextBlockParam[] {
+  const block = (text: string): Anthropic.TextBlockParam => (req.cache === false ? { type: 'text', text } : { type: 'text', text, cache_control: { type: 'ephemeral' } });
+  return req.systemPrefix ? [block(req.systemPrefix), block(req.system)] : [block(req.system)];
 }
 
 /** A truncated or refused message was still billed in full: its usage goes with the error (billed failures, audit §3.5). */

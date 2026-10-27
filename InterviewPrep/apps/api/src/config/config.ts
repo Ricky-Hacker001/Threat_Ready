@@ -159,15 +159,63 @@ const EnvSchema = z
     REASONING_MAX_OPEN_ATTEMPTS: z.coerce.number().int().positive().default(3),
     /** Answers a learner may submit for evaluation per UTC day (each evaluation is up to three LARGE calls). 0 = no daily limit. */
     REASONING_USER_DAILY_EVALUATIONS: z.coerce.number().int().min(0).default(20),
-    /** Pool refills one learner may trigger per UTC day (via create or prefetch); the schedule refills the rest. 0 = no limit. */
-    REASONING_USER_DAILY_REFILLS: z.coerce.number().int().min(0).default(60),
+    /**
+     * Pool questions one learner's starts and prefetches may have generated per UTC day (review AR-SEC-2:
+     * counted in questions, not refill jobs, which each generated up to REASONING_POOL_BATCH); the schedule
+     * refills the rest. 0 = no limit.
+     */
+    REASONING_USER_DAILY_REFILLS: z.coerce.number().int().min(0).default(12),
     /** Manual retries of a failed generation, and separately of a failed evaluation, per attempt. 0 = no ceiling. */
     REASONING_MAX_RETRIES: z.coerce.number().int().min(0).max(20).default(2),
     /** Hours an unanswered (ready) question stays open before the sweeper marks it skipped. 0 = never. */
     REASONING_READY_TTL_HOURS: z.coerce.number().int().min(0).max(720).default(24),
-    REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
+    /**
+     * Model calls per generated question: try 1 on REASONING_GENERATION_FIRST_TIER, every later try on
+     * LARGE (a question that fails the quality gate is rewritten once by the stronger model).
+     */
+    REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(2),
+    /** The tier that writes a question first: SMALL (Haiku, default) or LARGE (rollback: Sonnet writes every question). */
+    REASONING_GENERATION_FIRST_TIER: z.enum(['SMALL', 'LARGE']).default('SMALL'),
+    /** Questions per architecture compared with a new one (similarity bank on top of the live items). */
+    REASONING_LIBRARY_BANK_SIZE: z.coerce.number().int().min(50).max(2000).default(300),
+    /**
+     * Days a retired question stays in that bank for text similarity (review AR-BIZ-2): by count alone, an
+     * architecture whose recent questions all collide stops storing new ones and its window never moves.
+     * Live questions and, on demand, the learner's own always stay in the bank.
+     */
+    REASONING_LIBRARY_BANK_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+    /** Serve questions generated before the architecture library (architecture_id null) until they retire. */
+    REASONING_SERVE_LEGACY_ITEMS: bool.default(true),
+    /**
+     * Questions a learner may open per UTC day (any state), so one learner cannot drain the shared pool.
+     * 12 since the 27 Oct review (AR-SEC-2, AR-BIZ-8, COST-4; was 40, sized for US$0.02 a seat; at the
+     * measured generation cost 40 opens could use up the whole pool cap). 0 = no limit.
+     */
+    REASONING_USER_DAILY_QUESTIONS: z.coerce.number().int().min(0).default(12),
     /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
+    /**
+     * Evaluation: `tiered` scores the option in code, grades the justification once on SMALL and runs the
+     * LARGE challenger and reconciler only for borderline or disputed answers; `full` (rollback) runs the
+     * three LARGE stages on every answer.
+     */
+    REASONING_EVALUATION_MODE: z.enum(['tiered', 'full']).default('tiered'),
+    /** Centre and half-width of the provisional-score band that escalates a single-pass grade (band 0 = never on score alone). */
+    REASONING_ESCALATION_CENTER: z.coerce.number().min(0).max(100).default(60),
+    REASONING_ESCALATION_BAND: z.coerce.number().min(0).max(50).default(8),
+    /**
+     * Share (0-1) of tiered answers that no rule escalated which still get the second review, drawn at
+     * random (review AR-SEC-1): text that talks the SMALL grader round without tripping a rule cannot
+     * count on a single pass. 0 = off. About +US$0.008 per answer per 0.1 at the measured pair cost.
+     */
+    REASONING_ESCALATION_AUDIT_RATE: z.coerce.number().min(0).max(1).default(0.1),
+    /**
+     * Mark Attack Reasoning prompts for prompt caching. Off by default (review COST-2): each stage sends
+     * its own structured-output format, which invalidates the cache, generation calls run in parallel on
+     * different architectures and tiers, and a second learner's evaluation of an item rarely follows
+     * within the 5-minute lifetime, so the real run wrote 71k tokens and read 4k (+US$0.024, 6% of spend).
+     */
+    REASONING_PROMPT_CACHE: bool.default(false),
     /**
      * Shared question pool: questions are generated ahead of time per domain and difficulty and served
      * to learners in random order, never twice to the same learner. Demand-driven: a bucket served in
@@ -178,16 +226,20 @@ const EnvSchema = z
      * production (unset = NODE_ENV === 'production'); when off, the schedule is removed and refills are no-ops.
      */
     REASONING_POOL_ENABLED: bool.optional(),
-    REASONING_POOL_TARGET: z.coerce.number().int().min(0).max(500).default(12),
+    // Sized for the 2-serve rule (a live question offers at most 2 seats): see docs/ATTACK_REASONING_COST_DESIGN.md §5.3.
+    REASONING_POOL_TARGET: z.coerce.number().int().min(0).max(500).default(8),
     REASONING_POOL_IDLE_TARGET: z.coerce.number().int().min(0).max(500).default(2),
     REASONING_POOL_DEMAND_DAYS: z.coerce.number().int().min(1).max(90).default(7),
     /** Hard ceiling per bucket for schedule top-ups past the target on behalf of active learners. At or below the target: no top-ups. */
-    REASONING_POOL_MAX_ITEMS: z.coerce.number().int().min(0).max(2000).default(40),
-    REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(4),
+    REASONING_POOL_MAX_ITEMS: z.coerce.number().int().min(0).max(2000).default(24),
+    REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(3),
     REASONING_POOL_BATCH: z.coerce.number().int().min(1).max(10).default(4),
     REASONING_POOL_DAILY_CAP_USD: z.coerce.number().positive().default(5),
-    /** A pool question is retired from serving after this many learners have seen it (answer-key exposure bound). */
-    REASONING_ITEM_MAX_SERVES: z.coerce.number().int().positive().default(25),
+    /**
+     * A pool question is retired from serving after this many learners have seen it (answer-key exposure
+     * bound). Enforced atomically where the serve is recorded (migration 0017), so concurrent starts never overshoot it.
+     */
+    REASONING_ITEM_MAX_SERVES: z.coerce.number().int().positive().default(2),
 
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),

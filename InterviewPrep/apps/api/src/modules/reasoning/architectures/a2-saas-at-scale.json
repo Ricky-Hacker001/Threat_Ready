@@ -1,0 +1,508 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "a2-saas-at-scale",
+  "version": 1,
+  "level": "advanced",
+  "title": "Multi-region SaaS with a service mesh and AI agent",
+  "organisation": {
+    "name": "Vantora",
+    "industry": "B2B software: customer data platform",
+    "size": "1,100 staff; 3,000 business customers in two regions",
+    "summary": "Vantora collects and unifies customer events for 3,000 businesses. Customer apps and SDKs call an API edge with a WAF that routes REST traffic to the profile service and GraphQL to a gateway; services run on Kubernetes behind a service mesh with mTLS. The export service writes data into customers' own cloud accounts by assuming a cross-account role through workload identity, and data is encrypted with customer-managed keys. An AI agent answers questions about a tenant's data with profile and export tools. A GitOps pipeline deploys signed images, and a third-party feature-flag service switches features in production."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "edge", "label": "Global edge", "kind": "edge" },
+      { "id": "mesh", "label": "Production mesh", "kind": "cluster" },
+      { "id": "accounts", "label": "Data and cross-account services", "kind": "account" },
+      { "id": "delivery", "label": "Delivery", "kind": "cicd" },
+      { "id": "vendor", "label": "Third-party services", "kind": "vendor" }
+    ],
+    "nodes": [
+      { "id": "client-apps", "label": "customer apps and SDKs", "type": "client", "boundary": "internet", "detail": "Tenants' apps sending events and reading profiles", "controls": [] },
+      { "id": "api-edge", "label": "API edge", "type": "gateway", "boundary": "edge", "detail": "TLS, WAF and per-key rate limits", "controls": ["WAF", "rate limits"] },
+      { "id": "graphql", "label": "GraphQL gateway", "type": "api", "boundary": "edge", "detail": "Queries and mutations across services", "controls": ["query cost limits"] },
+      { "id": "k8s-api", "label": "cluster API server", "type": "control", "boundary": "mesh", "detail": "Kubernetes control plane", "controls": ["admission policy"] },
+      { "id": "profile-svc", "label": "profile service", "type": "service", "boundary": "mesh", "detail": "Reads and merges end-user profiles", "controls": ["mesh mTLS"] },
+      { "id": "export-svc", "label": "export service", "type": "service", "boundary": "mesh", "detail": "Writes tenant exports to customer accounts", "controls": ["mesh mTLS"] },
+      { "id": "agent", "label": "AI agent service", "type": "service", "boundary": "mesh", "detail": "Answers questions with profile and export tools", "controls": ["mesh mTLS", "tool scopes"] },
+      { "id": "role-broker", "label": "cross-account role broker", "type": "identity", "boundary": "accounts", "detail": "Exchanges workload identity for cross-account roles", "controls": [] },
+      { "id": "event-store", "label": "event data store", "type": "database", "boundary": "accounts", "detail": "Events and profiles for every tenant", "controls": [] },
+      { "id": "cmk", "label": "customer-managed keys", "type": "secret", "boundary": "accounts", "detail": "Per-tenant keys in the key service", "controls": ["customer-managed keys"] },
+      { "id": "export-bucket", "label": "customer export buckets", "type": "storage", "boundary": "accounts", "detail": "Buckets in customers' own accounts", "controls": [] },
+      { "id": "gitops", "label": "GitOps pipeline", "type": "pipeline", "boundary": "delivery", "detail": "Builds, signs and syncs manifests", "controls": ["image signing"] },
+      { "id": "registry", "label": "image registry", "type": "repository", "boundary": "delivery", "detail": "Signed images for every pipeline", "controls": [] },
+      { "id": "flags", "label": "feature-flag service", "type": "saas", "boundary": "vendor", "detail": "Flag rules evaluated by services at run time", "controls": [] },
+      { "id": "llm", "label": "LLM provider", "type": "model", "boundary": "vendor", "detail": "Third-party model used by the agent", "controls": [] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "client-apps", "to": "api-edge", "label": "REST and SDK calls", "kind": "data" },
+      { "id": "e2", "from": "api-edge", "to": "graphql", "label": "GraphQL route", "kind": "data" },
+      { "id": "e3", "from": "api-edge", "to": "profile-svc", "label": "REST routes", "kind": "data" },
+      { "id": "e4", "from": "graphql", "to": "export-svc", "label": "export mutations", "kind": "data" },
+      { "id": "e5", "from": "graphql", "to": "agent", "label": "assistant queries", "kind": "data" },
+      { "id": "e6", "from": "profile-svc", "to": "event-store", "label": "reads profiles", "kind": "data" },
+      { "id": "e7", "from": "export-svc", "to": "event-store", "label": "reads events", "kind": "data" },
+      { "id": "e8", "from": "export-svc", "to": "role-broker", "label": "workload identity", "kind": "auth" },
+      { "id": "e9", "from": "role-broker", "to": "export-bucket", "label": "cross-account write", "kind": "auth" },
+      { "id": "e10", "from": "event-store", "to": "cmk", "label": "decrypts with key", "kind": "control" },
+      { "id": "e11", "from": "agent", "to": "llm", "label": "model calls", "kind": "data" },
+      { "id": "e12", "from": "agent", "to": "profile-svc", "label": "profile tool", "kind": "data" },
+      { "id": "e13", "from": "gitops", "to": "registry", "label": "pushes signed images", "kind": "data" },
+      { "id": "e14", "from": "gitops", "to": "k8s-api", "label": "syncs manifests", "kind": "control" },
+      { "id": "e15", "from": "k8s-api", "to": "profile-svc", "label": "admits workloads", "kind": "control" },
+      { "id": "e16", "from": "flags", "to": "profile-svc", "label": "flag rules", "kind": "control" },
+      { "id": "e17", "from": "flags", "to": "agent", "label": "enables tools", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    { "id": "other-tenant", "label": "user of another tenant", "boundary": "internet", "detail": "A legitimate customer with its own API key" },
+    {
+      "id": "flag-vendor",
+      "label": "compromised flag-console account",
+      "boundary": "vendor",
+      "detail": "A contractor account on the feature-flag console"
+    }
+  ],
+  "identities": [
+    {
+      "id": "export-wi",
+      "label": "export workload identity",
+      "kind": "workload",
+      "nodeIds": ["export-svc", "role-broker", "export-bucket"],
+      "privileges": ["assume the export role into any customer account", "read every tenant's events"],
+      "notes": "The role's trust policy checks the namespace, not the service account"
+    },
+    {
+      "id": "agent-sa",
+      "label": "AI agent service account",
+      "kind": "workload",
+      "nodeIds": ["agent", "profile-svc"],
+      "privileges": ["call the profile and export services as a mesh peer"],
+      "notes": "Runs in the same namespace as the export service"
+    },
+    {
+      "id": "gitops-id",
+      "label": "GitOps deployer",
+      "kind": "machine",
+      "nodeIds": ["gitops", "k8s-api", "registry"],
+      "privileges": ["apply any manifest in production", "push images"],
+      "notes": null
+    },
+    {
+      "id": "flag-admins",
+      "label": "feature-flag admins",
+      "kind": "vendor",
+      "nodeIds": ["flags"],
+      "privileges": ["change flag rules in production"],
+      "notes": "Includes two contractor accounts; SSO is not enforced on the vendor console"
+    },
+    {
+      "id": "tenant-keys",
+      "label": "tenant API keys",
+      "kind": "service",
+      "nodeIds": ["client-apps", "api-edge", "graphql"],
+      "privileges": ["read and write their own tenant's data"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "event-store", "data": "end-user events and profiles for every tenant", "classification": "regulated", "regulations": ["GDPR"] },
+    { "nodeId": "export-bucket", "data": "export files written into customers' accounts", "classification": "confidential", "regulations": ["GDPR"] },
+    { "nodeId": "cmk", "data": "per-tenant encryption keys", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "waf",
+      "label": "WAF",
+      "nodeIds": ["api-edge"],
+      "status": "present",
+      "covers": "Common web attacks on REST routes",
+      "limits": "GraphQL request bodies are not inspected"
+    },
+    {
+      "id": "rate",
+      "label": "rate limits",
+      "nodeIds": ["api-edge"],
+      "status": "present",
+      "covers": "Requests per API key",
+      "limits": "A batched GraphQL request counts as one"
+    },
+    {
+      "id": "cost-limits",
+      "label": "query cost limits",
+      "nodeIds": ["graphql"],
+      "status": "partial",
+      "covers": "Deep and expensive queries",
+      "limits": "Aliases let one query read many objects, and the export resolver takes the tenant id from its arguments"
+    },
+    {
+      "id": "mesh-mtls",
+      "label": "mesh mTLS",
+      "nodeIds": ["profile-svc", "export-svc", "agent"],
+      "status": "present",
+      "covers": "Service identity and encryption between services",
+      "limits": "The authorisation policy lets any workload in the namespace call the export service"
+    },
+    {
+      "id": "admission",
+      "label": "admission policy",
+      "nodeIds": ["k8s-api"],
+      "status": "present",
+      "covers": "Only signed images from the registry are admitted",
+      "limits": "Checks that an image is signed, not which pipeline signed it"
+    },
+    {
+      "id": "signing",
+      "label": "image signing",
+      "nodeIds": ["gitops"],
+      "status": "present",
+      "covers": "Every image the pipelines build is signed",
+      "limits": "Test pipelines sign with the same identity as production"
+    },
+    {
+      "id": "cmk-control",
+      "label": "customer-managed keys",
+      "nodeIds": ["cmk"],
+      "status": "present",
+      "covers": "Customers can revoke their key to cut off access",
+      "limits": "Decrypted data keys are cached by the service for 24 hours"
+    },
+    {
+      "id": "tool-scopes",
+      "label": "tool scopes",
+      "nodeIds": ["agent"],
+      "status": "partial",
+      "covers": "The agent may use only the profile and export tools",
+      "limits": "The export tool takes any tenant id; a flag rule can enable more tools"
+    },
+    {
+      "id": "flag-sso",
+      "label": "SSO on the flag console",
+      "nodeIds": ["flags"],
+      "status": "missing",
+      "covers": "Contractor sign-in to the feature-flag console",
+      "limits": null
+    },
+    {
+      "id": "egress",
+      "label": "egress allow-list",
+      "nodeIds": ["agent", "export-svc"],
+      "status": "missing",
+      "covers": "Limiting which outside addresses services may reach",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "namespace-role",
+      "from": "agent",
+      "to": "role-broker",
+      "via": "role trust policy matches the namespace, so any pod there can assume the export role",
+      "subtle": true,
+      "notes": "The agent shares the export service's namespace"
+    },
+    {
+      "id": "mesh-namespace",
+      "from": "agent",
+      "to": "export-svc",
+      "via": "mesh authorisation allows every workload in the namespace",
+      "subtle": true,
+      "notes": null
+    },
+    {
+      "id": "flags-tools",
+      "from": "flags",
+      "to": "agent",
+      "via": "flag rules switch agent tools on in production",
+      "subtle": true,
+      "notes": "Changes bypass the delivery pipeline"
+    },
+    { "id": "gitops-admin", "from": "gitops", "to": "k8s-api", "via": "cluster-admin for the deployer", "subtle": false, "notes": null }
+  ],
+  "logSources": [
+    {
+      "id": "edge-logs",
+      "label": "edge and WAF logs",
+      "nodeIds": ["api-edge", "graphql"],
+      "records": "requests with API key, tenant and route",
+      "gaps": "GraphQL operation names only, not the objects resolved"
+    },
+    {
+      "id": "mesh-logs",
+      "label": "mesh access logs",
+      "nodeIds": ["profile-svc", "export-svc", "agent"],
+      "records": "caller identity, path and status between services",
+      "gaps": "sampled at 10%"
+    },
+    {
+      "id": "cloud-audit",
+      "label": "cloud audit logs",
+      "nodeIds": ["role-broker", "export-bucket", "cmk"],
+      "records": "role assumptions, bucket writes and key use",
+      "gaps": "one account per region; correlation is manual"
+    },
+    { "id": "k8s-audit", "label": "Kubernetes audit log", "nodeIds": ["k8s-api"], "records": "admissions, deployments and exec", "gaps": null },
+    {
+      "id": "agent-traces",
+      "label": "agent traces",
+      "nodeIds": ["agent", "llm"],
+      "records": "prompts, tool calls and arguments",
+      "gaps": "kept 3 days"
+    },
+    {
+      "id": "flag-audit",
+      "label": "feature-flag audit log",
+      "nodeIds": ["flags"],
+      "records": "rule changes with the user who made them",
+      "gaps": "stays in the vendor console"
+    }
+  ],
+  "attackSurfaces": {
+    "container_kubernetes": [
+      {
+        "id": "namespace-wide-role",
+        "summary": "Any pod in the export namespace can assume the export role through workload identity",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["role-broker"],
+        "techniques": ["T1078.004", "T1528", "T1552.007"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "admission-pipeline-gap",
+        "summary": "Admission checks a signature, not which pipeline built the image",
+        "entryNodeIds": ["gitops"],
+        "targetNodeIds": ["profile-svc"],
+        "viaNodeIds": ["k8s-api"],
+        "techniques": ["T1610", "T1525", "T1204.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "test-signed-image",
+        "summary": "An image signed by a test pipeline is admitted to production",
+        "entryNodeIds": ["registry"],
+        "targetNodeIds": ["profile-svc"],
+        "viaNodeIds": ["gitops", "k8s-api"],
+        "techniques": ["T1195.002", "T1072", "T1204.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "flags-outside-delivery",
+        "summary": "Feature flags change production behaviour outside the delivery pipeline",
+        "entryNodeIds": ["flags"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["profile-svc"],
+        "techniques": ["T1199", "T1072", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "cross-account-export",
+        "summary": "The export role can write into any customer's account, chosen by a request field",
+        "entryNodeIds": ["export-svc"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["role-broker"],
+        "techniques": ["T1537", "T1078.004", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cached-data-keys",
+        "summary": "Revoking a customer-managed key does not stop access for a day",
+        "entryNodeIds": ["profile-svc"],
+        "targetNodeIds": ["cmk"],
+        "viaNodeIds": ["event-store"],
+        "techniques": ["T1530", "T1550.001", "T1526"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "graphql-alias-bola",
+        "summary": "GraphQL aliases batch reads across tenants where one resolver skips the tenant check",
+        "entryNodeIds": ["graphql"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["export-svc"],
+        "techniques": ["T1190", "T1213", "T1499.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "export-tenant-id",
+        "summary": "The export mutation takes a tenant id from the request body",
+        "entryNodeIds": ["graphql"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["export-svc", "role-broker"],
+        "techniques": ["T1550.001", "T1530", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "debug-flag",
+        "summary": "A feature flag turns on a debug endpoint that echoes internal headers and tokens",
+        "entryNodeIds": ["flags"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["profile-svc"],
+        "techniques": ["T1190", "T1552.001", "T1083"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "export-url-fetch",
+        "summary": "Export destinations accept a URL, so the export service fetches internal addresses",
+        "entryNodeIds": ["graphql"],
+        "targetNodeIds": ["role-broker"],
+        "viaNodeIds": ["export-svc"],
+        "techniques": ["T1190", "T1552.005", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "namespace-mesh-trust",
+        "summary": "Mesh policy trusts every workload in the namespace to call the export service",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["export-svc"],
+        "techniques": ["T1078", "T1550.001", "T1021.007"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "flag-console-trust",
+        "summary": "A flag-console account without SSO can change what the agent is allowed to do",
+        "entryNodeIds": ["flags"],
+        "targetNodeIds": ["export-svc"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1199", "T1078", "T1556"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "flag-enables-tools",
+        "summary": "A flag rule enables the agent's export tool for every tenant",
+        "entryNodeIds": ["flags"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["agent", "role-broker"],
+        "techniques": ["AML.T0053", "AML.T0012", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "profile-field-injection",
+        "summary": "A profile field written by an end user carries instructions the agent follows",
+        "entryNodeIds": ["profile-svc"],
+        "targetNodeIds": ["export-svc"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["AML.T0051.001", "AML.T0053", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "export-wrong-account",
+        "summary": "Exports land in another customer's account",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["export-svc", "role-broker"],
+        "techniques": ["T1537", "T1119", "T1020"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "profiles-to-llm",
+        "summary": "Profile data goes to the LLM provider inside tool results",
+        "entryNodeIds": ["profile-svc"],
+        "targetNodeIds": ["llm"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1213", "T1567.002", "T1199"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "tenant-key-scope",
+        "summary": "Tenant API keys reach other tenants' data where a resolver trusts the tenant argument",
+        "entryNodeIds": ["api-edge"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["graphql", "export-svc"],
+        "techniques": ["T1550.001", "T1078", "T1528"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "flag-contractors",
+        "summary": "Two contractor accounts on the flag console have no SSO or MFA",
+        "entryNodeIds": ["flags"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["profile-svc"],
+        "techniques": ["T1078", "T1110.004", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "foreign-export-files",
+        "summary": "A customer reports export files in its account that belong to someone else",
+        "entryNodeIds": ["export-svc"],
+        "targetNodeIds": ["export-bucket"],
+        "viaNodeIds": ["role-broker"],
+        "techniques": ["T1078", "T1567", "T1070"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "agent-tool-abuse",
+        "summary": "Agent traces show export tool calls for tenants the users do not belong to",
+        "entryNodeIds": ["graphql"],
+        "targetNodeIds": ["export-svc"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1078", "T1098", "T1567"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "open-egress",
+        "summary": "Services can reach any internet address, so tool output can be sent outside",
+        "entryNodeIds": ["profile-svc"],
+        "targetNodeIds": ["llm"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1048.003", "T1090", "T1572"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "rest-bypass",
+        "summary": "The edge routes REST straight to the profile service, skipping GraphQL's limits",
+        "entryNodeIds": ["api-edge"],
+        "targetNodeIds": ["event-store"],
+        "viaNodeIds": ["profile-svc"],
+        "techniques": ["T1599", "T1090", "T1190"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Advanced: three subtle trusts (namespace-scoped role trust, namespace-wide mesh authorisation, flags enabling agent tools outside the pipeline). Present controls with limits: admission (signed by whom?), CMK (cached keys), WAF (no GraphQL bodies), cost limits (aliases)."
+}

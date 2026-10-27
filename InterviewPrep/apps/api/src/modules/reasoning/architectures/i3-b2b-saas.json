@@ -1,0 +1,462 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "i3-b2b-saas",
+  "version": 1,
+  "level": "intermediate",
+  "title": "Multi-tenant B2B SaaS with SSO federation",
+  "organisation": {
+    "name": "Tallyline",
+    "industry": "B2B software: contract lifecycle management",
+    "size": "210 staff; 1,400 business customers",
+    "summary": "Tallyline sells contract management software to businesses. Each customer is a tenant whose users sign in through the customer's own identity provider over SAML; tenant data shares one database protected by row-level security, and documents sit in per-tenant storage encrypted with per-tenant keys. Customers integrate through a public API with OAuth scopes and receive webhooks. Background workers on Kubernetes convert documents, deliver webhooks and send contract text to an LLM summariser. Support agents can sign in as a customer user through an impersonation tool after a colleague approves."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "edge", "label": "Public edge", "kind": "edge" },
+      { "id": "cluster", "label": "Application cluster", "kind": "cluster" },
+      { "id": "data", "label": "Data tier", "kind": "data" },
+      { "id": "support", "label": "Support team", "kind": "corporate" }
+    ],
+    "nodes": [
+      { "id": "users", "label": "customer users", "type": "user", "boundary": "internet", "detail": "Business users of every tenant", "controls": [] },
+      { "id": "customer-idp", "label": "customer SAML IdP", "type": "identity", "boundary": "internet", "detail": "Each tenant's own identity provider", "controls": [] },
+      { "id": "webhook-targets", "label": "customer webhook endpoints", "type": "external", "boundary": "internet", "detail": "URLs each tenant registers for events", "controls": [] },
+      { "id": "web-app", "label": "web app", "type": "web", "boundary": "edge", "detail": "Contract editor and tenant administration", "controls": ["CSP"] },
+      { "id": "public-api", "label": "public API", "type": "api", "boundary": "edge", "detail": "REST API for customer integrations", "controls": ["OAuth scopes"] },
+      { "id": "sso", "label": "SSO service", "type": "identity", "boundary": "cluster", "detail": "SAML federation and session issue", "controls": ["signature checks"] },
+      { "id": "workers", "label": "background workers", "type": "container", "boundary": "cluster", "detail": "Document conversion, webhooks and summary jobs", "controls": [] },
+      { "id": "summariser", "label": "LLM summariser", "type": "model", "boundary": "cluster", "detail": "Summarises contracts through a third-party model", "controls": [] },
+      { "id": "control-plane", "label": "cluster control plane", "type": "control", "boundary": "cluster", "detail": "Kubernetes API server for the application cluster", "controls": ["RBAC"] },
+      { "id": "tenant-db", "label": "tenant database", "type": "database", "boundary": "data", "detail": "Contracts metadata, users and tenant settings", "controls": ["row-level security"] },
+      { "id": "documents", "label": "tenant document storage", "type": "storage", "boundary": "data", "detail": "Contracts and attachments per tenant", "controls": ["per-tenant keys"] },
+      { "id": "audit", "label": "audit log pipeline", "type": "siem", "boundary": "data", "detail": "Application audit events and alerts", "controls": ["audit alerts"] },
+      { "id": "impersonation", "label": "support impersonation tool", "type": "web", "boundary": "support", "detail": "Sign in as a customer user after approval", "controls": ["approval workflow"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "users", "to": "web-app", "label": "uses the app", "kind": "data" },
+      { "id": "e2", "from": "users", "to": "public-api", "label": "API integrations", "kind": "data" },
+      { "id": "e3", "from": "customer-idp", "to": "sso", "label": "SAML assertions", "kind": "auth" },
+      { "id": "e4", "from": "web-app", "to": "sso", "label": "sign-in redirect", "kind": "auth" },
+      { "id": "e5", "from": "web-app", "to": "tenant-db", "label": "tenant-scoped queries", "kind": "data" },
+      { "id": "e6", "from": "public-api", "to": "tenant-db", "label": "API queries", "kind": "data" },
+      { "id": "e7", "from": "web-app", "to": "documents", "label": "reads and writes documents", "kind": "data" },
+      { "id": "e8", "from": "workers", "to": "documents", "label": "converts documents", "kind": "data" },
+      { "id": "e9", "from": "workers", "to": "tenant-db", "label": "reads jobs", "kind": "data" },
+      { "id": "e10", "from": "workers", "to": "summariser", "label": "summary requests", "kind": "data" },
+      { "id": "e11", "from": "workers", "to": "webhook-targets", "label": "delivers webhooks", "kind": "data" },
+      { "id": "e12", "from": "control-plane", "to": "workers", "label": "schedules workers", "kind": "control" },
+      { "id": "e13", "from": "impersonation", "to": "web-app", "label": "sessions as a user", "kind": "auth" },
+      { "id": "e14", "from": "web-app", "to": "audit", "label": "audit events", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    { "id": "other-tenant", "label": "user of another tenant", "boundary": "internet", "detail": "A legitimate user of a different customer" },
+    { "id": "support-insider", "label": "support agent", "boundary": "support", "detail": "An agent with ordinary support access" }
+  ],
+  "identities": [
+    {
+      "id": "tenant-admins",
+      "label": "tenant admins",
+      "kind": "federated",
+      "nodeIds": ["customer-idp", "sso", "web-app"],
+      "privileges": ["manage their tenant's users", "configure SSO, API clients and webhooks"],
+      "notes": null
+    },
+    {
+      "id": "api-clients",
+      "label": "OAuth API clients",
+      "kind": "service",
+      "nodeIds": ["public-api"],
+      "privileges": ["call the API with the scopes granted"],
+      "notes": "Tokens last 90 days; a read:all scope exists for reporting tools"
+    },
+    {
+      "id": "worker-role",
+      "label": "workers' cloud role",
+      "kind": "workload",
+      "nodeIds": ["workers", "documents", "tenant-db"],
+      "privileges": ["read and decrypt every tenant's documents", "read and write the job tables"],
+      "notes": "Workers are shared by all tenants; their database role bypasses row-level security"
+    },
+    {
+      "id": "support-agents",
+      "label": "support agents",
+      "kind": "human",
+      "nodeIds": ["impersonation", "web-app"],
+      "privileges": ["sign in as any customer user after approval"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "tenant-db",
+      "data": "contract metadata, user accounts and tenant settings",
+      "classification": "confidential",
+      "regulations": ["GDPR"]
+    },
+    { "nodeId": "documents", "data": "customer contracts and attachments", "classification": "confidential", "regulations": ["GDPR"] }
+  ],
+  "controls": [
+    {
+      "id": "csp",
+      "label": "CSP",
+      "nodeIds": ["web-app"],
+      "status": "present",
+      "covers": "Script injection in the web app",
+      "limits": "Allows inline scripts on the legacy editor page"
+    },
+    {
+      "id": "scopes",
+      "label": "OAuth scopes",
+      "nodeIds": ["public-api"],
+      "status": "partial",
+      "covers": "What an API client may call",
+      "limits": "The export endpoint does not bind the read:all scope to the client's tenant"
+    },
+    {
+      "id": "sig-checks",
+      "label": "signature checks",
+      "nodeIds": ["sso"],
+      "status": "partial",
+      "covers": "SAML assertions must be signed by a registered IdP",
+      "limits": "The user's email domain is matched against every tenant's verified domains, not only the IdP's own tenant"
+    },
+    {
+      "id": "rls",
+      "label": "row-level security",
+      "nodeIds": ["tenant-db"],
+      "status": "present",
+      "covers": "Queries see only the caller's tenant",
+      "limits": "The workers' database role bypasses it"
+    },
+    {
+      "id": "tenant-keys",
+      "label": "per-tenant keys",
+      "nodeIds": ["documents"],
+      "status": "present",
+      "covers": "Each tenant's documents use their own key",
+      "limits": "The workers' role may use every key"
+    },
+    {
+      "id": "approvals",
+      "label": "approval workflow",
+      "nodeIds": ["impersonation"],
+      "status": "present",
+      "covers": "Impersonation needs a second agent's approval",
+      "limits": "On-call agents can approve their own requests"
+    },
+    {
+      "id": "rbac",
+      "label": "RBAC",
+      "nodeIds": ["control-plane"],
+      "status": "partial",
+      "covers": "Who can change workloads in the cluster",
+      "limits": "The workers' service account can read secrets in its namespace"
+    },
+    {
+      "id": "audit-alerts",
+      "label": "audit alerts",
+      "nodeIds": ["audit"],
+      "status": "partial",
+      "covers": "Alerts on impersonation and SSO configuration changes",
+      "limits": "No alerts on API export volume"
+    },
+    {
+      "id": "egress",
+      "label": "egress allow-list",
+      "nodeIds": ["workers"],
+      "status": "missing",
+      "covers": "Limiting which addresses webhooks and document fetches may reach",
+      "limits": null
+    },
+    {
+      "id": "summary-isolation",
+      "label": "per-tenant summary jobs",
+      "nodeIds": ["summariser"],
+      "status": "missing",
+      "covers": "Keeping one tenant's text out of another tenant's prompts",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "idp-federation",
+      "from": "customer-idp",
+      "to": "sso",
+      "via": "SAML federation, one IdP per tenant",
+      "subtle": false,
+      "notes": "Users are matched to tenants by email domain"
+    },
+    {
+      "id": "workers-all-tenants",
+      "from": "workers",
+      "to": "documents",
+      "via": "one role for every tenant's documents and keys",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "support-sessions",
+      "from": "impersonation",
+      "to": "tenant-db",
+      "via": "impersonation sessions read any tenant's data as the user",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    {
+      "id": "app-audit",
+      "label": "application audit log",
+      "nodeIds": ["web-app", "audit"],
+      "records": "sign-ins, impersonation, settings and SSO changes",
+      "gaps": "document views are not logged"
+    },
+    {
+      "id": "api-log",
+      "label": "API access log",
+      "nodeIds": ["public-api"],
+      "records": "client id, scope, endpoint, tenant and response size",
+      "gaps": null
+    },
+    {
+      "id": "worker-log",
+      "label": "worker job log",
+      "nodeIds": ["workers"],
+      "records": "job ids, tenants and webhook target URLs",
+      "gaps": "summary prompts are not logged"
+    },
+    {
+      "id": "k8s-audit",
+      "label": "Kubernetes audit log",
+      "nodeIds": ["control-plane"],
+      "records": "API server requests including secret reads",
+      "gaps": "metadata only; kept 7 days"
+    }
+  ],
+  "attackSurfaces": {
+    "application_security": [
+      {
+        "id": "legacy-editor-xss",
+        "summary": "Script in a contract on the legacy editor page runs for other users of the tenant",
+        "entryNodeIds": ["web-app"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1189", "T1539", "T1185"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "conversion-fetch",
+        "summary": "Document conversion fetches embedded links, including internal addresses",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["documents"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1552.005", "T1083"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "export-bola",
+        "summary": "The export endpoint with the read:all scope returns other tenants' data",
+        "entryNodeIds": ["public-api"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1213", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "webhook-to-internal",
+        "summary": "A tenant registers a webhook URL that points at internal services",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1071.001", "T1199"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "saml-domain-confusion",
+        "summary": "An assertion from one tenant's IdP signs a user into another tenant with the same email domain",
+        "entryNodeIds": ["customer-idp"],
+        "targetNodeIds": ["web-app"],
+        "viaNodeIds": ["sso"],
+        "techniques": ["T1606.002", "T1484.002", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "long-lived-api-tokens",
+        "summary": "90-day API tokens with read:all sit in customers' integration tools",
+        "entryNodeIds": ["public-api"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1528", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "workers-read-all",
+        "summary": "The shared workers' role can read and decrypt every tenant's documents",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["documents"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1550.001", "T1119"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "rls-bypass",
+        "summary": "Workers connect with a database role that bypasses row-level security",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1213", "T1134", "T1020"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "contract-injection",
+        "summary": "A contract from a counterparty carries instructions the summariser follows",
+        "entryNodeIds": ["documents"],
+        "targetNodeIds": ["summariser"],
+        "viaNodeIds": ["workers"],
+        "techniques": ["AML.T0051.001", "AML.T0057", "AML.T0048"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "mixed-tenant-prompts",
+        "summary": "Summary jobs put several tenants' text into one prompt",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["summariser"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0057", "AML.T0024", "AML.T0051"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "worker-metadata",
+        "summary": "A fetch from the conversion worker reaches the metadata service and the workers' role",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["documents"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.005", "T1078.004", "T1530"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "namespace-role-binding",
+        "summary": "Any pod in the workers' namespace gets the workers' cloud role",
+        "entryNodeIds": ["control-plane"],
+        "targetNodeIds": ["documents"],
+        "viaNodeIds": ["workers"],
+        "techniques": ["T1078.004", "T1098.003", "T1530"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "impersonation-trust",
+        "summary": "Support impersonation gives full user sessions in any tenant",
+        "entryNodeIds": ["impersonation"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": ["web-app"],
+        "techniques": ["T1078", "T1199", "T1550.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "assertion-trust",
+        "summary": "The SSO service trusts any signed assertion with a verified domain",
+        "entryNodeIds": ["customer-idp"],
+        "targetNodeIds": ["sso"],
+        "viaNodeIds": [],
+        "techniques": ["T1606.002", "T1484.002", "T1199"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "night-impersonation",
+        "summary": "An impersonation session starts at 2 a.m. with a self-approved request",
+        "entryNodeIds": ["impersonation"],
+        "targetNodeIds": ["web-app"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1098", "T1087"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "export-volume",
+        "summary": "API response sizes for one client jump a hundredfold",
+        "entryNodeIds": ["public-api"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1567.002", "T1041"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "conversion-escape",
+        "summary": "A malicious document escapes the conversion container to the node",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["control-plane"],
+        "viaNodeIds": [],
+        "techniques": ["T1611", "T1613", "T1552.007"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "namespace-secrets",
+        "summary": "The workers' service account can read every secret in its namespace",
+        "entryNodeIds": ["control-plane"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": ["workers"],
+        "techniques": ["T1552.007", "T1528", "T1098.006"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "webhook-egress",
+        "summary": "Workers can reach any address, including internal services, when delivering webhooks",
+        "entryNodeIds": ["workers"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1090", "T1046", "T1572"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "database-port-exposed",
+        "summary": "The tenant database port is reachable from the public subnet",
+        "entryNodeIds": ["public-api"],
+        "targetNodeIds": ["tenant-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1046", "T1190", "T1210"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Intermediate: tenant isolation is strong at the edges (row-level security, per-tenant keys, scopes) and weak in the middle (shared workers, a domain-matching SSO rule, impersonation)."
+}

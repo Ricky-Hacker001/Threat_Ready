@@ -113,6 +113,13 @@
       "when": 1792996241406,
       "tag": "0016_security_patch_2",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793015414845,
+      "tag": "0017_reasoning_architecture_library",
+      "breakpoints": true
     }
   ]
 }

@@ -1,0 +1,549 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "a1-hybrid-bank",
+  "version": 1,
+  "level": "advanced",
+  "title": "Hybrid bank: on-premises core and two clouds",
+  "organisation": {
+    "name": "Northmere Bank",
+    "industry": "Retail banking",
+    "size": "2,600 staff; 40-person IT security team with a managed SOC partner",
+    "summary": "Northmere Bank runs its core banking system and payments messaging gateway in its own data centre, with signing keys in an HSM and admin access through a PAM vault. Active Directory is synchronised to a cloud identity provider that signs staff in to the digital banking cloud, where the mobile and web banking pods run on Kubernetes and deploy from CI. A nightly ETL job copies core data to a customer data warehouse in a second cloud for analysts. A managed service provider runs desktop support through a remote-management tool, and the SOC watches a SIEM with automated playbooks."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "vendor", "label": "Managed service provider", "kind": "vendor" },
+      { "id": "corporate", "label": "Corporate network", "kind": "corporate" },
+      { "id": "datacentre", "label": "Core data centre", "kind": "onprem" },
+      { "id": "digital", "label": "Digital banking cloud", "kind": "account" },
+      { "id": "analytics", "label": "Analytics cloud", "kind": "account" }
+    ],
+    "nodes": [
+      { "id": "customers", "label": "banking customers", "type": "user", "boundary": "internet", "detail": "Mobile and web banking users", "controls": [] },
+      { "id": "msp-tool", "label": "MSP remote-management tool", "type": "saas", "boundary": "vendor", "detail": "Vendor console that pushes scripts to the RMM agent on laptops", "controls": [] },
+      { "id": "laptops", "label": "staff laptops", "type": "endpoint", "boundary": "corporate", "detail": "Windows laptops with EDR and the MSP's RMM agent", "controls": ["EDR"] },
+      { "id": "ad", "label": "Active Directory", "type": "identity", "boundary": "datacentre", "detail": "Domain controllers for every staff and admin account", "controls": [] },
+      { "id": "sync-server", "label": "directory sync server", "type": "service", "boundary": "datacentre", "detail": "Syncs AD users and password hashes to the cloud IdP", "controls": [] },
+      { "id": "pam", "label": "PAM vault", "type": "control", "boundary": "datacentre", "detail": "Checks out admin credentials and records admin sessions", "controls": ["session recording"] },
+      { "id": "core", "label": "core banking system", "type": "database", "boundary": "datacentre", "detail": "Accounts, balances and transactions", "controls": ["segmentation"] },
+      { "id": "payments-gw", "label": "payments messaging gateway", "type": "gateway", "boundary": "datacentre", "detail": "Formats and releases interbank payment messages", "controls": [] },
+      { "id": "hsm", "label": "payments HSM", "type": "secret", "boundary": "datacentre", "detail": "Signs payment messages; keys never leave it", "controls": ["dual control"] },
+      { "id": "siem", "label": "SIEM with SOAR", "type": "siem", "boundary": "datacentre", "detail": "SOC correlation and automated containment playbooks", "controls": ["SOAR playbooks"] },
+      { "id": "cloud-idp", "label": "cloud identity provider", "type": "identity", "boundary": "digital", "detail": "Signs staff in to both clouds; users come from AD sync", "controls": ["MFA"] },
+      { "id": "ci", "label": "digital banking CI", "type": "pipeline", "boundary": "digital", "detail": "Builds and deploys the banking pods", "controls": [] },
+      { "id": "banking-pods", "label": "digital banking pods", "type": "container", "boundary": "digital", "detail": "Kubernetes services behind the mobile and web apps", "controls": ["WAF"] },
+      { "id": "etl", "label": "nightly ETL job", "type": "pipeline", "boundary": "analytics", "detail": "Extracts core data and loads the warehouse", "controls": [] },
+      { "id": "warehouse", "label": "customer data warehouse", "type": "database", "boundary": "analytics", "detail": "Customer profiles, transactions and credit scores", "controls": ["column masking"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "customers", "to": "banking-pods", "label": "mobile and web banking", "kind": "data" },
+      { "id": "e2", "from": "banking-pods", "to": "core", "label": "balance and transfer calls", "kind": "data" },
+      { "id": "e3", "from": "core", "to": "payments-gw", "label": "payment instructions", "kind": "data" },
+      { "id": "e4", "from": "payments-gw", "to": "hsm", "label": "signs messages", "kind": "control" },
+      { "id": "e5", "from": "laptops", "to": "ad", "label": "Kerberos sign-in", "kind": "auth" },
+      { "id": "e6", "from": "ad", "to": "sync-server", "label": "directory replication", "kind": "auth" },
+      { "id": "e7", "from": "sync-server", "to": "cloud-idp", "label": "syncs users and hashes", "kind": "auth" },
+      { "id": "e8", "from": "cloud-idp", "to": "ci", "label": "engineer SSO", "kind": "auth" },
+      { "id": "e9", "from": "ci", "to": "banking-pods", "label": "deploys images", "kind": "control" },
+      { "id": "e10", "from": "pam", "to": "core", "label": "admin sessions", "kind": "auth" },
+      { "id": "e11", "from": "msp-tool", "to": "pam", "label": "vendor sessions", "kind": "auth" },
+      { "id": "e12", "from": "laptops", "to": "pam", "label": "admin check-out", "kind": "auth" },
+      { "id": "e13", "from": "core", "to": "etl", "label": "nightly extract", "kind": "data" },
+      { "id": "e14", "from": "etl", "to": "warehouse", "label": "loads tables", "kind": "data" },
+      { "id": "e15", "from": "cloud-idp", "to": "warehouse", "label": "analyst SSO", "kind": "auth" },
+      { "id": "e16", "from": "laptops", "to": "siem", "label": "EDR alerts", "kind": "control" },
+      { "id": "e17", "from": "ad", "to": "siem", "label": "DC security logs", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Phishing and internet-facing services" },
+    {
+      "id": "msp-actor",
+      "label": "compromised MSP technician",
+      "boundary": "vendor",
+      "detail": "A technician account at the managed service provider"
+    },
+    { "id": "insider", "label": "malicious insider", "boundary": "corporate", "detail": "An employee with an ordinary staff account" }
+  ],
+  "identities": [
+    {
+      "id": "domain-admins",
+      "label": "domain admins",
+      "kind": "human",
+      "nodeIds": ["ad", "pam"],
+      "privileges": ["full control of Active Directory", "check out core banking admin credentials from PAM"],
+      "notes": "Two of them also sign in to their everyday laptops with the admin account"
+    },
+    {
+      "id": "sync-account",
+      "label": "directory sync account",
+      "kind": "service",
+      "nodeIds": ["sync-server", "cloud-idp", "ad"],
+      "privileges": ["replicate directory changes from AD, including password hashes", "create and update any cloud user"],
+      "notes": "Excluded from cloud MFA as a service account"
+    },
+    {
+      "id": "msp-techs",
+      "label": "MSP technicians",
+      "kind": "vendor",
+      "nodeIds": ["msp-tool", "laptops"],
+      "privileges": ["run scripts as SYSTEM on every staff laptop through the RMM agent", "request vendor sessions through PAM"],
+      "notes": null
+    },
+    {
+      "id": "ci-role",
+      "label": "digital banking deploy role",
+      "kind": "machine",
+      "nodeIds": ["ci", "banking-pods"],
+      "privileges": ["deploy to the banking cluster", "read cluster secrets, including the core API client secret"],
+      "notes": null
+    },
+    {
+      "id": "analysts",
+      "label": "data analysts",
+      "kind": "federated",
+      "nodeIds": ["cloud-idp", "warehouse"],
+      "privileges": ["query the customer data warehouse, including staging tables"],
+      "notes": null
+    },
+    {
+      "id": "payments-ops",
+      "label": "payments operators",
+      "kind": "human",
+      "nodeIds": ["payments-gw", "hsm"],
+      "privileges": ["release payment batches", "approve HSM key changes in pairs"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "core", "data": "accounts, balances and transactions", "classification": "regulated", "regulations": ["banking secrecy", "GDPR"] },
+    {
+      "nodeId": "warehouse",
+      "data": "customer profiles, transaction history and credit scores",
+      "classification": "regulated",
+      "regulations": ["GDPR"]
+    },
+    { "nodeId": "hsm", "data": "payment message signing keys", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "edr",
+      "label": "EDR",
+      "nodeIds": ["laptops"],
+      "status": "present",
+      "covers": "Malware and hands-on-keyboard activity on laptops",
+      "limits": "The RMM agent is allow-listed, so scripts it runs are neither blocked nor alerted"
+    },
+    {
+      "id": "pam-recording",
+      "label": "session recording",
+      "nodeIds": ["pam"],
+      "status": "present",
+      "covers": "Admin sessions to the core banking system and AD that go through PAM",
+      "limits": "Only sessions through PAM; the RMM agent reaches laptops directly and AD admins can sign in without it"
+    },
+    {
+      "id": "idp-mfa",
+      "label": "MFA",
+      "nodeIds": ["cloud-idp"],
+      "status": "present",
+      "covers": "Interactive cloud sign-ins",
+      "limits": "Not enforced for the sync account, and passwords synced from AD are accepted as the first factor"
+    },
+    {
+      "id": "dual-control",
+      "label": "dual control",
+      "nodeIds": ["hsm"],
+      "status": "present",
+      "covers": "Signing keys never leave the HSM; key changes need two operators",
+      "limits": "Signs whatever the payments gateway submits; it does not check the payment"
+    },
+    {
+      "id": "waf",
+      "label": "WAF",
+      "nodeIds": ["banking-pods"],
+      "status": "present",
+      "covers": "Common web attacks on digital banking",
+      "limits": null
+    },
+    {
+      "id": "core-seg",
+      "label": "segmentation",
+      "nodeIds": ["core"],
+      "status": "partial",
+      "covers": "The core accepts connections only from PAM, the payments gateway and the banking link",
+      "limits": "The nightly ETL connection from the analytics cloud is also allowed"
+    },
+    {
+      "id": "soar",
+      "label": "SOAR playbooks",
+      "nodeIds": ["siem"],
+      "status": "present",
+      "covers": "Automatic laptop isolation on high EDR alerts",
+      "limits": "No playbooks or log feeds for the cloud IdP, CI or the warehouse"
+    },
+    {
+      "id": "masking",
+      "label": "column masking",
+      "nodeIds": ["warehouse"],
+      "status": "partial",
+      "covers": "Masks account and ID numbers in reporting views",
+      "limits": "Not applied to the raw staging tables the ETL loads"
+    },
+    {
+      "id": "tiering",
+      "label": "admin tiering",
+      "nodeIds": ["ad", "laptops"],
+      "status": "missing",
+      "covers": "Keeping domain admin credentials off ordinary laptops",
+      "limits": null
+    },
+    {
+      "id": "image-signing",
+      "label": "image signing",
+      "nodeIds": ["ci", "banking-pods"],
+      "status": "missing",
+      "covers": "Only signed images run in the banking cluster",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "ad-cloud-sync",
+      "from": "sync-server",
+      "to": "cloud-idp",
+      "via": "password hash sync and a sync account that can write any cloud user",
+      "subtle": true,
+      "notes": "Whoever controls the sync server or AD controls cloud identities"
+    },
+    {
+      "id": "rmm-agent",
+      "from": "msp-tool",
+      "to": "laptops",
+      "via": "remote-management agent running as SYSTEM on every laptop",
+      "subtle": true,
+      "notes": "Bypasses PAM and is allow-listed in EDR"
+    },
+    {
+      "id": "pods-to-core",
+      "from": "banking-pods",
+      "to": "core",
+      "via": "private link and a client secret stored in the cluster",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "etl-to-core",
+      "from": "etl",
+      "to": "core",
+      "via": "read-only database account whose password sits in the ETL configuration",
+      "subtle": true,
+      "notes": "Opens the core segment to the analytics cloud"
+    },
+    {
+      "id": "idp-warehouse",
+      "from": "cloud-idp",
+      "to": "warehouse",
+      "via": "SSO group membership grants analyst access",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    {
+      "id": "edr-telemetry",
+      "label": "EDR telemetry",
+      "nodeIds": ["laptops"],
+      "records": "process, script and network events with alerts to the SIEM",
+      "gaps": "RMM agent activity is excluded by the allow-list"
+    },
+    {
+      "id": "dc-logs",
+      "label": "domain controller security logs",
+      "nodeIds": ["ad"],
+      "records": "sign-ins, Kerberos tickets and directory replication requests",
+      "gaps": "replication by the sync account is expected and never alerted"
+    },
+    {
+      "id": "pam-logs",
+      "label": "PAM session logs",
+      "nodeIds": ["pam"],
+      "records": "credential check-outs and recorded admin sessions",
+      "gaps": null
+    },
+    {
+      "id": "idp-logs",
+      "label": "cloud IdP sign-in and audit logs",
+      "nodeIds": ["cloud-idp"],
+      "records": "sign-ins, role grants and password resets",
+      "gaps": "kept in the cloud console, not forwarded to the SIEM"
+    },
+    {
+      "id": "payments-journal",
+      "label": "payments gateway journal",
+      "nodeIds": ["payments-gw", "hsm"],
+      "records": "every payment message signed and released, with the operator",
+      "gaps": null
+    },
+    {
+      "id": "ci-audit",
+      "label": "CI audit trail",
+      "nodeIds": ["ci"],
+      "records": "pipeline runs, approvals and who triggered them",
+      "gaps": "kept 30 days"
+    },
+    {
+      "id": "warehouse-queries",
+      "label": "warehouse query history",
+      "nodeIds": ["warehouse"],
+      "records": "queries by user with tables read",
+      "gaps": "not forwarded to the SIEM"
+    }
+  ],
+  "attackSurfaces": {
+    "identity_access": [
+      {
+        "id": "sync-server-takeover",
+        "summary": "Domain compromise reaches the sync server, which can reset any cloud identity",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["cloud-idp"],
+        "viaNodeIds": ["ad", "sync-server"],
+        "techniques": ["T1078.002", "T1003.006", "T1484.002"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "forged-cloud-identity",
+        "summary": "An identity written through the sync account reaches analyst access to the warehouse",
+        "entryNodeIds": ["ad"],
+        "targetNodeIds": ["warehouse"],
+        "viaNodeIds": ["sync-server", "cloud-idp"],
+        "techniques": ["T1098", "T1078.004", "T1136.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "idp-to-pipeline",
+        "summary": "A cloud admin created through the sync account changes the deploy pipeline",
+        "entryNodeIds": ["cloud-idp"],
+        "targetNodeIds": ["banking-pods"],
+        "viaNodeIds": ["ci"],
+        "techniques": ["T1078.004", "T1098.003", "T1578"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "etl-cross-cloud",
+        "summary": "The ETL job's database password links the analytics cloud to the core",
+        "entryNodeIds": ["warehouse"],
+        "targetNodeIds": ["core"],
+        "viaNodeIds": ["etl"],
+        "techniques": ["T1552.001", "T1021.007", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "etl-segment-gap",
+        "summary": "The core segment lets the ETL host in, and the payments gateway is one hop further",
+        "entryNodeIds": ["etl"],
+        "targetNodeIds": ["payments-gw"],
+        "viaNodeIds": ["core"],
+        "techniques": ["T1210", "T1599", "T1046"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "rmm-lateral",
+        "summary": "The MSP's remote-management agent opens a route from the vendor to laptops and on to the domain",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": ["laptops"],
+        "techniques": ["T1133", "T1021.002", "T1570"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "client-secret-trust",
+        "summary": "The core trusts anything presenting the cluster's client secret over the private link",
+        "entryNodeIds": ["banking-pods"],
+        "targetNodeIds": ["payments-gw"],
+        "viaNodeIds": ["core"],
+        "techniques": ["T1078", "T1550.001", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "vendor-session-trust",
+        "summary": "Vendor sessions are trusted because they come through the MSP tool, not because of who is on them",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["core"],
+        "viaNodeIds": ["pam"],
+        "techniques": ["T1199", "T1133", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "quiet-replication",
+        "summary": "An attacker moves from a laptop to the domain and the sync server; which signals reach the SIEM?",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["sync-server"],
+        "viaNodeIds": ["ad"],
+        "techniques": ["T1003", "T1087", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "idp-blind-spot",
+        "summary": "Cloud IdP role grants and warehouse queries never reach the SIEM",
+        "entryNodeIds": ["sync-server"],
+        "targetNodeIds": ["warehouse"],
+        "viaNodeIds": ["cloud-idp"],
+        "techniques": ["T1098", "T1078", "T1567.002"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "msp-ransomware",
+        "summary": "Ransomware staged through the MSP agent spreads from laptops toward the domain",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": ["laptops"],
+        "techniques": ["T1219", "T1486", "T1490"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "fraudulent-payments",
+        "summary": "Fraudulent payment messages are signed after an admin session reaches the core",
+        "entryNodeIds": ["pam"],
+        "targetNodeIds": ["hsm"],
+        "viaNodeIds": ["core", "payments-gw"],
+        "techniques": ["T1078", "T1098", "T1070"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "msp-campaign",
+        "summary": "A threat report describes a group abusing MSP remote-management tools against banks",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": ["laptops"],
+        "techniques": ["T1078", "T1059.001", "T1105"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "payments-fraud-intel",
+        "summary": "Intelligence on payment-messaging fraud names the gateway and its operators as targets",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["payments-gw"],
+        "viaNodeIds": ["pam", "core"],
+        "techniques": ["T1078", "T1021", "T1036"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "vendor-access-review",
+        "summary": "The MSP's access is broader than its contract and is never reviewed",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["core", "laptops"],
+        "viaNodeIds": ["pam"],
+        "techniques": ["T1199", "T1078", "T1098"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unmasked-staging",
+        "summary": "Raw customer data in the warehouse staging tables is not masked",
+        "entryNodeIds": ["sync-server"],
+        "targetNodeIds": ["warehouse"],
+        "viaNodeIds": ["cloud-idp"],
+        "techniques": ["T1213", "T1530", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "staging-tables",
+        "summary": "Unmasked staging tables are reachable with any identity the sync account can create",
+        "entryNodeIds": ["ad"],
+        "targetNodeIds": ["warehouse"],
+        "viaNodeIds": ["sync-server", "cloud-idp"],
+        "techniques": ["T1213", "T1119", "T1567.002"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "core-extract",
+        "summary": "The ETL's read account can extract every account and transaction from the core",
+        "entryNodeIds": ["warehouse"],
+        "targetNodeIds": ["core"],
+        "viaNodeIds": ["etl"],
+        "techniques": ["T1552.001", "T1020", "T1048"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "rmm-script",
+        "summary": "A script pushed through the allow-listed RMM agent runs on laptops with no EDR block",
+        "entryNodeIds": ["msp-tool"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": ["laptops"],
+        "techniques": ["T1059.001", "T1036.005", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "admin-on-laptop",
+        "summary": "Domain admins sign in to ordinary laptops, so a laptop's LSASS holds domain credentials",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["sync-server"],
+        "viaNodeIds": ["ad"],
+        "techniques": ["T1003.001", "T1204.002", "T1547.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "ci-sso-deploy",
+        "summary": "A cloud identity created through sync abuse approves and runs a deploy",
+        "entryNodeIds": ["cloud-idp"],
+        "targetNodeIds": ["banking-pods"],
+        "viaNodeIds": ["ci"],
+        "techniques": ["T1078.004", "T1072", "T1098.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unsigned-images",
+        "summary": "Without image signing, a tampered image reaches the banking pods and their core credentials",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["core"],
+        "viaNodeIds": ["banking-pods"],
+        "techniques": ["T1195.002", "T1204.003", "T1552.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Advanced: two subtle trusts (AD to cloud through the sync server; the MSP agent bypassing PAM and EDR) and a third (ETL opening the core segment). Present controls that do not apply: EDR allow-lists the RMM agent, PAM recording misses agent sessions, MFA excludes the sync account, masking skips staging tables."
+}

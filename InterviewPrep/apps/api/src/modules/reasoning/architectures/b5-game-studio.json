@@ -1,0 +1,370 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "b5-game-studio",
+  "version": 1,
+  "level": "beginner",
+  "title": "Indie game studio with online game servers",
+  "organisation": {
+    "name": "Fernhill Interactive",
+    "industry": "Video games: online multiplayer",
+    "size": "30 staff; two people look after servers and builds",
+    "summary": "Fernhill Interactive makes an online co-op game with about 60,000 daily players. Developers push code from their laptops to a source repository; CI runners build server images into a container registry, deploy the game servers to a managed Kubernetes cluster and upload signed game patches to a storage bucket that players download from. Remote developers reach the cluster through the office VPN. An AI code-review bot comments on every pull request, and the game servers send their logs to a central logging service."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "studio", "label": "Studio network", "kind": "corporate" },
+      { "id": "cicd", "label": "Source and CI", "kind": "cicd" },
+      { "id": "cloud", "label": "Cloud account", "kind": "account" }
+    ],
+    "nodes": [
+      { "id": "players", "label": "players", "type": "user", "boundary": "internet", "detail": "Play online and download patches", "controls": [] },
+      { "id": "ai-reviewer", "label": "AI code-review bot", "type": "saas", "boundary": "internet", "detail": "Comments on pull requests and can push suggested fixes", "controls": [] },
+      { "id": "laptops", "label": "developer laptops", "type": "endpoint", "boundary": "studio", "detail": "Engines, tools and repository access", "controls": ["disk encryption"] },
+      { "id": "vpn", "label": "studio VPN", "type": "gateway", "boundary": "studio", "detail": "Remote access to the studio network and the cluster", "controls": ["MFA"] },
+      { "id": "repo", "label": "source repository", "type": "repository", "boundary": "cicd", "detail": "Game and server code, build scripts", "controls": ["branch protection"] },
+      { "id": "ci", "label": "CI runners", "type": "pipeline", "boundary": "cicd", "detail": "Build images and patches; hold the patch signing key", "controls": [] },
+      { "id": "registry", "label": "container registry", "type": "repository", "boundary": "cloud", "detail": "Game server images", "controls": [] },
+      { "id": "k8s", "label": "game server cluster", "type": "container", "boundary": "cloud", "detail": "Match and session servers", "controls": ["RBAC"] },
+      { "id": "patches", "label": "game patches bucket", "type": "storage", "boundary": "cloud", "detail": "Signed patches that players download", "controls": ["patch signing"] },
+      { "id": "logging", "label": "central logging", "type": "siem", "boundary": "cloud", "detail": "Game server logs and cluster events", "controls": ["alert rules"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "laptops", "to": "repo", "label": "pushes code", "kind": "data" },
+      { "id": "e2", "from": "laptops", "to": "vpn", "label": "remote access", "kind": "auth" },
+      { "id": "e3", "from": "repo", "to": "ci", "label": "triggers builds", "kind": "control" },
+      { "id": "e4", "from": "ci", "to": "registry", "label": "pushes images", "kind": "data" },
+      { "id": "e5", "from": "registry", "to": "k8s", "label": "pulls images", "kind": "data" },
+      { "id": "e6", "from": "ci", "to": "patches", "label": "uploads patches", "kind": "data" },
+      { "id": "e7", "from": "players", "to": "k8s", "label": "game traffic", "kind": "data" },
+      { "id": "e8", "from": "players", "to": "patches", "label": "downloads patches", "kind": "data" },
+      { "id": "e9", "from": "ai-reviewer", "to": "repo", "label": "reviews pull requests", "kind": "auth" },
+      { "id": "e10", "from": "k8s", "to": "logging", "label": "server logs", "kind": "control" },
+      { "id": "e11", "from": "vpn", "to": "k8s", "label": "cluster admin access", "kind": "auth" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    { "id": "contributor", "label": "outside mod contributor", "boundary": "internet", "detail": "Can open pull requests on the modding repository" }
+  ],
+  "identities": [
+    {
+      "id": "developers",
+      "label": "developers",
+      "kind": "human",
+      "nodeIds": ["laptops", "repo", "vpn"],
+      "privileges": ["push to every repository", "VPN access to the cluster"],
+      "notes": "Everyone on the VPN is in the cluster-admin group"
+    },
+    {
+      "id": "ci-cloud-key",
+      "label": "CI cloud key",
+      "kind": "machine",
+      "nodeIds": ["ci", "registry", "patches", "k8s"],
+      "privileges": ["push images", "write the patches bucket", "deploy to the cluster"],
+      "notes": "One long-lived key for everything"
+    },
+    {
+      "id": "reviewer-app",
+      "label": "AI reviewer app",
+      "kind": "service",
+      "nodeIds": ["ai-reviewer", "repo"],
+      "privileges": ["read every repository", "comment, approve and push to branches"],
+      "notes": "Installed with write access to save setup time"
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "repo", "data": "game source code and server configuration", "classification": "confidential", "regulations": [] },
+    { "nodeId": "logging", "data": "server logs with player addresses and chat", "classification": "confidential", "regulations": ["GDPR"] },
+    { "nodeId": "patches", "data": "signed game patches", "classification": "public", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "branch-protection",
+      "label": "branch protection",
+      "nodeIds": ["repo"],
+      "status": "partial",
+      "covers": "Changes to main need one approving review",
+      "limits": "An approval from the AI reviewer app counts as the review"
+    },
+    { "id": "vpn-mfa", "label": "MFA", "nodeIds": ["vpn"], "status": "present", "covers": "VPN sign-in with a stolen password", "limits": null },
+    {
+      "id": "disk-encryption",
+      "label": "disk encryption",
+      "nodeIds": ["laptops"],
+      "status": "present",
+      "covers": "Data on a lost laptop",
+      "limits": null
+    },
+    {
+      "id": "rbac",
+      "label": "RBAC",
+      "nodeIds": ["k8s"],
+      "status": "partial",
+      "covers": "Who can change the game servers",
+      "limits": "Every VPN user is in the cluster-admin group"
+    },
+    {
+      "id": "patch-signing",
+      "label": "patch signing",
+      "nodeIds": ["patches"],
+      "status": "present",
+      "covers": "The game client installs only signed patches",
+      "limits": "The signing key sits on the CI runners"
+    },
+    {
+      "id": "alert-rules",
+      "label": "alert rules",
+      "nodeIds": ["logging"],
+      "status": "partial",
+      "covers": "Alerts on game server crashes and error spikes",
+      "limits": "No alerts on cluster admin actions; no repository or CI events"
+    },
+    { "id": "edr", "label": "EDR", "nodeIds": ["laptops"], "status": "missing", "covers": "Malware on developer laptops", "limits": null },
+    {
+      "id": "image-scanning",
+      "label": "image scanning",
+      "nodeIds": ["registry"],
+      "status": "missing",
+      "covers": "Known vulnerabilities and malware in server images",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "ai-write",
+      "from": "ai-reviewer",
+      "to": "repo",
+      "via": "app installation with write and approve rights on every repository",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "ci-key",
+      "from": "ci",
+      "to": "k8s",
+      "via": "one long-lived cloud key with push, write and deploy rights",
+      "subtle": false,
+      "notes": null
+    },
+    { "id": "vpn-cluster", "from": "vpn", "to": "k8s", "via": "VPN users are cluster-admin", "subtle": false, "notes": null }
+  ],
+  "logSources": [
+    {
+      "id": "central-logs",
+      "label": "central logging",
+      "nodeIds": ["logging", "k8s"],
+      "records": "game server logs and Kubernetes events",
+      "gaps": "no cluster audit log and no repository or CI events"
+    },
+    {
+      "id": "repo-audit",
+      "label": "repository audit log",
+      "nodeIds": ["repo"],
+      "records": "pushes, merges, approvals and app installations",
+      "gaps": "not forwarded to central logging"
+    },
+    { "id": "vpn-log", "label": "VPN log", "nodeIds": ["vpn"], "records": "connections with user and source address", "gaps": null }
+  ],
+  "attackSurfaces": {
+    "cloud_security": [
+      {
+        "id": "ci-key-leak",
+        "summary": "The single CI cloud key leaks from a build log",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["patches"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078.004", "T1530"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "patch-bucket-write",
+        "summary": "Write access to the patches bucket lets someone replace a game patch",
+        "entryNodeIds": ["patches"],
+        "targetNodeIds": ["patches"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1078.004", "T1098.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "ai-approval-merge",
+        "summary": "The AI reviewer's approval satisfies branch protection, so a poisoned change merges",
+        "entryNodeIds": ["ai-reviewer"],
+        "targetNodeIds": ["ci"],
+        "viaNodeIds": ["repo"],
+        "techniques": ["T1195.002", "T1199", "T1072"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "signing-key-on-runner",
+        "summary": "The patch signing key sits on the CI runners, so a malicious build signs a bad patch",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["patches"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.004", "T1195.002", "T1072"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "no-admin-alerts",
+        "summary": "A cluster-admin change over the VPN produces no alert",
+        "entryNodeIds": ["vpn"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1098", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "odd-push",
+        "summary": "A push from a developer account at 3 a.m. from a new country",
+        "entryNodeIds": ["repo"],
+        "targetNodeIds": ["ci"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1087", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "backdoored-plugin",
+        "summary": "A developer installs a cracked engine plugin with a backdoor",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["repo"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.002", "T1547.001", "T1105"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "stolen-dev-sessions",
+        "summary": "Malware takes repository tokens and VPN sessions from a laptop without EDR",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["vpn"],
+        "viaNodeIds": [],
+        "techniques": ["T1555.003", "T1036.005", "T1113"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "vpn-to-cluster",
+        "summary": "VPN users land on a network that reaches the cluster API",
+        "entryNodeIds": ["vpn"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1133", "T1046", "T1021.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "game-server-flood",
+        "summary": "Game servers are exposed straight to the internet with no DDoS protection",
+        "entryNodeIds": ["k8s"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1498", "T1595", "T1046"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "build-pipeline-campaign",
+        "summary": "A report describes attackers backdooring game studios through their build pipelines",
+        "entryNodeIds": ["repo"],
+        "targetNodeIds": ["ci"],
+        "viaNodeIds": [],
+        "techniques": ["T1587", "T1105", "T1036"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cheat-forum-leak",
+        "summary": "A cheat forum posts the cluster address and a working VPN account",
+        "entryNodeIds": ["vpn"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1590", "T1595"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "vpn-equals-admin",
+        "summary": "Being on the VPN is treated as being a cluster admin",
+        "entryNodeIds": ["vpn"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1133", "T1021.007"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "app-write-trust",
+        "summary": "The AI reviewer app is trusted with write access to every repository",
+        "entryNodeIds": ["ai-reviewer"],
+        "targetNodeIds": ["repo"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1528", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "unscanned-image",
+        "summary": "An unscanned image from the registry runs on the game servers",
+        "entryNodeIds": ["registry"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.003", "T1525", "T1610"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cluster-admin-for-all",
+        "summary": "Every VPN user is cluster-admin on the game cluster",
+        "entryNodeIds": ["vpn"],
+        "targetNodeIds": ["k8s"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1609", "T1098.006"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "pr-prompt-injection",
+        "summary": "A pull request comment instructs the AI reviewer to approve and push a change",
+        "entryNodeIds": ["ai-reviewer"],
+        "targetNodeIds": ["repo"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0051.001", "AML.T0053", "AML.T0047"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "reviewer-secret-leak",
+        "summary": "The AI reviewer quotes secrets from the repository in public pull request comments",
+        "entryNodeIds": ["repo"],
+        "targetNodeIds": ["ai-reviewer"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0057", "AML.T0055", "AML.T0025"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Beginner: one CI key for everything, the patch signing key on the runners, an AI reviewer whose approval counts, and VPN users who are cluster admins."
+}

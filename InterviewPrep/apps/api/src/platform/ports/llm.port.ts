@@ -10,7 +10,20 @@ export interface LlmMessage {
 /** ADD §6: the application asks for tiers, never model names. */
 export interface LlmRequest {
   tier: LlmTier;
+  /**
+   * Stable, cacheable prefix rendered as the first system block (cache_control: ephemeral), before
+   * `system`. Byte-identical across the calls that should share a cache entry. Never learner text:
+   * learner input always travels in the user message, inside <untrusted_*> tags.
+   */
+  systemPrefix?: string;
   system: string;
+  /**
+   * false: no cache_control marker on any block. For prompts nothing reads back within the cache
+   * lifetime (review COST-2: each Attack Reasoning stage sends its own structured-output format, which
+   * invalidates the prompt cache, so the cross-stage entries were written and never read and the write
+   * premium was a surcharge). Default: marked, as before.
+   */
+  cache?: boolean;
   messages: LlmMessage[];
   maxOutputTokens: number;
   promptVersion: string;
@@ -62,6 +75,11 @@ export type LlmChunk = { type: 'text'; text: string } | { type: 'done'; usage: L
  */
 export function withUsage<E extends Error>(err: E, usage: LlmUsage, extraUsage?: LlmUsage[]): E & { usage: LlmUsage; extraUsage?: LlmUsage[] } {
   return Object.assign(err, { usage }, extraUsage?.length ? { extraUsage } : {});
+}
+
+/** Characters of the whole prompt (cached prefix, system and messages): the basis of estimates and the fake's usage. */
+export function promptChars(req: Pick<LlmRequest, 'systemPrefix' | 'system' | 'messages'>): number {
+  return (req.systemPrefix?.length ?? 0) + req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0);
 }
 
 export interface LlmPort {

@@ -1,0 +1,464 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "i4-insurer-rag",
+  "version": 1,
+  "level": "intermediate",
+  "title": "Insurer's internal AI assistant and claims data lake",
+  "organisation": {
+    "name": "Meridale Mutual",
+    "industry": "Insurance: home, motor and health",
+    "size": "1,900 staff; claims, underwriting and data science teams",
+    "summary": "Meridale Mutual gives employees an internal AI assistant for claims work. Questions go to a claims agent that retrieves passages from a vector store fed nightly from the company document shares, calls the model through an LLM gateway, and can use three tools: a claims lookup in the data lake, the ticketing system and the claims mailbox. Claim documents that arrive by email are filed to the shares automatically. Analysts query the claims data lake from notebooks, and prompts and tool definitions are deployed by a prompt and model CI pipeline."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "corporate", "label": "Corporate network", "kind": "corporate" },
+      { "id": "ai", "label": "AI platform account", "kind": "account" },
+      { "id": "data", "label": "Data lake account", "kind": "data" },
+      { "id": "cicd", "label": "Prompt and model CI", "kind": "cicd" },
+      { "id": "outside", "label": "Internet and third-party services", "kind": "internet" }
+    ],
+    "nodes": [
+      { "id": "laptops", "label": "employee laptops", "type": "endpoint", "boundary": "corporate", "detail": "Claims handlers, underwriters and analysts", "controls": ["EDR"] },
+      { "id": "shares", "label": "document shares", "type": "storage", "boundary": "corporate", "detail": "Claims documents, policy wordings and HR files", "controls": [] },
+      { "id": "assistant", "label": "assistant chat app", "type": "web", "boundary": "ai", "detail": "Internal chat front end", "controls": ["SSO"] },
+      { "id": "agent", "label": "claims agent", "type": "service", "boundary": "ai", "detail": "Plans answers, retrieves passages and calls tools", "controls": ["tool allow-list"] },
+      { "id": "gateway", "label": "LLM gateway", "type": "gateway", "boundary": "ai", "detail": "Routes model calls, redacts and logs prompts", "controls": ["PII redaction"] },
+      { "id": "vectors", "label": "vector store", "type": "database", "boundary": "ai", "detail": "Passages and embeddings from the document shares", "controls": ["document ACL filter"] },
+      { "id": "ingest", "label": "document ingestion job", "type": "pipeline", "boundary": "ai", "detail": "Nightly sync from the shares into the vector store", "controls": [] },
+      { "id": "lake", "label": "claims data lake", "type": "database", "boundary": "data", "detail": "Claims, policyholder health and payment data", "controls": [] },
+      { "id": "notebooks", "label": "analyst notebooks", "type": "compute", "boundary": "data", "detail": "Hosted notebooks with data lake access", "controls": [] },
+      { "id": "prompt-ci", "label": "prompt and model CI", "type": "pipeline", "boundary": "cicd", "detail": "Deploys prompts, tool definitions and agent code", "controls": [] },
+      { "id": "llm", "label": "LLM provider", "type": "model", "boundary": "outside", "detail": "Third-party model behind the gateway", "controls": [] },
+      { "id": "ticketing", "label": "ticketing system", "type": "saas", "boundary": "outside", "detail": "Claims tasks and customer cases", "controls": [] },
+      { "id": "mail", "label": "claims mailbox service", "type": "email", "boundary": "outside", "detail": "Inbound claim emails and outbound customer emails", "controls": [] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "laptops", "to": "assistant", "label": "asks questions", "kind": "data" },
+      { "id": "e2", "from": "laptops", "to": "shares", "label": "edits documents", "kind": "data" },
+      { "id": "e3", "from": "assistant", "to": "agent", "label": "user requests", "kind": "data" },
+      { "id": "e4", "from": "agent", "to": "gateway", "label": "model calls", "kind": "data" },
+      { "id": "e5", "from": "gateway", "to": "llm", "label": "forwards prompts", "kind": "data" },
+      { "id": "e6", "from": "agent", "to": "vectors", "label": "retrieves passages", "kind": "data" },
+      { "id": "e7", "from": "shares", "to": "ingest", "label": "syncs documents", "kind": "data" },
+      { "id": "e8", "from": "ingest", "to": "vectors", "label": "writes embeddings", "kind": "data" },
+      { "id": "e9", "from": "agent", "to": "ticketing", "label": "ticket tool", "kind": "data" },
+      { "id": "e10", "from": "agent", "to": "mail", "label": "email tool", "kind": "data" },
+      { "id": "e11", "from": "agent", "to": "lake", "label": "claims lookup tool", "kind": "data" },
+      { "id": "e12", "from": "notebooks", "to": "lake", "label": "queries", "kind": "data" },
+      { "id": "e13", "from": "prompt-ci", "to": "agent", "label": "deploys prompts and tools", "kind": "control" },
+      { "id": "e14", "from": "mail", "to": "shares", "label": "files claim attachments", "kind": "data" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "outside", "detail": "Sends email and documents from outside" },
+    { "id": "claimant", "label": "fraudulent claimant", "boundary": "outside", "detail": "Submits claim documents by email" },
+    { "id": "insider", "label": "curious employee", "boundary": "corporate", "detail": "An employee with ordinary assistant access" }
+  ],
+  "identities": [
+    {
+      "id": "employees",
+      "label": "employees",
+      "kind": "human",
+      "nodeIds": ["laptops", "assistant", "shares"],
+      "privileges": ["use the assistant", "read the shares their team owns"],
+      "notes": null
+    },
+    {
+      "id": "agent-id",
+      "label": "agent service identity",
+      "kind": "workload",
+      "nodeIds": ["agent", "ticketing", "mail", "lake"],
+      "privileges": ["create and update any ticket", "send email from the claims mailbox", "query any claim in the data lake"],
+      "notes": "The agent uses its own rights, not the asking employee's"
+    },
+    {
+      "id": "ingest-acct",
+      "label": "ingestion service account",
+      "kind": "service",
+      "nodeIds": ["ingest", "shares", "vectors"],
+      "privileges": ["read every document share, including HR", "write the vector store"],
+      "notes": "Granted broad read to finish the project on time"
+    },
+    {
+      "id": "analysts",
+      "label": "data analysts",
+      "kind": "human",
+      "nodeIds": ["notebooks", "lake"],
+      "privileges": ["query the whole claims data lake", "export query results"],
+      "notes": "Notebook sessions hold long-lived data lake credentials"
+    },
+    {
+      "id": "ci-deployer",
+      "label": "prompt CI deploy role",
+      "kind": "machine",
+      "nodeIds": ["prompt-ci", "agent"],
+      "privileges": ["change prompts and tool definitions in production"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "lake",
+      "data": "claims, policyholder health and payment data",
+      "classification": "regulated",
+      "regulations": ["GDPR", "insurance regulation"]
+    },
+    { "nodeId": "shares", "data": "claims documents, policy wordings and HR files", "classification": "confidential", "regulations": ["GDPR"] },
+    { "nodeId": "vectors", "data": "passages and embeddings copied from every share", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    { "id": "edr", "label": "EDR", "nodeIds": ["laptops"], "status": "present", "covers": "Malware on employee laptops", "limits": null },
+    {
+      "id": "sso",
+      "label": "SSO",
+      "nodeIds": ["assistant"],
+      "status": "present",
+      "covers": "Employee sign-in to the assistant",
+      "limits": "A stolen session works until it expires after 12 hours"
+    },
+    {
+      "id": "redaction",
+      "label": "PII redaction",
+      "nodeIds": ["gateway"],
+      "status": "partial",
+      "covers": "Masks policy numbers and dates of birth in prompts to the provider",
+      "limits": "Pattern-based; free-text health details pass through"
+    },
+    {
+      "id": "acl-filter",
+      "label": "document ACL filter",
+      "nodeIds": ["vectors"],
+      "status": "partial",
+      "covers": "Retrieved passages are filtered by the asking employee's groups",
+      "limits": "HR share passages were ingested without their access lists"
+    },
+    {
+      "id": "tool-allowlist",
+      "label": "tool allow-list",
+      "nodeIds": ["agent"],
+      "status": "present",
+      "covers": "The agent may call only the ticket, email and claims lookup tools",
+      "limits": "Each tool runs with full rights; nothing checks the asking employee"
+    },
+    {
+      "id": "send-approval",
+      "label": "human approval for outbound email",
+      "nodeIds": ["agent", "mail"],
+      "status": "missing",
+      "covers": "A person confirms emails the agent sends outside the company",
+      "limits": null
+    },
+    {
+      "id": "export-controls",
+      "label": "notebook export controls",
+      "nodeIds": ["notebooks"],
+      "status": "missing",
+      "covers": "Limiting downloads of query results",
+      "limits": null
+    },
+    {
+      "id": "prompt-review",
+      "label": "prompt change review",
+      "nodeIds": ["prompt-ci"],
+      "status": "missing",
+      "covers": "A second person reviews prompt and tool changes",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "agent-own-rights",
+      "from": "agent",
+      "to": "lake",
+      "via": "agent identity can query any claim",
+      "subtle": false,
+      "notes": "Not limited to the asking employee's claims"
+    },
+    { "id": "ingest-all-shares", "from": "ingest", "to": "shares", "via": "service account with read on every share", "subtle": false, "notes": null },
+    {
+      "id": "mail-to-shares",
+      "from": "mail",
+      "to": "shares",
+      "via": "claim attachments are filed automatically",
+      "subtle": false,
+      "notes": "Outside documents become retrievable text"
+    }
+  ],
+  "logSources": [
+    {
+      "id": "gateway-log",
+      "label": "LLM gateway prompt log",
+      "nodeIds": ["gateway"],
+      "records": "prompts and responses with the employee id",
+      "gaps": "tool calls and their arguments are not logged"
+    },
+    {
+      "id": "ticket-audit",
+      "label": "ticketing audit log",
+      "nodeIds": ["ticketing"],
+      "records": "ticket changes made by the agent identity",
+      "gaps": "does not show which employee asked the agent"
+    },
+    {
+      "id": "mail-log",
+      "label": "email send log",
+      "nodeIds": ["mail"],
+      "records": "messages sent from the claims mailbox with recipients",
+      "gaps": null
+    },
+    {
+      "id": "lake-queries",
+      "label": "data lake query log",
+      "nodeIds": ["lake", "notebooks"],
+      "records": "queries with user and rows returned",
+      "gaps": null
+    },
+    { "id": "edr-telemetry", "label": "EDR telemetry", "nodeIds": ["laptops"], "records": "process and network events on laptops", "gaps": null }
+  ],
+  "attackSurfaces": {
+    "ai_llm_security": [
+      {
+        "id": "claim-document-injection",
+        "summary": "A claimant's document carries instructions the agent follows when it is retrieved",
+        "entryNodeIds": ["shares"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["ingest", "vectors"],
+        "techniques": ["AML.T0051.001", "AML.T0053", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "agent-email-exfiltration",
+        "summary": "Retrieved text tells the agent to email claim details to an outside address",
+        "entryNodeIds": ["vectors"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["AML.T0051.001", "AML.T0057", "AML.T0025"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "hr-in-index",
+        "summary": "HR files were indexed without their access lists, so anyone can retrieve them",
+        "entryNodeIds": ["assistant"],
+        "targetNodeIds": ["vectors"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1213", "T1119", "T1074"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "notebook-export",
+        "summary": "Analysts export claims with health data from notebooks to personal storage",
+        "entryNodeIds": ["notebooks"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": [],
+        "techniques": ["T1567.002", "T1005", "T1119"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "agent-role-lake",
+        "summary": "The agent's cloud role can query the whole claims data lake",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1530", "T1537"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "notebook-credentials",
+        "summary": "Notebook sessions hold long-lived cloud credentials for the data lake",
+        "entryNodeIds": ["notebooks"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078.004", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "unreviewed-prompt-change",
+        "summary": "A prompt or tool definition change ships to production without review",
+        "entryNodeIds": ["prompt-ci"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": [],
+        "techniques": ["T1072", "T1195.002", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "tool-dependency",
+        "summary": "A dependency of the agent's tool code is replaced upstream",
+        "entryNodeIds": ["prompt-ci"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1195.001", "T1072", "T1552.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "agent-acts-as-itself",
+        "summary": "The agent calls tools with its own rights, not the asking employee's",
+        "entryNodeIds": ["assistant"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1078", "T1550.001", "T1098"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "assistant-session-theft",
+        "summary": "A stolen SSO session gives an outsider the assistant and its tools",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["assistant"],
+        "techniques": ["T1539", "T1550.004", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "document-injection-reports",
+        "summary": "A report on attackers planting instructions in documents sent to insurers",
+        "entryNodeIds": ["mail"],
+        "targetNodeIds": ["vectors"],
+        "viaNodeIds": ["shares"],
+        "techniques": ["T1071.001", "T1036", "T1587"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "fraud-ring-probing",
+        "summary": "Intelligence on a fraud ring testing claim stories against insurers' assistants",
+        "entryNodeIds": ["assistant"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1078", "T1590", "T1036"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "outbound-claim-emails",
+        "summary": "The email log shows claim details sent to free-mail addresses by the agent",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1567", "T1078", "T1070"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "poisoned-index",
+        "summary": "A poisoned document is in the vector store and the agent keeps retrieving it",
+        "entryNodeIds": ["shares"],
+        "targetNodeIds": ["vectors"],
+        "viaNodeIds": ["ingest"],
+        "techniques": ["T1070", "T1078", "T1105"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "health-data-to-provider",
+        "summary": "Health details in claims reach an outside LLM provider without a documented basis",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["llm"],
+        "viaNodeIds": ["gateway"],
+        "techniques": ["T1199", "T1213", "T1537"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "agent-authority",
+        "summary": "No policy says what the agent may do without a person",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["mail", "ticketing"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1199", "T1213"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "lookup-any-claim",
+        "summary": "The claims lookup tool's API takes any claim id with the agent's token",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["lake"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1550.001", "T1213"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "gateway-key-reuse",
+        "summary": "The gateway's provider key is shared by every app and can be used directly",
+        "entryNodeIds": ["gateway"],
+        "targetNodeIds": ["llm"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "markdown-image-leak",
+        "summary": "The chat app renders model output as HTML, so an image link leaks the conversation",
+        "entryNodeIds": ["assistant"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": [],
+        "techniques": ["T1189", "T1071.001", "T1185"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "ticket-field-injection",
+        "summary": "Ticket text written by the agent is rendered unescaped in the ticketing UI",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["ticketing"],
+        "viaNodeIds": [],
+        "techniques": ["T1189", "T1539", "T1565.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "infostealer-session",
+        "summary": "An infostealer on a laptop takes the assistant's SSO session",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["assistant"],
+        "viaNodeIds": [],
+        "techniques": ["T1555.003", "T1204.002", "T1105"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "macro-writes-shares",
+        "summary": "A malicious macro on a laptop writes documents into the shares that feed the assistant",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["shares"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.002", "T1059.001", "T1547.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Intermediate: outside email becomes retrievable text (indirect injection); the agent acts with its own broad rights; ACLs were lost at ingestion; nothing logs tool arguments."
+}

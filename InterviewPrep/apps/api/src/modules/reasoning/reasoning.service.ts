@@ -16,7 +16,8 @@ import {
 } from '@threatready/contracts';
 import { llmCallLog, reasoningAttempts, reasoningEvaluations, reasoningItems, reasoningServed } from '@threatready/db';
 import { DomainError, secondsUntilUtcMidnight } from '@threatready/shared';
-import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNotNull, isNull, like, lt, notInArray, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { LlmService, nextUtcDay, type CallMeta } from '../ai/llm.service.js';
 import type { Principal } from '../../platform/authz/principal.js';
@@ -24,16 +25,19 @@ import { Database, type Tx } from '../../platform/db/database.js';
 import { cursorBefore, cursorOf } from '../../platform/http/cursor.js';
 import { CACHE_PORT, type CachePort } from '../../platform/ports/cache.port.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
-import { answerSecondsOf, attemptView, ITEM_COLUMNS, loadEvaluation, loadItem, loadItemPrivate, loadOwnedAttempt, publicOf, readyDeadline, transition, type AttemptRow } from './attempt.repo.js';
+import { answerSecondsOf, attemptView, ITEM_COLUMNS, loadEvaluation, loadItem, loadItemPrivate, loadOwnedAttempt, publicOf, readyDeadline, transition, type AttemptRow, type ItemRow } from './attempt.repo.js';
 import { catalogue, getDomain, isAvailable } from './domains/index.js';
 import { logger } from '../../platform/logging/logger.js';
+import type { ReasoningDomain } from './domain.types.js';
 import type { GeneratedItem } from './item.types.js';
 import type { StoredFeedback } from './evaluation.service.js';
 import { GenerationService, poolBucket } from './generation.service.js';
-import { evaluatorRequestBound } from './prompts/evaluation.prompts.js';
+import { evaluatorRequestBound, evaluatorTier } from './prompts/evaluation.prompts.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
 
 const OPEN_STATES = ['generating', 'ready', 'evaluating'] as const;
+/** Pool questions tried per start before falling back to on-demand generation, when concurrent starts retire them first. */
+const SERVE_CANDIDATES = 3;
 /** Failures the budget caused: the failed run never reached the model, so retrying one is not counted. */
 const BUDGET_CODES = new Set(['LLM_BUDGET_EXCEEDED', 'AI_SERVICE_PAUSED']);
 /** Refusals of a submission that lift at 00:00 UTC: the daily evaluation quota and both AI budgets. */
@@ -78,11 +82,16 @@ export class ReasoningService {
   ) {}
 
   /**
-   * The next question at the chosen difficulty. A random pool question this learner has never been
-   * served is handed over at once and recorded as served, so it never comes back to them. Only when
-   * the pool has nothing left for them is one generated on demand. Either way the bucket is topped up
-   * in the background when the learner is running low. A question is handed out only when its
-   * evaluation fits the learner's budget, so the refusal comes before they write an answer (TR-08).
+   * The next question at the chosen difficulty. A pool question this learner has never been served,
+   * nor one of the same shape (same variation fingerprint: domain, architecture, attack surface,
+   * objective, technique), is handed over at once and recorded as served, so it never comes back to
+   * them; the architecture they have been served least comes first. A question goes to at most
+   * REASONING_ITEM_MAX_SERVES learners (2): the cap is enforced where the serve is recorded (migration
+   * 0017), so when concurrent starts retire the picked question first, the next candidate is tried. Only
+   * when the pool has nothing left for them is one generated on demand. Either way the bucket is topped
+   * up in the background when the learner is running low. A question is handed out only when its
+   * evaluation fits the learner's budget, so the refusal comes before they write an answer (TR-08), and
+   * at most REASONING_USER_DAILY_QUESTIONS are opened per learner per UTC day.
    */
   async create(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningAttemptView> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
@@ -91,31 +100,28 @@ export class ReasoningService {
     const bucket = poolBucket(req.difficulty ?? domain.difficulty);
     const view = await this.db.user(p, async (tx) => {
       await this.lockLearner(tx, p);
+      await this.assertDailyQuestions(tx, p);
       await this.makeRoom(tx, p, req.skipOldest === true);
-      const [picked] = await tx.db
-        .select(ITEM_COLUMNS)
-        .from(reasoningItems)
-        .where(
-          and(
-            eq(reasoningItems.pool, true),
-            eq(reasoningItems.domain, req.domain),
-            eq(reasoningItems.difficulty, bucket),
-            // Retired once enough learners have seen it: bounds how far one answer key travels (A5).
-            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
-            sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
-          ),
-        )
-        .orderBy(sql`random()`)
-        .limit(1);
-      if (picked) {
+      // The serve cap the trigger on reasoning_served enforces, for this transaction only.
+      await tx.sql.executeSql(`SELECT set_config('app.reasoning_item_max_serves', $1, true)`, [String(this.cfg.REASONING_ITEM_MAX_SERVES)]);
+      const tried: string[] = [];
+      for (let i = 0; i < SERVE_CANDIDATES; i++) {
+        const picked = await this.candidate(tx, p, req.domain, bucket, tried);
+        if (!picked) break;
         // The answer key is not readable here (migration 0016), so the evaluation is estimated at the
         // item-context bound: the same room one evaluation needs that on-demand generation keeps free.
-        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(domain, null)));
+        if (i === 0) await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.evaluationEstimateUsd(domain));
+        const attemptId = randomUUID();
+        // Skipped by the trigger (no row back) when the question reached the cap in a concurrent start.
+        const served = await tx.db.insert(reasoningServed).values({ orgId: p.orgId, userId: p.userId, itemId: picked.id, attemptId }).returning({ itemId: reasoningServed.itemId });
+        if (!served.length) {
+          tried.push(picked.id);
+          continue;
+        }
         const [a] = await tx.db
           .insert(reasoningAttempts)
-          .values({ orgId: p.orgId, userId: p.userId, domain: req.domain, difficulty: bucket, state: 'ready', itemId: picked.id, openedAt: new Date() })
+          .values({ id: attemptId, orgId: p.orgId, userId: p.userId, domain: req.domain, difficulty: bucket, state: 'ready', itemId: picked.id, openedAt: new Date() })
           .returning();
-        await tx.db.insert(reasoningServed).values({ orgId: p.orgId, userId: p.userId, itemId: picked.id, attemptId: a!.id });
         return attemptView(a!, picked, null, this.cfg.REASONING_READY_TTL_HOURS);
       }
       // On demand: the learner pays for the generation, which must leave room for the evaluation.
@@ -128,23 +134,82 @@ export class ReasoningService {
     return view;
   }
 
+  /**
+   * What this learner may be served in a bucket (shared by create() and poolStatus(), so the count the
+   * learner sees is what they can get): live pool questions (fewer than REASONING_ITEM_MAX_SERVES
+   * serves; legacy ones only while REASONING_SERVE_LEGACY_ITEMS) they were never served, with no
+   * fingerprint, and no architecture + attack path + objective, they were served. reasoning_served is
+   * owner-isolated by RLS, so the subqueries only see the learner's own rows.
+   */
+  private servable(p: Principal, domain: string, bucket: string, exclude: string[] = []) {
+    return and(
+      eq(reasoningItems.pool, true),
+      eq(reasoningItems.domain, domain),
+      eq(reasoningItems.difficulty, bucket),
+      // Retired once enough learners have seen it: bounds how far one answer key travels (A5).
+      lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
+      this.cfg.REASONING_SERVE_LEGACY_ITEMS ? undefined : isNotNull(reasoningItems.architectureId),
+      exclude.length ? notInArray(reasoningItems.id, exclude) : undefined,
+      sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
+      // Never a question of the same shape as one already served (a near-duplicate by construction).
+      sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s JOIN ${reasoningItems} j ON j.id = s.item_id WHERE s.user_id = ${p.userId} AND j.fingerprint = ${reasoningItems.fingerprint})`,
+      // Nor one with the same architecture, attack path and objective as any question they were served
+      // (review AR-BIZ-2): generation no longer compares a new question's structure with retired ones,
+      // so the learner's guarantee is kept here. Legacy questions have no architecture and never match.
+      sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s JOIN ${reasoningItems} j ON j.id = s.item_id WHERE s.user_id = ${p.userId}
+            AND j.architecture_id = ${reasoningItems.architectureId}
+            AND j.seed->'architecture'->>'pathKey' = ${reasoningItems.seed}->'architecture'->>'pathKey'
+            AND j.seed->>'objective' = ${reasoningItems.seed}->>'objective')`,
+    );
+  }
+
+  /** One servable question: on the architecture the learner has been served least (legacy questions, with none, first), then at random. */
+  private async candidate(tx: Tx, p: Principal, domain: string, bucket: string, exclude: string[]): Promise<ItemRow | null> {
+    const [picked] = await tx.db
+      .select(ITEM_COLUMNS)
+      .from(reasoningItems)
+      .where(this.servable(p, domain, bucket, exclude))
+      .orderBy(
+        sql`(SELECT count(*) FROM ${reasoningServed} s JOIN ${reasoningItems} j ON j.id = s.item_id WHERE s.user_id = ${p.userId} AND j.architecture_id = ${reasoningItems.architectureId})`,
+        sql`random()`,
+      )
+      .limit(1);
+    return picked ?? null;
+  }
+
+  /** One first-stage evaluation at the item-context bound, on the tier stage 1 runs on (REASONING_EVALUATION_MODE). */
+  private evaluationEstimateUsd(domain: ReasoningDomain, answer?: { selected: OptionId; justification: string }): number {
+    return this.llm.estimate(evaluatorRequestBound(domain, null, answer, evaluatorTier(this.cfg.REASONING_EVALUATION_MODE)));
+  }
+
+  /**
+   * Questions opened today (UTC), any state: REASONING_USER_DAILY_QUESTIONS (0 = no limit). Each pool
+   * question now goes to at most two learners, so without this one learner cycling through questions
+   * would use up the pool for everyone else and push them into on-demand generation (cost design §5.5).
+   * Callers hold the learner's advisory lock.
+   */
+  private async assertDailyQuestions(tx: Tx, p: Principal): Promise<void> {
+    const limit = this.cfg.REASONING_USER_DAILY_QUESTIONS;
+    if (limit <= 0) return;
+    const [{ n } = { n: 0 }] = await tx.db
+      .select({ n: count() })
+      .from(reasoningAttempts)
+      .where(and(eq(reasoningAttempts.userId, p.userId), gte(reasoningAttempts.createdAt, startOfUtcDay())));
+    if (n >= limit) {
+      throw new DomainError('REASONING_DAILY_QUESTIONS_REACHED', {
+        message: `You have opened today’s ${limit} questions. New questions are available after 00:00 UTC; your open questions stay available.`,
+        details: { limit, resetAt: nextUtcDay().toISOString() },
+        retryAfterSec: secondsUntilUtcMidnight(),
+      });
+    }
+  }
+
   /** Ready pool questions this learner has not seen at this domain and difficulty; asks for a refill when low. */
   async poolStatus(p: Principal, req: CreateReasoningAttemptRequest): Promise<ReasoningPoolStatus> {
     if (!isAvailable(req.domain)) throw new DomainError('REASONING_DOMAIN_UNAVAILABLE');
     const bucket = poolBucket(req.difficulty ?? getDomain(req.domain)!.difficulty);
     const available = await this.db.user(p, async (tx) => {
-      const [{ n } = { n: 0 }] = await tx.db
-        .select({ n: count() })
-        .from(reasoningItems)
-        .where(
-          and(
-            eq(reasoningItems.pool, true),
-            eq(reasoningItems.domain, req.domain),
-            eq(reasoningItems.difficulty, bucket),
-            lt(reasoningItems.serveCount, this.cfg.REASONING_ITEM_MAX_SERVES),
-            sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
-          ),
-        );
+      const [{ n } = { n: 0 }] = await tx.db.select({ n: count() }).from(reasoningItems).where(this.servable(p, req.domain, bucket));
       return n;
     });
     // `refilling` is true only when more questions will really appear without the learner starting
@@ -186,8 +251,10 @@ export class ReasoningService {
 
   /**
    * Background refill of one bucket. Deduplicated per bucket per minute and capped per learner per
-   * day (REASONING_USER_DAILY_REFILLS), so cycling through domains and difficulties cannot make the
-   * platform generate without bound; the schedule refills the rest. Never fails the caller.
+   * day in questions (REASONING_USER_DAILY_REFILLS, review AR-SEC-2): each queued refill reserves the
+   * questions it may add and carries that number, so cycling through domains and difficulties cannot
+   * make the platform generate more than that for one learner; the schedule refills the rest. Never
+   * fails the caller.
    */
   private async requestRefill(userId: string, domain: string, difficulty: string): Promise<boolean> {
     if (!this.cfg.REASONING_POOL_ENABLED) return false;
@@ -196,16 +263,26 @@ export class ReasoningService {
     if ((await this.cache.get<boolean>(`reasoning:refill:${key}`)) !== null) return true; // already asked this minute
     // A learner never grows a bucket past its target: at the target there is nothing to queue, and
     // asking must not use up the learner's daily refills.
-    if ((await this.gen.headroom(domain, difficulty).catch(() => 0)) <= 0) return false;
+    const room = Math.min(await this.gen.headroom(domain, difficulty).catch(() => 0), this.cfg.REASONING_POOL_BATCH);
+    if (room <= 0) return false;
     const cap = this.cfg.REASONING_USER_DAILY_REFILLS;
-    const today = cap > 0 ? await this.cache.incr(`rl:${userId}:reasoning_refill`, 86_400) : 0;
-    if (cap > 0 && today > cap) {
-      if (today === cap + 1) logger.warn({ user_id: userId }, 'reasoning pool refill cap reached for today');
-      return false;
+    let max = room;
+    if (cap > 0) {
+      // Reserve the questions this refill may add, one count each, up to the learner's daily allowance.
+      max = 0;
+      for (let i = 0; i < room; i++) {
+        const today = await this.cache.incr(`rl:${userId}:reasoning_refill`, 86_400);
+        if (today > cap) {
+          if (today === cap + 1) logger.warn({ user_id: userId }, 'reasoning pool refill cap reached for today');
+          break;
+        }
+        max++;
+      }
+      if (max === 0) return false;
     }
     await this.cache.set(`reasoning:refill:${key}`, true, 60);
     return this.queue
-      .enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain, difficulty, userId }, { key })
+      .enqueue(JOBS.reasoningPoolRefill, { kind: 'reasoning_pool_refill', domain, difficulty, userId, max }, { key })
       .then(() => true)
       .catch((err: unknown) => {
         logger.warn({ err: { message: (err as Error).message } }, 'reasoning pool refill not queued');
@@ -214,7 +291,8 @@ export class ReasoningService {
   }
 
   /**
-   * Answers submitted for evaluation today (UTC); each one costs up to three LARGE calls. A retry of
+   * Answers submitted for evaluation today (UTC); each one costs a SMALL call and, when escalated, two
+   * LARGE calls (three LARGE calls in REASONING_EVALUATION_MODE=full). A retry of
    * an already-submitted answer passes `own = 1` because that answer is itself in the count. Callers
    * hold the learner's advisory lock, so concurrent submissions cannot all pass (audit AR-REG3).
    * REASONING_USER_DAILY_EVALUATIONS=0 means no daily limit.
@@ -330,7 +408,7 @@ export class ReasoningService {
       try {
         await this.assertEvaluationQuota(tx, p);
         // This answer, with the item's context at its bound (the key is not readable here, migration 0016).
-        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(getDomain(a.domain)!, null, { selected: req.selectedOption, justification: req.justification.trim() })));
+        await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.evaluationEstimateUsd(getDomain(a.domain)!, { selected: req.selectedOption, justification: req.justification.trim() }));
       } catch (err) {
         // Returned, not thrown, so the transaction commits the extended deadline before the refusal is sent.
         if (err instanceof DomainError && SUBMIT_REFUSALS.has(err.code)) return { refused: await this.holdOpen(tx, a, err) };
@@ -395,11 +473,13 @@ export class ReasoningService {
         await this.queue.enqueue(JOBS.reasoningGenerate, { kind: 'reasoning_generate', attemptId: a.id }, { key: `${a.id}:retry:${next.version}` }, tx);
       } else if (a.state === 'evaluation_failed') {
         if (counted && max > 0 && a.evaluationRetries >= max) throw new DomainError('REASONING_RETRY_LIMIT_REACHED', { message: 'This answer could not be evaluated after several retries. It stays in your history; start a new question to continue.' });
-        // A retry re-runs up to three LARGE calls: the same daily quota applies as to a submission.
+        // A retry re-runs the evaluation under the normal escalation rules: an attempt only fails before
+        // stage 1 produced a grade, so there is no grade to dispute and no reason to pay for the LARGE
+        // pair on every retry (review COST-6). The same daily quota applies as to a submission.
         await this.assertEvaluationQuota(tx, p, a.submittedAt && a.submittedAt >= startOfUtcDay() ? 1 : 0);
         const item = a.itemId ? await loadItem(tx, a.itemId) : null;
         if (item && a.selectedOption && a.justification) {
-          await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.llm.estimate(evaluatorRequestBound(getDomain(a.domain)!, null, { selected: a.selectedOption as OptionId, justification: a.justification })));
+          await this.budgetCheck(tx, this.metaFor(p, 'reasoning.evaluator'), this.evaluationEstimateUsd(getDomain(a.domain)!, { selected: a.selectedOption as OptionId, justification: a.justification }));
         }
         const next = await transition(tx, a, ['evaluation_failed'], { state: 'evaluating', failureCode: null, failureStage: null, evaluationRetries: a.evaluationRetries + counted });
         await this.queue.enqueue(JOBS.reasoningEvaluate, { kind: 'reasoning_evaluate', attemptId: a.id }, { key: `${a.id}:retry:${next.version}` }, tx);

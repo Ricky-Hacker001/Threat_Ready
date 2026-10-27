@@ -18,3 +18,9 @@ process.env.EMAIL_DRIVER = 'log';
 process.env.REPORT_EMAIL_ENABLED = 'true';
 // The pool refill is exercised by its own test; elsewhere one start means at most one generation.
 process.env.REASONING_POOL_ENABLED = 'false';
+// The random audit of single-pass evaluations (REASONING_ESCALATION_AUDIT_RATE) would make which answers
+// escalate depend on Math.random; its own tests set a rate and an injected rng.
+process.env.REASONING_ESCALATION_AUDIT_RATE = '0';
+// The suites open many questions per learner within a day; the production default (12, review AR-SEC-2)
+// is asserted in reasoning.unit.test.ts and the bound itself in reasoning-library.e2e.test.ts.
+process.env.REASONING_USER_DAILY_QUESTIONS = '40';

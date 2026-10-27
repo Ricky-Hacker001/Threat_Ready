@@ -1,0 +1,467 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "i5-dev-platform",
+  "version": 1,
+  "level": "intermediate",
+  "title": "Software company build and delivery platform",
+  "organisation": {
+    "name": "Brindle Systems",
+    "industry": "B2B software: an observability product",
+    "size": "520 staff; 300 engineers across 40 teams",
+    "summary": "Brindle Systems builds a hosted observability product. Developers sign in with SSO and push to source control; jobs run on self-hosted CI runners on Kubernetes that fetch packages through an internal mirror, read build secrets from a secrets vault, sign images with a keyless signing service and push them to an artifact registry. A GitOps controller watches the configuration repository and deploys signed images to the production cluster. Developer laptops run EDR, and the SIEM collects EDR alerts and the production cluster's audit log."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "corporate", "label": "Developer devices", "kind": "corporate" },
+      { "id": "cicd", "label": "Source and CI", "kind": "cicd" },
+      { "id": "prod", "label": "Production account", "kind": "account" },
+      { "id": "security", "label": "Identity and security", "kind": "management" }
+    ],
+    "nodes": [
+      { "id": "customers", "label": "customers", "type": "user", "boundary": "internet", "detail": "Use the hosted product", "controls": [] },
+      { "id": "laptops", "label": "developer laptops", "type": "endpoint", "boundary": "corporate", "detail": "Code, local builds and source control tokens", "controls": ["EDR"] },
+      { "id": "scm", "label": "source control", "type": "repository", "boundary": "cicd", "detail": "Product repositories and the GitOps config repository", "controls": ["branch protection"] },
+      { "id": "runners", "label": "self-hosted CI runners", "type": "container", "boundary": "cicd", "detail": "Build jobs as pods on a shared runner cluster", "controls": [] },
+      { "id": "mirror", "label": "package mirror", "type": "repository", "boundary": "cicd", "detail": "Caches approved public packages", "controls": ["package allow-list"] },
+      { "id": "registry", "label": "artifact registry", "type": "repository", "boundary": "cicd", "detail": "Container images and build artifacts", "controls": [] },
+      { "id": "signing", "label": "signing service", "type": "secret", "boundary": "cicd", "detail": "Signs images with the identity of the requesting job", "controls": ["keyless signing"] },
+      { "id": "gitops", "label": "GitOps controller", "type": "service", "boundary": "prod", "detail": "Applies the config repository to production", "controls": ["signature verification"] },
+      { "id": "prod-k8s", "label": "production cluster", "type": "container", "boundary": "prod", "detail": "Runs the product's services and customer data stores", "controls": ["pod security standard"] },
+      { "id": "vault", "label": "secrets vault", "type": "secret", "boundary": "security", "detail": "Build and production secrets", "controls": ["short-lived leases"] },
+      { "id": "sso", "label": "SSO", "type": "identity", "boundary": "security", "detail": "Developer sign-in to every tool", "controls": ["phishing-resistant MFA"] },
+      { "id": "siem", "label": "SIEM", "type": "siem", "boundary": "security", "detail": "EDR alerts and production audit events", "controls": ["detection rules"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "customers", "to": "prod-k8s", "label": "product traffic", "kind": "data" },
+      { "id": "e2", "from": "laptops", "to": "scm", "label": "pushes code", "kind": "data" },
+      { "id": "e3", "from": "laptops", "to": "sso", "label": "SSO sign-in", "kind": "auth" },
+      { "id": "e4", "from": "sso", "to": "scm", "label": "SSO sessions", "kind": "auth" },
+      { "id": "e5", "from": "scm", "to": "runners", "label": "triggers jobs", "kind": "control" },
+      { "id": "e6", "from": "runners", "to": "mirror", "label": "fetches packages", "kind": "data" },
+      { "id": "e7", "from": "runners", "to": "registry", "label": "pushes images", "kind": "data" },
+      { "id": "e8", "from": "runners", "to": "signing", "label": "requests signatures", "kind": "auth" },
+      { "id": "e9", "from": "runners", "to": "vault", "label": "reads build secrets", "kind": "auth" },
+      { "id": "e10", "from": "gitops", "to": "scm", "label": "watches config repo", "kind": "data" },
+      { "id": "e11", "from": "gitops", "to": "prod-k8s", "label": "applies manifests", "kind": "control" },
+      { "id": "e12", "from": "registry", "to": "prod-k8s", "label": "pulls images", "kind": "data" },
+      { "id": "e13", "from": "prod-k8s", "to": "siem", "label": "cluster audit log", "kind": "control" },
+      { "id": "e14", "from": "laptops", "to": "siem", "label": "EDR alerts", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    {
+      "id": "upstream",
+      "label": "compromised package maintainer",
+      "boundary": "internet",
+      "detail": "Publishes a new version of a package the mirror allows"
+    },
+    {
+      "id": "fork-author",
+      "label": "outside contributor",
+      "boundary": "internet",
+      "detail": "Opens pull requests from a fork of an open-source repository"
+    }
+  ],
+  "identities": [
+    {
+      "id": "developers",
+      "label": "developers",
+      "kind": "federated",
+      "nodeIds": ["laptops", "sso", "scm"],
+      "privileges": ["push to repositories", "approve pull requests", "run pipelines"],
+      "notes": null
+    },
+    {
+      "id": "runner-sa",
+      "label": "runner pods' service account",
+      "kind": "workload",
+      "nodeIds": ["runners", "vault", "signing", "registry"],
+      "privileges": ["read every project's build secrets", "request a signature for any image", "push to the registry"],
+      "notes": "One service account for every project's jobs, including pull requests from forks"
+    },
+    {
+      "id": "gitops-id",
+      "label": "GitOps controller identity",
+      "kind": "workload",
+      "nodeIds": ["gitops", "prod-k8s"],
+      "privileges": ["cluster-admin in production"],
+      "notes": null
+    },
+    {
+      "id": "platform-team",
+      "label": "platform team",
+      "kind": "human",
+      "nodeIds": ["scm", "gitops"],
+      "privileges": ["push directly to the config repository"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "prod-k8s", "data": "customer telemetry and account data in production", "classification": "regulated", "regulations": ["GDPR"] },
+    { "nodeId": "vault", "data": "database passwords, API keys and signing configuration", "classification": "confidential", "regulations": [] },
+    { "nodeId": "scm", "data": "product source code and deployment configuration", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "edr",
+      "label": "EDR",
+      "nodeIds": ["laptops"],
+      "status": "present",
+      "covers": "Malware on developer laptops",
+      "limits": "Developers can add exclusions for their build folders"
+    },
+    {
+      "id": "branch-protection",
+      "label": "branch protection",
+      "nodeIds": ["scm"],
+      "status": "partial",
+      "covers": "Two approvals for main in product repositories",
+      "limits": "The config repository allows direct pushes by the platform team"
+    },
+    {
+      "id": "mirror-allowlist",
+      "label": "package allow-list",
+      "nodeIds": ["mirror"],
+      "status": "partial",
+      "covers": "Only approved package names are mirrored",
+      "limits": "New versions of approved packages are mirrored automatically"
+    },
+    {
+      "id": "keyless",
+      "label": "keyless signing",
+      "nodeIds": ["signing"],
+      "status": "present",
+      "covers": "Images are signed with the identity of the job that built them",
+      "limits": "Any job on the shared runners can request a signature"
+    },
+    {
+      "id": "sig-verify",
+      "label": "signature verification",
+      "nodeIds": ["gitops"],
+      "status": "present",
+      "covers": "Only signed images are deployed",
+      "limits": "Checks that an image is signed, not which pipeline or branch signed it"
+    },
+    {
+      "id": "leases",
+      "label": "short-lived leases",
+      "nodeIds": ["vault"],
+      "status": "present",
+      "covers": "Build secrets expire after the job",
+      "limits": "The runner identity can read every project's path"
+    },
+    {
+      "id": "sso-mfa",
+      "label": "phishing-resistant MFA",
+      "nodeIds": ["sso"],
+      "status": "present",
+      "covers": "Developer sign-in",
+      "limits": "Does not protect tokens already issued to laptops"
+    },
+    {
+      "id": "siem-rules",
+      "label": "detection rules",
+      "nodeIds": ["siem"],
+      "status": "partial",
+      "covers": "Alerts on EDR detections and production audit events",
+      "limits": "No feed from source control, the runners or the vault"
+    },
+    {
+      "id": "pod-security",
+      "label": "pod security standard",
+      "nodeIds": ["prod-k8s"],
+      "status": "partial",
+      "covers": "Production pods run as non-root with a read-only filesystem",
+      "limits": "Every pod gets the registry credential, which can push as well as pull"
+    },
+    {
+      "id": "job-isolation",
+      "label": "per-job isolation",
+      "nodeIds": ["runners"],
+      "status": "missing",
+      "covers": "Jobs of one project cannot see another project's pods or secrets",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "runners-shared",
+      "from": "runners",
+      "to": "vault",
+      "via": "one service account for every project's jobs",
+      "subtle": false,
+      "notes": "Pull requests from forks run on the same runners"
+    },
+    {
+      "id": "gitops-config",
+      "from": "gitops",
+      "to": "scm",
+      "via": "deploys whatever the config repository's main branch says",
+      "subtle": false,
+      "notes": null
+    },
+    { "id": "signing-any-job", "from": "runners", "to": "signing", "via": "any job can request a signature", "subtle": false, "notes": null }
+  ],
+  "logSources": [
+    {
+      "id": "scm-audit",
+      "label": "source control audit log",
+      "nodeIds": ["scm"],
+      "records": "pushes, merges, approvals and settings changes",
+      "gaps": "not forwarded to the SIEM"
+    },
+    {
+      "id": "job-logs",
+      "label": "CI job logs",
+      "nodeIds": ["runners"],
+      "records": "job output with the triggering user and branch",
+      "gaps": "kept 14 days; secrets are masked only when registered"
+    },
+    {
+      "id": "vault-audit",
+      "label": "vault audit log",
+      "nodeIds": ["vault"],
+      "records": "every secret read with identity and path",
+      "gaps": "not alerted on"
+    },
+    {
+      "id": "k8s-audit",
+      "label": "production Kubernetes audit log",
+      "nodeIds": ["prod-k8s", "gitops"],
+      "records": "API requests in production, sent to the SIEM",
+      "gaps": null
+    },
+    {
+      "id": "edr-telemetry",
+      "label": "EDR telemetry",
+      "nodeIds": ["laptops"],
+      "records": "process and network events on developer laptops",
+      "gaps": null
+    }
+  ],
+  "attackSurfaces": {
+    "devsecops_supply_chain": [
+      {
+        "id": "fork-pr-secrets",
+        "summary": "A pull request from a fork runs on the shared runners and reads other projects' secrets",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078.004", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "mirror-poisoning",
+        "summary": "A malicious new version of an approved package is mirrored automatically",
+        "entryNodeIds": ["mirror"],
+        "targetNodeIds": ["registry"],
+        "viaNodeIds": ["runners"],
+        "techniques": ["T1195.001", "T1072", "T1204.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "runner-pod-escape",
+        "summary": "A build job escapes its privileged runner pod to the node",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1611", "T1610", "T1552.007"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "gitops-cluster-admin",
+        "summary": "The GitOps controller is cluster-admin, so a change to the config repository can run anything",
+        "entryNodeIds": ["scm"],
+        "targetNodeIds": ["prod-k8s"],
+        "viaNodeIds": ["gitops"],
+        "techniques": ["T1609", "T1610", "T1098.006"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "edr-exclusion",
+        "summary": "A developer's EDR exclusion for build folders hides a dropped tool",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["scm"],
+        "viaNodeIds": [],
+        "techniques": ["T1562.001", "T1036.005", "T1105"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "laptop-tokens",
+        "summary": "Malware takes source control and SSO tokens from a laptop",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["scm"],
+        "viaNodeIds": ["sso"],
+        "techniques": ["T1555.003", "T1204.002", "T1113"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "vault-every-path",
+        "summary": "The runner identity can read every project's path in the vault",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078.004", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "config-repo-to-prod",
+        "summary": "A push to the config repository reaches production with cluster-admin rights",
+        "entryNodeIds": ["scm"],
+        "targetNodeIds": ["prod-k8s"],
+        "viaNodeIds": ["gitops"],
+        "techniques": ["T1078.004", "T1578", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "sso-session-replay",
+        "summary": "A developer's SSO session is replayed to push to the config repository",
+        "entryNodeIds": ["sso"],
+        "targetNodeIds": ["gitops"],
+        "viaNodeIds": ["scm"],
+        "techniques": ["T1539", "T1550.004", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "shared-runner-identity",
+        "summary": "One runner identity serves every project's jobs",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["signing"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1528", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "no-scm-feed",
+        "summary": "Source control and vault events never reach the SIEM",
+        "entryNodeIds": ["scm"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": ["runners"],
+        "techniques": ["T1078", "T1562.001", "T1087"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "night-signing",
+        "summary": "A signature request at night from a job nobody triggered",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["signing"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1105", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "lookalike-packages",
+        "summary": "A report on a campaign publishing look-alike packages to public registries",
+        "entryNodeIds": ["mirror"],
+        "targetNodeIds": ["runners"],
+        "viaNodeIds": [],
+        "techniques": ["T1587", "T1036", "T1105"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "runner-hijack",
+        "summary": "Intelligence on attackers using self-hosted CI runners for mining and lateral movement",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1570", "T1105", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "signed-backdoor",
+        "summary": "A signed image with a backdoor is running in production",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["prod-k8s"],
+        "viaNodeIds": ["registry"],
+        "techniques": ["T1105", "T1078", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "secrets-in-job-logs",
+        "summary": "CI job logs printed production database passwords",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1070", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "runner-egress",
+        "summary": "Runner pods can reach any internet address and the production network",
+        "entryNodeIds": ["runners"],
+        "targetNodeIds": ["prod-k8s"],
+        "viaNodeIds": ["registry"],
+        "techniques": ["T1572", "T1090", "T1046"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "mirror-pivot",
+        "summary": "The package mirror is reachable from the internet and from the runners",
+        "entryNodeIds": ["mirror"],
+        "targetNodeIds": ["runners"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1210", "T1046"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "product-deserialisation",
+        "summary": "A deserialisation flaw in the product gives code execution in a production pod",
+        "entryNodeIds": ["prod-k8s"],
+        "targetNodeIds": ["registry"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1059", "T1552.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "build-script-injection",
+        "summary": "A pull request title is pasted into a build script on the runners",
+        "entryNodeIds": ["scm"],
+        "targetNodeIds": ["runners"],
+        "viaNodeIds": [],
+        "techniques": ["T1059", "T1195.002", "T1552.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Intermediate: strong controls (keyless signing, signature verification, short leases) undone by one shared runner identity and a config repository that accepts direct pushes."
+}

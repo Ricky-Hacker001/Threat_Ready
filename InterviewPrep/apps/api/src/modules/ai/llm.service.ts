@@ -5,7 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database, type Tx } from '../../platform/db/database.js';
 import { emitMetric, logger, requestContext } from '../../platform/logging/logger.js';
-import { LLM_PORT, type LlmObject, type LlmPort, type LlmRequest, type LlmUsage, type StructuredSchema } from '../../platform/ports/llm.port.js';
+import { LLM_PORT, promptChars, type LlmObject, type LlmPort, type LlmRequest, type LlmUsage, type StructuredSchema } from '../../platform/ports/llm.port.js';
 import { costUsd, estimateTokens } from './pricing.js';
 
 /**
@@ -65,8 +65,13 @@ export class LlmService {
     return this.port.modelFor(tier);
   }
 
-  /** Structured call with one retry on a schema failure (L17b convention reused for interviews). */
-  async structured<T>(meta: CallMeta, req: LlmRequest, schema: StructuredSchema<T>): Promise<LlmObject<T>> {
+  /**
+   * Structured call with one retry on a schema failure (L17b convention reused for interviews).
+   * `retryInvalid: false` makes a schema failure final, for callers that escalate to another tier
+   * instead of repeating the same call (reasoning generation's Haiku-then-Sonnet ladder).
+   */
+  async structured<T>(meta: CallMeta, req: LlmRequest, schema: StructuredSchema<T>, opts: { retryInvalid?: boolean } = {}): Promise<LlmObject<T>> {
+    const retryInvalid = opts.retryInvalid ?? true;
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.metered(meta, req, async () => {
@@ -74,7 +79,7 @@ export class LlmService {
           return { result: r, usage: r.usage, extraUsage: r.extraUsage };
         });
       } catch (err) {
-        if (attempt === 0 && err instanceof PortError && err.kind === 'invalid_output') {
+        if (retryInvalid && attempt === 0 && err instanceof PortError && err.kind === 'invalid_output') {
           logger.warn({ feature: meta.feature, schema: schema.name }, 'structured output invalid; retrying once');
           continue;
         }
@@ -169,11 +174,14 @@ export class LlmService {
     return process.env.APP_ROLE === 'worker' ? this.db.system(fn) : this.db.user(owner, fn);
   }
 
-  /** Estimated cost of a call before it runs: the prompt at about 3 characters per token plus the whole output allowance. */
+  /**
+   * Estimated cost of a call before it runs: the whole prompt (cached prefix included) at about 3
+   * characters per token at the full input price, plus the whole output allowance. Conservative on
+   * purpose: cache reads are ignored here and priced from the provider's usage at settlement.
+   */
   estimate(req: LlmRequest, meta?: Pick<CallMeta, 'feature'>): number {
     const pricing = this.cfg.pricing[this.port.modelFor(req.tier)]!;
-    const promptChars = req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0);
-    const inputTokens = estimateTokens(promptChars);
+    const inputTokens = estimateTokens(promptChars(req));
     if (inputTokens > PROMPT_TOKEN_CEILING) {
       logger.error({ feature: meta?.feature, inputTokens }, 'prompt exceeds the 100K token ceiling');
       throw new DomainError('LLM_OUTPUT_INVALID', { message: 'The request was too large to process' });

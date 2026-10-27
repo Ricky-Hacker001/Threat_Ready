@@ -1,0 +1,435 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "a3-manufacturer-ot",
+  "version": 1,
+  "level": "advanced",
+  "title": "Manufacturer with IT/OT convergence",
+  "organisation": {
+    "name": "Ardent Forge Components",
+    "industry": "Manufacturing: automotive parts",
+    "size": "1,700 staff across two plants; IT team of 25, two OT engineers",
+    "summary": "Ardent Forge Components machines brake and steering parts on production lines run by PLCs and HMI panels. OT engineers program the PLCs from an engineering workstation that they reach over RDP through a jump host in the IT/OT DMZ; the jump host is joined to the corporate Active Directory. The plant historian replicates process data to a replica in the DMZ, from which a connector posts production counts to the cloud ERP. The line OEM supports its machines through a remote access portal, a passive OT monitoring sensor watches the plant network, and the SIEM collects EDR and AD logs."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "vendor", "label": "OEM vendor", "kind": "vendor" },
+      { "id": "corporate", "label": "Corporate IT", "kind": "corporate" },
+      { "id": "dmz", "label": "IT/OT DMZ", "kind": "dmz" },
+      { "id": "plant", "label": "Plant control network", "kind": "ot" },
+      { "id": "cloud", "label": "Cloud ERP", "kind": "account" }
+    ],
+    "nodes": [
+      { "id": "vendor-portal", "label": "OEM remote access portal", "type": "saas", "boundary": "vendor", "detail": "OEM engineers' remote sessions and diagnostics", "controls": [] },
+      { "id": "email", "label": "email gateway", "type": "email", "boundary": "corporate", "detail": "Inbound mail for office staff", "controls": ["attachment sandbox"] },
+      { "id": "office-pcs", "label": "office PCs", "type": "endpoint", "boundary": "corporate", "detail": "Planning, purchasing and engineering offices", "controls": ["EDR"] },
+      { "id": "ad", "label": "corporate AD", "type": "identity", "boundary": "corporate", "detail": "Accounts and groups, including OT-Remote", "controls": [] },
+      { "id": "siem", "label": "SIEM", "type": "siem", "boundary": "corporate", "detail": "EDR, AD and OT sensor alerts", "controls": ["IT detections"] },
+      { "id": "jump-host", "label": "DMZ jump host", "type": "compute", "boundary": "dmz", "detail": "RDP gateway into the plant network", "controls": ["MFA"] },
+      { "id": "replica", "label": "historian replica", "type": "database", "boundary": "dmz", "detail": "Copy of plant process data for IT users", "controls": ["one-way replication"] },
+      { "id": "connector", "label": "ERP connector", "type": "service", "boundary": "dmz", "detail": "Posts production counts to the cloud ERP", "controls": [] },
+      { "id": "eng-ws", "label": "engineering workstation", "type": "endpoint", "boundary": "plant", "detail": "PLC programming software and project files", "controls": [] },
+      { "id": "plc", "label": "line PLCs", "type": "device", "boundary": "plant", "detail": "Control the machining lines; cellular modem in the cabinet", "controls": [] },
+      { "id": "hmi", "label": "HMI panels", "type": "device", "boundary": "plant", "detail": "Operator screens on the lines", "controls": [] },
+      { "id": "historian", "label": "plant historian", "type": "database", "boundary": "plant", "detail": "Process data and recipes", "controls": [] },
+      { "id": "ot-sensor", "label": "OT monitoring sensor", "type": "control", "boundary": "plant", "detail": "Passive monitoring of plant traffic", "controls": ["passive monitoring"] },
+      { "id": "erp", "label": "cloud ERP", "type": "saas", "boundary": "cloud", "detail": "Orders, suppliers, pricing and payroll", "controls": ["SSO"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "email", "to": "office-pcs", "label": "delivers mail", "kind": "data" },
+      { "id": "e2", "from": "office-pcs", "to": "ad", "label": "domain sign-in", "kind": "auth" },
+      { "id": "e3", "from": "office-pcs", "to": "jump-host", "label": "RDP to the DMZ", "kind": "auth" },
+      { "id": "e4", "from": "jump-host", "to": "eng-ws", "label": "RDP into the plant", "kind": "auth" },
+      { "id": "e5", "from": "eng-ws", "to": "plc", "label": "programs logic", "kind": "control" },
+      { "id": "e6", "from": "hmi", "to": "plc", "label": "operator commands", "kind": "control" },
+      { "id": "e7", "from": "plc", "to": "historian", "label": "process data", "kind": "data" },
+      { "id": "e8", "from": "historian", "to": "replica", "label": "replicates data", "kind": "data" },
+      { "id": "e9", "from": "replica", "to": "connector", "label": "production counts", "kind": "data" },
+      { "id": "e10", "from": "connector", "to": "erp", "label": "posts to ERP API", "kind": "auth" },
+      { "id": "e11", "from": "vendor-portal", "to": "jump-host", "label": "vendor sessions", "kind": "auth" },
+      { "id": "e12", "from": "ot-sensor", "to": "siem", "label": "OT alerts", "kind": "control" },
+      { "id": "e13", "from": "office-pcs", "to": "siem", "label": "EDR alerts", "kind": "control" },
+      { "id": "e14", "from": "ad", "to": "jump-host", "label": "jump host sign-in", "kind": "auth" },
+      { "id": "e15", "from": "ad", "to": "erp", "label": "SSO federation", "kind": "auth" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Phishing and internet-facing services" },
+    { "id": "oem-actor", "label": "compromised OEM account", "boundary": "vendor", "detail": "An OEM engineer account on the remote access portal" },
+    { "id": "insider", "label": "disgruntled employee", "boundary": "corporate", "detail": "An office employee with a domain account" }
+  ],
+  "identities": [
+    {
+      "id": "ot-engineers",
+      "label": "OT engineers",
+      "kind": "human",
+      "nodeIds": ["jump-host", "eng-ws"],
+      "privileges": ["RDP from the jump host to the engineering workstation", "download logic to the PLCs"],
+      "notes": null
+    },
+    {
+      "id": "ot-remote",
+      "label": "OT-Remote group members",
+      "kind": "human",
+      "nodeIds": ["ad", "jump-host"],
+      "privileges": ["sign in to the jump host with a corporate account and MFA"],
+      "notes": "The jump host trusts corporate AD; membership of OT-Remote is the only gate"
+    },
+    {
+      "id": "oem-accounts",
+      "label": "OEM engineer accounts",
+      "kind": "vendor",
+      "nodeIds": ["vendor-portal", "jump-host", "plc"],
+      "privileges": ["vendor sessions to the jump host", "cellular modem access to the line PLCs for diagnostics"],
+      "notes": null
+    },
+    {
+      "id": "connector-key",
+      "label": "ERP connector API key",
+      "kind": "service",
+      "nodeIds": ["connector", "erp"],
+      "privileges": ["post production counts", "read and write purchase orders"],
+      "notes": "Scoped wider than the connector needs"
+    },
+    {
+      "id": "replication-acct",
+      "label": "historian replication account",
+      "kind": "service",
+      "nodeIds": ["historian", "replica"],
+      "privileges": ["read process data from the plant historian", "write back to the plant historian"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "historian", "data": "process data and machining recipes", "classification": "confidential", "regulations": [] },
+    { "nodeId": "erp", "data": "orders, suppliers, pricing and payroll", "classification": "regulated", "regulations": ["GDPR"] },
+    { "nodeId": "eng-ws", "data": "PLC project files and control logic", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "sandbox",
+      "label": "attachment sandbox",
+      "nodeIds": ["email"],
+      "status": "present",
+      "covers": "Malicious attachments in inbound mail",
+      "limits": null
+    },
+    {
+      "id": "edr",
+      "label": "EDR",
+      "nodeIds": ["office-pcs"],
+      "status": "present",
+      "covers": "Malware on office PCs",
+      "limits": "Not installed on the jump host or the engineering workstation (OEM-certified images)"
+    },
+    {
+      "id": "jump-mfa",
+      "label": "MFA",
+      "nodeIds": ["jump-host"],
+      "status": "present",
+      "covers": "Interactive sign-in to the jump host",
+      "limits": "Corporate AD decides who is in OT-Remote; a domain admin can add anyone"
+    },
+    {
+      "id": "passive",
+      "label": "passive monitoring",
+      "nodeIds": ["ot-sensor"],
+      "status": "present",
+      "covers": "Alerts on new devices and PLC program downloads on the plant network",
+      "limits": "Does not see traffic over the PLC cabinet's cellular modem"
+    },
+    {
+      "id": "one-way",
+      "label": "one-way replication",
+      "nodeIds": ["replica", "historian"],
+      "status": "partial",
+      "covers": "Process data flows from the plant historian to the DMZ only",
+      "limits": "The replication account can also write back to the plant historian"
+    },
+    {
+      "id": "erp-sso",
+      "label": "SSO",
+      "nodeIds": ["erp"],
+      "status": "present",
+      "covers": "Staff sign-in to the ERP through corporate AD",
+      "limits": "Trusts whatever AD asserts"
+    },
+    {
+      "id": "it-detections",
+      "label": "IT detections",
+      "nodeIds": ["siem"],
+      "status": "partial",
+      "covers": "EDR and AD alerts with playbooks",
+      "limits": "OT sensor alerts arrive, but nobody on the SOC rota is trained to triage them"
+    },
+    {
+      "id": "plc-keyswitch",
+      "label": "PLC key switch in RUN",
+      "nodeIds": ["plc"],
+      "status": "missing",
+      "covers": "A physical key that blocks remote program changes",
+      "limits": null
+    },
+    {
+      "id": "allowlisting",
+      "label": "application allow-listing",
+      "nodeIds": ["eng-ws", "jump-host"],
+      "status": "missing",
+      "covers": "Only approved programs run on the engineering systems",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "ad-to-jump",
+      "from": "ad",
+      "to": "jump-host",
+      "via": "the jump host is joined to corporate AD; the OT-Remote group grants access",
+      "subtle": true,
+      "notes": "Corporate domain compromise is OT access"
+    },
+    {
+      "id": "cellular-modem",
+      "from": "vendor-portal",
+      "to": "plc",
+      "via": "cellular modem in the PLC cabinet for OEM diagnostics",
+      "subtle": true,
+      "notes": "Bypasses the DMZ, the jump host and the OT sensor"
+    },
+    {
+      "id": "replica-writeback",
+      "from": "replica",
+      "to": "historian",
+      "via": "replication account with write access back to the plant historian",
+      "subtle": false,
+      "notes": null
+    },
+    { "id": "connector-erp", "from": "connector", "to": "erp", "via": "API key with purchase order write access", "subtle": false, "notes": null }
+  ],
+  "logSources": [
+    {
+      "id": "edr-telemetry",
+      "label": "EDR telemetry",
+      "nodeIds": ["office-pcs"],
+      "records": "process, script and network events on office PCs",
+      "gaps": null
+    },
+    { "id": "ad-logs", "label": "AD security logs", "nodeIds": ["ad"], "records": "sign-ins and group membership changes", "gaps": null },
+    {
+      "id": "jump-logs",
+      "label": "jump host session log",
+      "nodeIds": ["jump-host"],
+      "records": "RDP sessions with user and source",
+      "gaps": "no session recording"
+    },
+    {
+      "id": "ot-alerts",
+      "label": "OT sensor alerts",
+      "nodeIds": ["ot-sensor", "plc", "hmi"],
+      "records": "new devices, PLC program downloads and unusual commands",
+      "gaps": "cellular modem traffic is invisible to it"
+    },
+    { "id": "erp-audit", "label": "ERP audit log", "nodeIds": ["erp"], "records": "sign-ins and changes to orders and suppliers", "gaps": null }
+  ],
+  "attackSurfaces": {
+    "network_security": [
+      {
+        "id": "it-to-ot-pivot",
+        "summary": "From a phished office PC through the DMZ jump host to the engineering workstation",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1021.001", "T1133", "T1570"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cellular-bypass",
+        "summary": "The PLC cabinet's cellular modem is a way into the plant that skips the DMZ",
+        "entryNodeIds": ["vendor-portal"],
+        "targetNodeIds": ["historian"],
+        "viaNodeIds": ["plc"],
+        "techniques": ["T1133", "T1599", "T1572"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "unprotected-eng-systems",
+        "summary": "The jump host and the engineering workstation run no EDR",
+        "entryNodeIds": ["jump-host"],
+        "targetNodeIds": ["plc"],
+        "viaNodeIds": ["eng-ws"],
+        "techniques": ["T1105", "T1059.003", "T1543.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "office-pc-session",
+        "summary": "A malicious attachment on an office PC steals the user's domain credentials",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["jump-host"],
+        "viaNodeIds": ["ad"],
+        "techniques": ["T1204.002", "T1003.001", "T1059.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "ransomware-near-plant",
+        "summary": "Ransomware on office PCs: should the IT/OT link be cut, and when?",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1486", "T1489", "T1021.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unscheduled-download",
+        "summary": "The OT sensor reports a PLC program download nobody scheduled",
+        "entryNodeIds": ["jump-host"],
+        "targetNodeIds": ["plc"],
+        "viaNodeIds": ["eng-ws"],
+        "techniques": ["T1078", "T1219", "T1070"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "ot-alerts-untriaged",
+        "summary": "OT sensor alerts reach the SIEM, but the SOC rota cannot triage them",
+        "entryNodeIds": ["jump-host"],
+        "targetNodeIds": ["plc"],
+        "viaNodeIds": ["eng-ws"],
+        "techniques": ["T1078", "T1021.001", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "ot-remote-change",
+        "summary": "A member is added to the OT-Remote group at night",
+        "entryNodeIds": ["ad"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1098", "T1078", "T1087"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "ot-campaign",
+        "summary": "An advisory on a group that targets manufacturers' engineering workstations",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1021", "T1570", "T1036"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "oem-breach-report",
+        "summary": "A report that an OEM's remote support platform was breached",
+        "entryNodeIds": ["vendor-portal"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1078", "T1584", "T1105"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "ad-decides-ot",
+        "summary": "Corporate AD decides who reaches the plant network",
+        "entryNodeIds": ["ad"],
+        "targetNodeIds": ["eng-ws"],
+        "viaNodeIds": ["jump-host"],
+        "techniques": ["T1078.002", "T1098", "T1484.002"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "erp-federation",
+        "summary": "ERP sign-in is federated with the same corporate AD",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["erp"],
+        "viaNodeIds": ["ad"],
+        "techniques": ["T1078.002", "T1606.002", "T1539"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "zones-undocumented",
+        "summary": "No documented zones and conduits; the cellular modem is in no risk register",
+        "entryNodeIds": ["vendor-portal"],
+        "targetNodeIds": ["historian"],
+        "viaNodeIds": ["plc"],
+        "techniques": ["T1199", "T1082", "T1190"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "patching-needs-oem",
+        "summary": "Engineering systems cannot be patched without the OEM's sign-off",
+        "entryNodeIds": ["jump-host"],
+        "targetNodeIds": ["plc"],
+        "viaNodeIds": ["eng-ws"],
+        "techniques": ["T1203", "T1078", "T1082"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "jump-host-implicit",
+        "summary": "Reaching the jump host is treated as being trusted to reach the plant",
+        "entryNodeIds": ["jump-host"],
+        "targetNodeIds": ["plc"],
+        "viaNodeIds": ["eng-ws"],
+        "techniques": ["T1078", "T1021.001", "T1133"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "connector-trust",
+        "summary": "The ERP trusts the DMZ connector's API key for any order change",
+        "entryNodeIds": ["replica"],
+        "targetNodeIds": ["erp"],
+        "viaNodeIds": ["connector"],
+        "techniques": ["T1199", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "connector-key-scope",
+        "summary": "The ERP connector's API key can write purchase orders, not only production counts",
+        "entryNodeIds": ["replica"],
+        "targetNodeIds": ["erp"],
+        "viaNodeIds": ["connector"],
+        "techniques": ["T1552.001", "T1078.004", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "erp-admin-federation",
+        "summary": "A forged federation token signs in to the cloud ERP as a payroll admin",
+        "entryNodeIds": ["office-pcs"],
+        "targetNodeIds": ["erp"],
+        "viaNodeIds": ["ad"],
+        "techniques": ["T1078.004", "T1550.001", "T1098.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Advanced: corporate AD gates OT access (subtle), and the cellular modem bypasses every IT/OT control (subtle). Present controls with limits: EDR not on the engineering systems, the OT sensor blind to the modem, one-way replication that is not one-way for its account."
+}
