@@ -84,6 +84,6 @@ describe('architecture library diagrams lay out cleanly', () => {
       }
       expect(seen.size).toBeGreaterThan(0);
       expect(problems, problems.join('\n')).toEqual([]);
-    });
+    }, 30_000); // CPU-bound layout: up to 1.4 s idle here, 5.4 s under load; vitest's 5 s default flakes
   }
 });
