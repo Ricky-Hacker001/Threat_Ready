@@ -7,7 +7,7 @@ import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
 import type { LlmObject, LlmTier } from '../../platform/ports/llm.port.js';
-import { LlmService, type CallMeta } from '../ai/llm.service.js';
+import { LlmService, refusalOf, type CallMeta } from '../ai/llm.service.js';
 import { architectureShingles, architecturesFor, architectureText, getArchitecture, surfacesFor, type ArchitectureDef } from './architectures/index.js';
 import { getDomain, registeredDomains } from './domains/index.js';
 import { fingerprintOf, type ReasoningDomain, type VariationSeed } from './domain.types.js';
@@ -17,6 +17,7 @@ import { GENERATION_PROMPT_VERSION, GENERATOR_VERSION, questionRequest, question
 import { normaliseWeights } from './scoring.js';
 import { pickLibrarySeed, structureKeyOf, type Rng } from './seed.js';
 import { checkLibrarySimilarity, comparableText, type LibraryBankEntry } from './similarity.js';
+import { smallTierParams } from './small-tier.js';
 import { normaliseLibraryOutput, toLibraryItem, validateLibraryItem } from './validation.js';
 
 /** The platform account that owns pool generation in the AI ledger (migration 0009). */
@@ -290,15 +291,16 @@ export class GenerationService {
     // A fixed seed keeps the estimate stable and the generator's random sequence untouched.
     const seed = pickLibrarySeed(domain, bucket, [arch], [], () => 0);
     const surface = surfacesFor(arch, domain.key).find((x) => x.id === seed.entryPoint)!;
-    const at = (tier: LlmTier) => this.llm.estimate(questionRequest({ arch, domain, seed, surface, tier, avoid: [], previousFailure: [], tryNumber: 1 }));
+    const small = smallTierParams(this.cfg, 'generation');
+    const at = (tier: LlmTier) => this.llm.estimate(questionRequest({ arch, domain, seed, surface, tier, small, avoid: [], previousFailure: [], tryNumber: 1 }));
     const tries = this.cfg.REASONING_MAX_GENERATION_TRIES;
     return at(this.cfg.REASONING_GENERATION_FIRST_TIER) + (tries - 1) * at('LARGE');
   }
 
-  /** What an on-demand generation leaves unspent of the learner's daily cap: room for one first-stage evaluation (on its tier). */
+  /** What an on-demand generation leaves unspent of the learner's daily cap: room for one first-stage evaluation (on its tier and model). */
   evaluationRoomUsd(domainKey: string): number {
     const domain = getDomain(domainKey);
-    return domain ? this.llm.estimate(evaluatorRequestBound(domain, null, undefined, evaluatorTier(this.cfg.REASONING_EVALUATION_MODE))) : 0;
+    return domain ? this.llm.estimate(evaluatorRequestBound(domain, null, undefined, evaluatorTier(this.cfg.REASONING_EVALUATION_MODE), smallTierParams(this.cfg, 'evaluation'))) : 0;
   }
 
   /**
@@ -431,7 +433,8 @@ export class GenerationService {
    * One question that passes the quality gate and is distinct from the bank (design §3.5): try 1 on
    * REASONING_GENERATION_FIRST_TIER, every later try on LARGE with the gate's findings fed back (a fresh
    * seed when the rejection was a similarity or fingerprint collision). A schema failure or a refusal is
-   * a gate failure: it is not repeated on the same tier (`retryInvalid: false`). The similarity check and
+   * a gate failure: it is not repeated on the same tier (`retryInvalid: false`); a refusal (Haiku 5.5's
+   * safety classifiers can decline an attack scenario) is counted with its category. The similarity check and
    * the bank update run synchronously after each model call, so parallel generations in one batch also
    * stay distinct. Every call is reserved and settled by LlmService, billed failures included.
    */
@@ -448,30 +451,41 @@ export class GenerationService {
     const used = new Set(bank.fingerprints);
     let seed = opts.firstSeed ?? this.nextSeed(domain, difficulty, bank, used);
     let feedback: string[] = [];
+    const small = smallTierParams(this.cfg, 'generation');
     const started = Date.now();
     for (let tryNumber = 1; tryNumber <= maxTries; tryNumber++) {
       const tier: LlmTier = tryNumber === 1 ? this.cfg.REASONING_GENERATION_FIRST_TIER : 'LARGE';
+      const model = this.llm.modelFor(tier, 'reasoning');
       used.add(fingerprintOf(seed));
       const arch: ArchitectureDef | undefined = getArchitecture(seed.topology);
       const surface = arch && surfacesFor(arch, domain.key).find((x) => x.id === seed.entryPoint);
       if (!arch || !surface) throw new Error(`generation seed names no library surface: ${seed.topology}/${seed.entryPoint}`);
       await opts.onTry?.(tryNumber);
-      emitMetric('ReasoningGenerationAttempt', 1, 'Count', { Tier: tier });
-      const reject = (reason: string) => emitMetric('ReasoningGenerationRejected', 1, 'Count', { Reason: reason, Tier: tier });
+      emitMetric('ReasoningGenerationAttempt', 1, 'Count', { Tier: tier, Model: model });
+      const reject = (reason: string) => emitMetric('ReasoningGenerationRejected', 1, 'Count', { Reason: reason, Tier: tier, Model: model });
 
       let value: LlmObject<LibraryGeneratorOutput>;
       try {
         value = await this.llm.structured(
           meta,
           // Not marked for caching unless REASONING_PROMPT_CACHE: parallel seeds on different architectures and the tier switch mean nothing reads it back (review COST-2).
-          { ...questionRequest({ arch, domain, seed, surface, tier, avoid: bank.avoid.get(arch.id) ?? [], previousFailure: feedback, tryNumber }), cache: this.cfg.REASONING_PROMPT_CACHE },
+          { ...questionRequest({ arch, domain, seed, surface, tier, small, avoid: bank.avoid.get(arch.id) ?? [], previousFailure: feedback, tryNumber }), cache: this.cfg.REASONING_PROMPT_CACHE },
           questionSchema(arch, domain),
           { retryInvalid: false },
         );
       } catch (err) {
         if (err instanceof DomainError && TERMINAL_CODES.has(err.code)) return { ok: false, code: err.code, tries: tryNumber };
+        const refusal = refusalOf(err);
+        if (refusal) {
+          // The model declined the scenario: billed (recorded by LlmService) and, like a gate failure, the
+          // next try is LARGE; a refusal adds no finding to feed back.
+          reject('refusal');
+          emitMetric('ReasoningRefusal', 1, 'Count', { Stage: 'generation', Model: model, Category: refusal.category ?? 'unknown' });
+          logger.warn({ source_id: opts.sourceId, difficulty, try: tryNumber, tier, model, architecture: arch.id, category: refusal.category }, 'question writer declined the request');
+          continue;
+        }
         if (err instanceof DomainError && err.code === 'LLM_OUTPUT_INVALID') {
-          // Schema failure, truncation or refusal: billed (recorded by LlmService) and a gate failure.
+          // Schema failure or truncation: billed (recorded by LlmService) and a gate failure.
           reject('schema');
           logger.warn({ source_id: opts.sourceId, difficulty, try: tryNumber, tier }, 'generated question failed the schema');
           feedback = ['The previous output did not match the required JSON structure or was cut off; follow the schema exactly, use only the listed component, origin and technique ids, and keep every field within its length.'];
@@ -513,9 +527,9 @@ export class GenerationService {
       bank.seeds.push(item.seed);
       const lines = bank.avoid.get(arch.id) ?? [];
       bank.avoid.set(arch.id, [{ title: item.public.title, question: item.public.question, path: pathLabels(item.public.diagram), objective: seed.objective }, ...lines].slice(0, 8));
-      emitMetric('ReasoningGenerationStored', 1, 'Count', { Tier: tier });
+      emitMetric('ReasoningGenerationStored', 1, 'Count', { Tier: tier, Model: model });
       emitMetric('ReasoningGenerationMs', Date.now() - started, 'Milliseconds', { Domain: domain.key, Difficulty: difficulty });
-      logger.info({ source_id: opts.sourceId, difficulty, architecture: arch.id, tries: tryNumber, tier, warnings: check.warnings.length, similarity: sim.max }, 'reasoning item generated');
+      logger.info({ source_id: opts.sourceId, difficulty, architecture: arch.id, tries: tryNumber, tier, model: value.usage.model, warnings: check.warnings.length, similarity: sim.max }, 'reasoning item generated');
       return { ok: true, item, model: value.usage.model, tier, tries: tryNumber };
     }
     emitMetric('ReasoningGenerationFailed', 1, 'Count', { Domain: domain.key });

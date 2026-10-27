@@ -13,5 +13,5 @@ soc/server/engine/alias.js:35  alternation of scenario entity names (server-side
 InterviewPrep/apps/api/src/modules/ai/json-schema.ts:60  tag is always a code literal ('untrusted_resume', 'untrusted_answer', ...) at every call site; the untrusted text is the subject, not the pattern
 InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:21  fake LLM adapter (tests/dev only); tag is a code literal
 InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:22  fake LLM adapter (tests/dev only); label is a code literal
-InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:135  fake LLM adapter (tests/dev only); tag is a code literal
-InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:145  fake LLM adapter (tests/dev only); term comes from the built-in rubric term list and is regex-escaped
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:169  fake LLM adapter (tests/dev only); tag is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:179  fake LLM adapter (tests/dev only); term comes from the built-in rubric term list and is regex-escaped

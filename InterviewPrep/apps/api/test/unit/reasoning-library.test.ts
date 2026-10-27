@@ -441,8 +441,26 @@ describe('architecture library questions: architecture-aware similarity', () => 
     expect(structureKeyOf(avoided)).not.toBe(structureKeyOf(free));
     // Every combination avoided: it still returns a seed (the similarity check decides).
     const all = new Set<string>();
-    for (const arch of archs) for (const surface of surfacesFor(arch, domain.key)) for (const o of domain.variation.objectives) all.add(`${arch.id}|${surface.id}|${o.id}`);
+    for (const arch of archs) for (const surface of surfacesFor(arch, domain.key)) for (const o of domain.variation.objectives) all.add(structureKeyOf({ domain: domain.key, topology: arch.id, entryPoint: surface.id, objective: o.id }));
     expect(pickLibrarySeed(domain, 'beginner', archs, [], () => 0, new Set(), all)).toBeTruthy();
+  });
+
+  it('a live question of another domain whose surface crosses the same nodes, with the same objective, is a structure the picker passes over (review H55-COST-5)', () => {
+    // The real H55 pair: cloud_security's leaked-deploy-key and incident_response's exports-download on b1 both
+    // run deploy-key > exports-bucket, and both stored questions had one pathKey. By surface id the picker could
+    // not see it, and the similarity check rejected the paid try as a structure collision.
+    const live = { domain: 'cloud_security', topology: 'b1-online-shop', entryPoint: 'leaked-deploy-key', objective: 'contain_now' } as const;
+    const next = { domain: 'incident_response', topology: 'b1-online-shop', entryPoint: 'exports-download', objective: 'contain_now' } as const;
+    expect(structureKeyOf(next)).toBe(structureKeyOf(live));
+    expect(structureKeyOf({ ...next, objective: 'preserve_first' })).not.toBe(structureKeyOf(live));
+    expect(structureKeyOf({ ...next, entryPoint: 'shop-web-shell' })).not.toBe(structureKeyOf(live));
+    // A surface the library no longer has keeps its id.
+    expect(structureKeyOf({ ...live, entryPoint: 'retired-surface' })).toBe('b1-online-shop|retired-surface|contain_now');
+    const ir = getDomain('incident_response')!;
+    const b1 = [getArchitecture('b1-online-shop')!];
+    expect(pickLibrarySeed(ir, 'beginner', b1, [], () => 0)).toMatchObject({ entryPoint: 'exports-download', objective: 'contain_now' });
+    const avoided = pickLibrarySeed(ir, 'beginner', b1, [], () => 0, new Set(), new Set([structureKeyOf(live)]));
+    expect(structureKeyOf(avoided)).not.toBe(structureKeyOf(live));
   });
 });
 

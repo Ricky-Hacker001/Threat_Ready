@@ -1,19 +1,124 @@
 # Attack Reasoning: cost reduction design (26 Oct 2026)
 
-Status: design for three parallel builders (ARCH, GEN, EVAL) and a later VERIFY step. Base: GitHub main @ 7d81555, production at migration 0016. No code is changed by this document.
+Status: design for three parallel builders (ARCH, GEN, EVAL) and a later VERIFY step. Base: GitHub main @ 7d81555, production at migration 0016. No code is changed by this document. Current costs and shipped defaults: "Claude Haiku 5.5 (27 Oct 2026)" below.
 
 Owner decisions implemented here (and nothing else):
 
 1. A fixed **architecture library** of 15 architectures (5 beginner, 5 intermediate, 5 advanced), written by the coding agents and reviewed as files in the repo. Questions are generated only on top of them; the model no longer invents an architecture or a diagram.
 2. Each generated question is served to **at most 2 learners**, then retired. A learner never gets the same question twice, nor a near-duplicate.
-3. **Haiku** (SMALL tier, `LLM_MODEL_SMALL = claude-haiku-4-5`) writes the questions behind an automatic quality gate; a question that fails the gate is regenerated **once with Sonnet** (LARGE tier).
+3. **Haiku** (SMALL tier, `LLM_MODEL_SMALL = claude-haiku-4-5`; Haiku 5.5 through `REASONING_MODEL_SMALL` since 27 Oct, see "Claude Haiku 5.5") writes the questions behind an automatic quality gate; a question that fails the gate is regenerated **once with Sonnet** (LARGE tier).
 4. **Cheaper evaluation**: the option is scored in code; one Haiku pass marks the justification; the Sonnet challenger and reconciler run only for borderline or disputed answers; the item context is prompt-cached across stages.
 
 Out of scope (owner did not choose them): Batch API, rubric shortening.
 
 ---
 
+## Claude Haiku 5.5 (27 Oct 2026)
+
+Owner-approved step H55: `claude-haiku-5-5` was added for Attack Reasoning's SMALL tier only, measured on the real model (US$0.74 of a US$1.00 hard cap, 59 billed calls, scratch database `ar_h55_real_test`), and the shipped defaults were set from the result (H55 Decide, no further calls). Nothing is merged or deployed. **This section is the current reference.** It supersedes the generation figures in "Corrections after the real-model check and the review" below, which measured Haiku 4.5 before the gate was loosened, and the consequences drawn from them. Raw records: `audit/2026-10-23/resume/live/h55-measure.json`.
+
+### Measured
+
+Question writing (36 single Haiku 5.5 tries over all 15 architectures and 15 domains: 24 planned, 4 low and 4 medium per level, plus 12 more low tries on the 12 architecture/domain pairs first tried at medium, so 8 per level at low and 4 at medium in all; 4 Sonnet 5.5 rewrites of failed tries through the real ladder, with the gate findings fed back; prompt caching off, the default):
+
+| Quantity | Haiku 5.5, low effort | Haiku 5.5, medium effort | Haiku 4.5 (VERIFY, before the gate fixes) |
+|---|---|---|---|
+| Tries | 24 | 12 | 5 |
+| p1, passes the gate (90% lower bound) | 14/24 = 0.58 (0.43) | 5/12 = 0.42 (0.22) | 0/5 |
+| By level: beginner, intermediate, advanced | 6/8, 1/8, 7/8 | 4/4, 1/4, 0/4 | - |
+| On the same 12 architecture/domain pairs | 7 | 5 | - |
+| C_H, one try | US$0.0048 (max 0.0068) | US$0.0075 (max 0.0089) | US$0.0228 |
+| Output tokens a try: visible + thinking | 8.0k: 3.5k + 4.6k (max 11.8k) | 13.5k: 3.6k + 8.6k; 4 tries stopped at the 16,000 cap (3 of the 4 advanced) | 2.6-3.6k |
+| Latency a try | 40 s (max 57 s) | 65 s (max 77 s) | 41-54 s |
+| p2, the Sonnet rewrite passes | 1/4 | (same rewrites) | 1/4 |
+| C_S, one Sonnet rewrite | US$0.0516 (0.043-0.068), 23-37 s | | US$0.0499 |
+| **G per stored question** | **US$0.038** pooled (p1 at its lower bound US$0.059; p2 at its lower bound US$0.044); **US$0.060 weighted by level**, **US$0.125** with p2 at its lower bound (below) | US$0.067 (US$0.115) | US$0.29 |
+| Questions that fail both tries | 31% (43% at the lower bound) | 44% | 75% |
+
+G = [C_H + (1 - p1) C_S] / [p1 + (1 - p1) p2], with the tries' even level mix. Weighted by level instead (the pool fills every level's buckets, so stored questions come in equal numbers per level, not in proportion to pass rates), G at low effort is about **US$0.060**: US$0.021 beginner, **US$0.145 intermediate** (1 pass in 8; two in three intermediate ladders fail), US$0.013 advanced, from 8 tries per level. Weighting by level is the right measure, so it is the figure the decisions below use.
+
+p2 is one pooled rate, and it is the thinnest number here (review H55-COST-1). The one rewrite that passed was advanced; the level where the ladder needs the rewrite most, intermediate (7 of the 10 low-effort failures), had 0 passes in 2, both on i4-insurer-rag. Per level, at low effort (C_S US$0.0516; p2's one-sided 90% lower bound for 1 pass in 4 is 0.026):
+
+| Level | p1 | C_H | Low-effort failures | Sonnet rewrites at this level | G at p2 = 1/4 | G at p2 = 0.026 |
+|---|---|---|---|---|---|---|
+| beginner | 6/8 | US$0.0042 | 2 | 1, failed (b5, low effort) | US$0.021 | US$0.023 |
+| intermediate | 1/8 | US$0.0047 | 7 | 2, both failed (i4, low and medium effort) | US$0.145 | **US$0.338** |
+| advanced | 7/8 | US$0.0055 | 1 | 1, passed (a1, medium effort) | US$0.013 | US$0.014 |
+| **Weighted by level** | | | | | **US$0.060** | **US$0.125** |
+
+With each level's rewrites as observed (0, 0 and 1 passes) the weighted G is US$0.145. It reaches the old writer's US$0.074 once p2 falls below about 0.16, and 1 pass in 4 cannot rule that out (at p2 = 0.16, one pass or none in 4 rewrites happens 87% of the time). So the measurement does not establish that a stored question costs less than before; it does establish that Haiku 5.5 should write first, since Sonnet first costs more at every p2 (G_S US$0.206 at 1/4, about US$2 at 0.026).
+
+**Measured on an empty bank** (review H55-COST-5): the scratch database started empty and the 36 tries were spread over 15 architectures, so each architecture's similarity bank held at most 2 earlier questions and no try was rejected for similarity. p1 and G are therefore lower bounds on the steady-state cost. Offline checks since (no model calls): text similarity does not bite (the highest score between two of the 36 real outputs on one architecture was 0.043 against the 0.35 threshold, even for the same seed written by Haiku and by Sonnet), and a fingerprint collision never reaches a paid call (the picker excludes taken fingerprints). Structure collisions could: another domain's live question on the same architecture whose surface crosses the same components, with the same objective (b1's cloud_security leaked-deploy-key and incident_response exports-download both stored the path deploy-key > exports-bucket). The seed picker keyed structures on the surface id and could not see that, so in a simulation of a full pool 1.6%, 5.6% and 14.4% of the next pool seeds (2, 8 and 24 live questions per bucket) would have been rejected after the paid try and rewritten on Sonnet (G about US$0.039, 0.042 and 0.049 instead of US$0.038). Since H55 Fix the picker keys a structure on the surface's entry, via and target components (`structureKeyOf`), and the same simulation finds 0%, 0% and 0.4%. What remains is a written path that leaves its surface's components, which only production volume shows: after deploy, compare `ReasoningGenerationRejected{Reason}` (similarity) with `ReasoningGenerationStored{Tier,Model}` and size the pool from them.
+
+About 7.8k input tokens a try (2.08 characters a token; the estimate assumes 2). Of the 13 tries the gate rejected (some for several reasons): fewer than two options naming a component on the attack path (5), an option naming no component (5), the length tell (4), the situation or narrative not naming the path or its entry point (2), the narrative repeating the key (1); no repair was needed. The other 4 failures are the medium tries that ran out of output room (stop reason `max_tokens`, billed in full). The 3 failed Sonnet rewrites: the objective repeating 8 words of the key, the length tell, an intermediate question with 4 steps.
+
+Evaluation (8 answers on 5 stored questions; stage 1 on Haiku 5.5, effort alternating low and medium; the random audit set to 0 during the run and added in the calculation; 3 of the answers again with `REASONING_EVALUATION_MODE=full`):
+
+| Answer | Stage-1 effort | Tiered: total, confidence, cost | Full mode: total, confidence, cost |
+|---|---|---|---|
+| c1 reasoned best | low | 97 high, single pass, US$0.0012 | - |
+| c2 reasoned best | medium | 88 high, single pass, US$0.0014 | - |
+| c3 reasoned best | low | 90 high, single pass, US$0.0015 | - |
+| c4 reasoned best | medium | 90 medium, single pass, US$0.0019 | 88 medium, US$0.091 |
+| c5 plausible distractor, reasoned | low | 22 high, single pass, US$0.0013 | - |
+| c6 plausible distractor, reasoned | medium | 24 high, single pass, US$0.0021 | **12 low, review flag**, US$0.102 |
+| c7 wrong option, thin reasoning | low | 0 high, single pass, US$0.0011 | - |
+| c8 generic guess at the right option | medium | 34 medium, escalated (`penalty_unconfirmed`), US$0.052 | 34 medium, US$0.072 |
+
+Stage 1 on Haiku 5.5: US$0.0013 on average at low effort, US$0.0016 at medium (1.1-2.9k output tokens, 6-13 s). Escalation rate e = 1/8 (90% upper bound 0.41). Challenger + reconciler: US$0.060 (4 measured). Full mode: US$0.089 an answer (0.072-0.102), against about US$0.08 for the old pipeline.
+
+**Refusals**: none. 0 of 44 Haiku 5.5 calls (36 tries, 8 stage-1 grades) and 0 of 15 Sonnet calls ended with `stop_reason` refusal, in any category (cyber, bio, frontier_llm, general_harms); the 95% upper bound on Haiku 5.5's rate is about 6.6%. Neither refusal path (the LARGE rewrite, `small_refused`) ran on the real model; both are covered by the fake-model tests only. The adapter sent model, max_tokens, system, messages and output_config (effort and the JSON format) only.
+
+**Question quality** (all 20 stored questions read: 19 by Haiku 5.5, 1 by Sonnet): one defensible best answer 19/20; technically correct 18/20 (and 4 minor slips); only the architecture's components 20/20; no answer leak 16/20; no length tell by the gate's rule. A material problem in 6 (5 Haiku 5.5 at low effort, 1 Sonnet): narratives that walk through the answer path or state the evidence the key relies on (shortest-path and which-log objectives, which the 8-word rule cannot see), a self-contradicting timeline, a GDPR clock stated wrongly in the key, a second defensible option. In 6-7 of 20 the key bundles "preserve evidence, then contain" into one option, a tell once learners notice it. Low effort had 5 material problems in 14 questions and medium none in 5, but 4 of the 5 medium questions are beginner (medium stored no advanced question), so level confounds the comparison.
+
+### Cost per learner question
+
+| | Generation share (G/2) | Evaluation E | Per learner question |
+|---|---|---|---|
+| Before (Sonnet writes, three Sonnet stages; questions served once / twice) | 0.074 / 0.037 | 0.069-0.08 | **0.106-0.154** |
+| **Shipped defaults** (Haiku 5.5 writes at low effort, `full` evaluation) | 0.019 (0.030 level-weighted; 0.062 at p2's lower bound) | 0.089 (0.072-0.102) | **0.108-0.118** (0.151 at p2's lower bound) |
+| With `tiered` evaluation (not the default) | 0.019-0.030 (0.062) | 0.014 at e = 1/8 with the 0.1 audit; 0.029 at e = 0.4 | 0.033-0.059 (0.091) |
+
+E (tiered) = stage 1 + (e + 0.1 (1 - e)) x pair. So at the shipped defaults a stored question costs 20-50% less than before (US$0.038-0.060 against US$0.074) if the Sonnet rewrite passes as often as measured; at p2's lower bound it costs about US$0.125, 68% more (and more than the old US$0.104 including refused tries), so the generation saving waits for the p2 re-measurement below. Evaluation costs about what it did (US$0.089 against about US$0.08), so a learner question costs about what it did when questions were served twice and 17-30% less than when they were served once; at p2's lower bound about what questions served once cost (US$0.151). The rest of the saving waits for tiered evaluation.
+
+### Decisions (code defaults; Render needs no change)
+
+1. **Effort.** Writing: `REASONING_SMALL_EFFORT_GENERATION=low`. Low is the cheaper effort (US$0.0048 against US$0.0075 a try) and was not worse: it passed the gate more often (14/24 against 5/12, and 7 against 5 on the same 12 pairs), never ran out of output room, and took 40 s against 65 s. The quality reading against medium is confounded by level and too small to call. Grading: `REASONING_SMALL_EFFORT_EVALUATION` stays `medium`. Low would save about US$0.0004 an answer, but every answer compared with full mode was graded at medium, so whether low grades as well is unmeasured, and the conservative choice costs almost nothing. It matters only in tiered mode.
+2. **Model.** `REASONING_MODEL_SMALL` defaults to `claude-haiku-5-5`. G at low effort is US$0.038 (at most about US$0.04) and US$0.059 with p1 at its 90% lower bound (below the old writer's US$0.074). Weighted by level G is about US$0.060, over US$0.04, but the fallback rule gives the same answer: Haiku 5.5 first is the cheapest measured option at every level and overall. Sonnet first on the library costs G_S = C_S (1 + (1 - p2)) / (p2 + (1 - p2) p2) = US$0.206 at p2 = 0.25, more than Haiku 5.5 first even at its worst level (intermediate, US$0.145), and Haiku 4.5 first measured US$0.29 before the gate fixes. The figures that use p2 are less safe than they look: that G above US$0.074 needs both p1 and p2 at their lower bounds is true of the pooled G only. Weighted by level, p2 at its 90% lower bound alone puts G at about US$0.125 (intermediate US$0.338), and p2 is unmeasured where it matters (0 of 2 intermediate rewrites passed), so the saving per stored question is not claimed until it is re-measured ("More measurement needed"). The model choice does not depend on it: Sonnet first costs more than Haiku 5.5 first at every p2. `REASONING_GENERATION_FIRST_TIER` stays `SMALL`. Interviews keep `LLM_MODEL_SMALL` (claude-haiku-4-5 on Render) and the caps derived from it. To roll back: `REASONING_MODEL_SMALL=claude-haiku-4-5` (Render's launcher drops an empty value, so naming the model is the way).
+3. **Evaluation mode.** `REASONING_EVALUATION_MODE` defaults to `full`. The pass/fail band agreed on all 3 compared answers, and two totals were within 2 points. On the reasoned wrong answer (c6), though, the single Haiku 5.5 pass gave 24 at high confidence where full mode gave 12 at low confidence with a review flag: 12 points, over the tolerance of about 10. Haiku credited two bare assertions as met that Sonnet's own first stage marked partial, missed the must-not-credit claim that stage applied ("resetting the password ends the access") and one of its three technical errors, and its high confidence meant no rule escalated the answer. That is the confident over-credit tiered mode is most exposed to (review AR-BIZ-6), and 3 answers (2 of them single passes) cannot show it is rare. Full mode costs about US$0.089 an answer against about US$0.014 tiered; switching is `REASONING_EVALUATION_MODE=tiered`, no code change. The client's copy (borderline, disputed and sampled answers get a second, adversarial review; usually under a minute) was left as it is: in full mode every answer gets that review, in 31-42 s measured, so it understates the review rather than promising one that does not happen.
+4. **Pool sizing**: values unchanged (§5.3), provisionally. At G = US$0.038 the US$5 daily cap pays for about 130 questions (260 seats) a day, at the level-weighted G (US$0.060) about 83 (166 seats), and at p2's lower bound (US$0.125) about 40 (80 seats). The idle stock of 45 buckets x 2 costs about US$3.4 once at US$0.038, US$5.4 at US$0.060 (more than one day's cap) and about US$11.2 at US$0.125 (more than two). A refill starts only the ladders the remaining pool budget can finish, so the cap holds in every case; what changes is that the idle stock takes one to three days to fill, and a learner whose bucket is still empty generates on demand (billed to them). Keep the values until p2 is re-measured on intermediate failures; if it stays low, the owner raises `REASONING_POOL_DAILY_CAP_USD` or accepts the slower fill. The evaluation mode does not touch the pool budget, which pays for generation only.
+5. **Limits kept**: the SMALL writer's 16,000 output tokens and 180 s (low effort used at most 11.8k and 57 s), the SMALL evaluator's 8,000 and 120 s (at most 2.9k and 13 s). Raise the writer's cap before choosing medium. The client's "taking longer than usual" notices (120 s while writing, 75 s while grading) fit the measured times.
+
+### More measurement needed
+
+- **To switch on tiered evaluation**: tiered (stage 1 at medium, and at low if that saving is wanted) against full mode on about 12 single-pass answers, weighted to what disagreed: reasoned wrong options and fluent-but-wrong answers, plus generic guesses and reasoned best answers (about US$1.1). Switch when every answer keeps its band, at least 11 of 12 totals are within 10 points, and no single pass graded at high confidence is more than 10 points above full mode.
+- **Intermediate generation**: 1 of 8 low-effort tries passed, and most of its gate rejections cite the option-naming rules (at least two options naming a path component, every option naming one). Fix the prompt or the gate for that level, then re-measure about 20 intermediate tries (about US$0.10, plus rewrites). Re-measure p2 too: 1 in 4 is the thinnest number here.
+- **Sonnet rewrites of intermediate failures** (review H55-COST-1): 8-10 rewrites of low-effort intermediate failures on several intermediate architectures (about US$0.5). Until then the generation saving is not established (level-weighted G at p2's lower bound about US$0.125, above the old US$0.074) and the pool sizing (§5.3) is provisional.
+- **Steady state** (review H55-COST-5): p1 and G were measured on a nearly empty similarity bank. After deploy, watch `ReasoningGenerationRejected{Reason}` against `ReasoningGenerationStored{Tier,Model}`.
+- **Refusals** at volume: 0 in 44 bounds the rate at about 6.6%. Watch `ReasoningRefusal{Stage, Model, Category}` after deploy.
+
+### What the owner still decides
+
+- **Merge and deploy** of branch `ar/cost-optimisation` (nothing is merged or deployed). Weigh first: 6 of 20 stored questions had a material problem and 4 of 20 leak the answer through the narrative, which the gate cannot see; two in three intermediate ladders fail, so an intermediate learner whose bucket is empty often meets a failed generation (with a retry).
+- **Tiered evaluation**, after the agreement check above.
+- **Interviews on Haiku 5.5**: not done. Interviews keep `LLM_MODEL_SMALL` = claude-haiku-4-5; moving them would also move the caps derived from its price (on its standard card since H55 Fix: session US$0.24, scoring reserve 0.20, user day 0.92, global day 24), and its adaptive thinking adds output tokens the interview cost model, sized on Haiku 4.5, does not include. Nothing here measured interview quality or interview spend on it.
+- **Batch API for pool refills**: not chosen (50% off pool generation, results within hours).
+
+### Review fixes (H55 Fix, 27 Oct 2026; fake model only)
+
+Six confirmed findings, five defects (H55-SEC-1 and H55-COST-2 are one). No prompt, gate rule or default changed, so nothing measured above needs re-measuring because of them.
+
+- **Interview caps on the long-context card** (H55-SEC-1, H55-COST-2): `estimateInterviewCost` priced a whole interview's tokens (200k input, 40k output) as one call, so on Haiku 5.5 it took the 5x card. It now prices them on the standard card: with `LLM_MODEL_SMALL=claude-haiku-5-5` the caps would be US$0.24 / 0.20 / 0.92 / 24 (were 0.40 / 0.20 / 1.40 / 40); Haiku 4.5's are unchanged (0.60 / 0.20 / 2 / 60).
+- **Price overrides** (H55-SEC-3): an `LLM_PRICING_OVERRIDES` entry replaced the whole registry entry, so a prices-only override of `claude-haiku-5-5` (what the docs used to suggest) dropped its thinking, effort, tokenizer and long-context fields and sent its writer out with 8,000 tokens and no effort, where medium-effort thinking alone measured 8.6k. An override of a registered id now changes only the fields it names.
+- **G per level** (H55-COST-1): the per-level table, the p2 caveat and the provisional pool sizing above.
+- **Empty bank** (H55-COST-5): the limitation above, and the seed picker's structure key on the surface's components.
+- **Per-learner bound** (H55-COST-4): the claim that the learner's cap does not limit the `small_refused` path is not borne out (the finalize rows count toward the learner's day); §5.5 now says so and lists the LARGE stage 1 in the finalize term.
+
+---
+
 ## Corrections after the real-model check and the review (27 Oct 2026)
+
+> Superseded for generation by "Claude Haiku 5.5 (27 Oct 2026)" above: the generation figures here are Haiku 4.5's before the gate fixes, and the pool, idle-stock and per-learner consequences drawn from them no longer describe the shipped configuration. The evaluation figures (Sonnet pair, cache) still stand.
 
 The cost figures in §0, §5.3, §5.5, §6.2 and §7 below are the design's estimates. The bounded real-model check (VERIFY, 13 calls, US$0.41) and the review that followed did not bear them out for generation, for caching or for the escalated pair. This section is the current reference; the sections below keep the original reasoning and carry a short "Correction" note where they are wrong.
 
@@ -31,27 +136,29 @@ The cost figures in §0, §5.3, §5.5, §6.2 and §7 below are the design's esti
 | Escalated answer (Haiku + challenger + reconciler) | US$0.050-0.055 (with a cache read) | US$0.086 (pair US$0.078; no cache read) |
 | Prompt cache | about US$0.005 saved per escalation | 71.4k tokens written, 4.3k read: +US$0.024 over the run (5.8% of spend) |
 
-Consequences at the measured values: the pool's US$5/day cap pays for about 17 stored questions (34 seats), not 125-180; the idle stock of 45 buckets x 2 costs about US$26, not US$2.7-3.6; per learner question G/2 + E is about US$0.18-0.20 at an escalation rate e of 0.25-0.5, against US$0.106-0.154 before (+37-52% against the old cost per stored question of about US$0.100 including refused tries). The single-pass evaluation is the only part that saves money as measured. **The generation half must not be presented as a saving until it is re-measured.**
+Consequences at the measured values: the pool's US$5/day cap pays for about 17 stored questions (34 seats), not 125-180; the idle stock of 45 buckets x 2 costs about US$26, not US$2.7-3.6; per learner question G/2 + E is about US$0.18-0.20 at an escalation rate e of 0.25-0.5, against US$0.106-0.154 before (+37-52% against the old cost per stored question of about US$0.100 including refused tries). The single-pass evaluation is the only part that saves money as measured. **The generation half must not be presented as a saving until it is re-measured.** (Re-measured on Haiku 5.5: US$0.038-0.060 per stored question, about US$0.125 with the Sonnet rewrite's pass rate at its lower bound; see "Claude Haiku 5.5".)
 
 **Why generation failed, and what the review fixed (code, 27 Oct):** the gate, not token use. Fixed: the 8-word answer-key rule now checks the title, objective and question against the whole key, but the situation, narrative and step labels only against the best option's analysis less what a distractor's analysis also says (4 of 9 real rejections were evidence the key cites); a step from a component to itself and a compromised component off the path are dropped as repairs, not rejections; step labels are clipped at a word; a surface with several targets is rendered as "one chain that ends at ONE of these targets" (b3 pod-role-reach, b1 deploy-identity-misuse, i4 agent-authority); options are back to 15-45 words. Still to tune if the re-measurement shows them: the length tell (best option more than 20% longer than every distractor) and the rubric minimums, which Haiku missed most often.
 
 **Rollout gates (owner decisions; no real AI calls were made for these fixes):**
 
-1. Generation: re-run the bounded real check on at least 20 Haiku tries over 6+ buckets with the fixed gate, record p1, p2 and G here, and promote the Haiku-first ladder only when G is at most about US$0.04 (p1 about 0.7). Watch `ReasoningGenerationStored{Tier}` / `ReasoningGenerationAttempt{Tier}` and `ReasoningGenerationRejected{Reason}` after deploy. Until then the options are: keep the ladder and accept the measured cost; or set `REASONING_MAX_GENERATION_TRIES=3` while tuning (this departs from decision 3, "regenerated once with Sonnet"). `REASONING_GENERATION_FIRST_TIER=LARGE` only swaps the writer; it does not restore the pre-library behaviour (the gate is the new one).
-2. Pool budget: size `REASONING_POOL_DAILY_CAP_USD` for the measured G (about US$0.15 per seat today), or the pool runs dry by mid-morning and learners fall back to on-demand generation billed to them. Refills now start only ladders the remaining pool budget can finish (`affordableLadders`), and an on-demand job re-checks the whole ladder before its first call.
-3. Evaluation: run §11.4 steps 3-5 before relying on tiered mode: a reasoned answer, a generic guess with the correct option and a reasoned wrong answer on 3 items, tiered against `REASONING_EVALUATION_MODE=full` (about US$0.30-0.50). Record the escalation rate e and the score deltas, and tune `REASONING_ESCALATION_BAND`. On the fake fixtures the two modes agree by construction, except the new `QUIETCHALLENGE` fixture, which shows a confident over-credit that only the audit or full mode corrects. The old outcome for a generic correct guess (40/100, low confidence, review flag) no longer arises in tiered mode unless the answer escalates.
+1. Generation (done in H55 on Haiku 5.5 for the Haiku try: 36 tries over all 15 architectures, G US$0.038 at low effort, US$0.060 weighted by level; p2 still rests on 4 rewrites, 0 of 2 at intermediate; see "Claude Haiku 5.5"): re-run the bounded real check on at least 20 Haiku tries over 6+ buckets with the fixed gate, record p1, p2 and G here, and promote the Haiku-first ladder only when G is at most about US$0.04 (p1 about 0.7). Watch `ReasoningGenerationStored{Tier}` / `ReasoningGenerationAttempt{Tier}` and `ReasoningGenerationRejected{Reason}` after deploy. Until then the options are: keep the ladder and accept the measured cost; or set `REASONING_MAX_GENERATION_TRIES=3` while tuning (this departs from decision 3, "regenerated once with Sonnet"). `REASONING_GENERATION_FIRST_TIER=LARGE` only swaps the writer; it does not restore the pre-library behaviour (the gate is the new one).
+2. Pool budget (H55: about US$0.02-0.03 per seat on Haiku 5.5, about US$0.06 at p2's lower bound, so the US$5 cap stands provisionally, §5.3): size `REASONING_POOL_DAILY_CAP_USD` for the measured G (about US$0.15 per seat with Haiku 4.5), or the pool runs dry by mid-morning and learners fall back to on-demand generation billed to them. Refills now start only ladders the remaining pool budget can finish (`affordableLadders`), and an on-demand job re-checks the whole ladder before its first call.
+3. Evaluation (run in H55: tiered was 12 points over full mode on a reasoned wrong answer, so `full` is the default until a larger check passes; see "Claude Haiku 5.5"): run §11.4 steps 3-5 before relying on tiered mode: a reasoned answer, a generic guess with the correct option and a reasoned wrong answer on 3 items, tiered against `REASONING_EVALUATION_MODE=full` (about US$0.30-0.50). Record the escalation rate e and the score deltas, and tune `REASONING_ESCALATION_BAND`. On the fake fixtures the two modes agree by construction, except the new `QUIETCHALLENGE` fixture, which shows a confident over-credit that only the audit or full mode corrects. The old outcome for a generic correct guess (40/100, low confidence, review flag) no longer arises in tiered mode unless the answer escalates.
 
 **Evaluation changes (27 Oct):** a random `REASONING_ESCALATION_AUDIT_RATE` (0.1) of answers that no rule escalated get the second review (reason `audit`), so text that talks Haiku round without tripping a rule cannot count on a single pass; the learner-facing "Reviewed a second time because ..." note is gone (it told a learner when the injection screen fired), the reasons stay in `stages.escalation`; `looksLikeInjection` also catches grader-facing paraphrases (12 new corpus cases); a deduction on a wrong option is not escalated when the answer stays below the borderline band even without it (`penalty_unconfirmed`, review COST-3); a learner's retry of a failed evaluation runs under the normal rules (it forced the Sonnet pair, review COST-6); an evidence quote stitched from verbatim passages in order, each at least 8 words, counts (scoring v3, prompt v4); learner-facing model text is clipped at a sentence or a word and has room for the lengths the prompts ask for. Expected E with the audit: 0.0126 + (e + 0.1 x (1 - e)) x 0.078.
 
 **Caching (27 Oct):** each stage sends its own structured-output format, and a format change invalidates the prompt cache, so the challenger's entry was never the reconciler's read; generation calls run in parallel on different architectures and the tier switch changes the model. `REASONING_PROMPT_CACHE` (default false) now decides whether Attack Reasoning prompts are marked at all; with it off nothing pays the write premium. Owner decision 4's "item context prompt-cached across stages" is therefore not delivered: delivering it needs the challenger and reconciler to share one output contract (for example one strict tool list with `tool_choice` auto and an instruction naming the tool; forced `tool_choice` is a 400 on Sonnet 5.5) and a bounded real check that the reconciler then reads the challenger's entry.
 
-**Pool and per-learner bounds (27 Oct):** `REASONING_USER_DAILY_QUESTIONS` 40 -> 12; `REASONING_USER_DAILY_REFILLS` now counts pool questions a learner's starts and prefetches may have generated per day (12; it counted refill jobs of up to 4); structure collisions are checked only against live questions and the learner's own, retired questions leave the text-similarity bank after `REASONING_LIBRARY_BANK_DAYS` (30), and the never-a-near-duplicate guarantee is kept at serve time (same architecture, path and objective as anything the learner was served); pool demand counts what a learner cannot be served. Residual: one account opening 12 questions a day in idle buckets still makes the schedule activate those buckets (up to the target) and keep 3 unseen for it; at the measured G that alone can spend most of the pool cap. The total stays bounded by the pool cap and the breaker; revisit the targets once G is re-measured.
+**Pool and per-learner bounds (27 Oct):** `REASONING_USER_DAILY_QUESTIONS` 40 -> 12; `REASONING_USER_DAILY_REFILLS` now counts pool questions a learner's starts and prefetches may have generated per day (12; it counted refill jobs of up to 4); structure collisions are checked only against live questions and the learner's own, retired questions leave the text-similarity bank after `REASONING_LIBRARY_BANK_DAYS` (30), and the never-a-near-duplicate guarantee is kept at serve time (same architecture, path and objective as anything the learner was served); pool demand counts what a learner cannot be served. Residual: one account opening 12 questions a day in idle buckets still makes the schedule activate those buckets (up to the target) and keep 3 unseen for it; at the measured G that alone can spend most of the pool cap. The total stays bounded by the pool cap and the breaker; revisit the targets once G is re-measured. (H55: about US$2.7-4.3 at Haiku 5.5's G, US$9 at p2's lower bound, where the pool cap bounds it; targets kept provisionally, §5.3.)
+
+**Haiku 5.5 option (27 Oct, H55 build; fake model only):** `REASONING_MODEL_SMALL` lets Attack Reasoning's SMALL tier (the writer's first try, the stage-1 evaluator) run on `claude-haiku-5-5` (US$0.10 / 0.50 per million input / output tokens; a 5x card above 100k prompt tokens) while interviews keep `LLM_MODEL_SMALL` = Haiku 4.5 and their caps. It thinks adaptively, so the SMALL writer gets 16,000 output tokens and the evaluator 8,000, with `REASONING_SMALL_EFFORT_GENERATION` / `_EVALUATION`; its safety classifiers can decline (`stop_reason` refusal), which sends the question to the LARGE try and the answer to stage 1 on LARGE plus the challenger and reconciler (`small_refused`). Measured and decided since: default `claude-haiku-5-5`, writing at low effort, grading at medium ("Claude Haiku 5.5" above). Details: `docs/ATTACK_REASONING.md`, "Added 27 Oct 2026: Claude Haiku 5.5". Sonnet 5.5 cache reads are now priced at US$0.10 per million tokens (0.05x input; the registry had 0.2).
 
 ---
 
 ## 0. Summary of the design
 
-> Correction (27 Oct): the cost rows below are design estimates; see "Corrections after the real-model check" above for the measured values.
+> Correction (27 Oct): the cost rows below are design estimates; see "Claude Haiku 5.5" above for the measured values and the shipped defaults: Haiku 5.5 writes first at low effort (about US$0.038-0.060 per stored question; about US$0.125 if the Sonnet rewrite passes as rarely as its 90% lower bound), and evaluation is `full` (three Sonnet stages, about US$0.089 an answer) until tiered mode passes a larger agreement check, so a learner question costs about US$0.108-0.118 (up to about US$0.151).
 
 | Area | Today | After |
 |---|---|---|
@@ -65,7 +172,7 @@ Consequences at the measured values: the pool's US$5/day cap pays for about 17 s
 | Cost per evaluated answer | about US$0.069 (formula) to 0.08 (measured) | about US$0.023-0.031 at 25-40% escalation |
 | Cost per learner question (generation share + evaluation) | US$0.106-0.154 | US$0.037-0.051 |
 
-Rollback switches: `REASONING_GENERATION_FIRST_TIER=LARGE` (Sonnet writes questions again, still on the library) and `REASONING_EVALUATION_MODE=full` (three Sonnet stages on every answer, exactly as before).
+Rollback switches: `REASONING_GENERATION_FIRST_TIER=LARGE` (Sonnet writes questions again, still on the library) and `REASONING_EVALUATION_MODE=full` (three Sonnet stages on every answer, exactly as before; the default since H55, so `tiered` is now the switch that turns the cheaper evaluation on).
 
 ---
 
@@ -277,6 +384,8 @@ Parameters follow the tier of the call (try 1 runs on `REASONING_GENERATION_FIRS
 | Haiku | `SMALL` | 8000 | omitted (Haiku 4.5 rejects it; the adapter already drops it) | 90000 (the SMALL default of 20 s is too short for a 3-4k token item; 90 s stays inside the queue policy, which sizes reasoning jobs on `LLM_TIMEOUT_MS_LARGE`) |
 | Sonnet | `LARGE` | 12000 | `medium` | tier default |
 
+> Correction (27 Oct, H55): on Haiku 5.5, Attack Reasoning's SMALL default since then, the writer gets 16,000 output tokens (its thinking counts toward them), 180 s and `effort` from `REASONING_SMALL_EFFORT_GENERATION` (low).
+
 `GENERATION_PROMPT_VERSION = 'reasoning-generate.v3'`, `GENERATOR_VERSION = 'gen.v3.2026-10-26'`.
 
 ### 3.3 Output schema (`reasoning_question`)
@@ -474,7 +583,7 @@ LIMIT 1
 
 ### 5.3 Pool sizing for the 2-serve rule
 
-> Correction (27 Oct): at the measured G the US$5 cap pays for about 17 questions a day and the idle stock costs about US$26. See the corrections section.
+> Correction (27 Oct, H55): with Haiku 5.5 writing first, G is about US$0.038 (US$0.060 weighted by level or with p1 at its lower bound; Haiku 4.5 measured US$0.29, which put the cap at about 17 questions a day). The US$5 cap then pays for about 130 questions (260 seats) a day, or 83 (166) at US$0.060, and the idle stock costs about US$3.4 once (US$5.4, more than one day's cap). With the Sonnet rewrite's pass rate at its 90% lower bound (review H55-COST-1) the level-weighted G is US$0.125: about 40 questions (80 seats) a day, and an idle stock of about US$11.2 that takes two to three days of the cap to fill. Refills start only the ladders the pool budget can finish, so the cap holds either way; the values are kept provisionally until the intermediate rewrites are re-measured ("Claude Haiku 5.5", "More measurement needed"). Residual from the review: one account opening 12 questions a day in idle buckets can still activate up to 12 buckets, about 72 new questions or US$2.7-4.3 of the cap; the pool cap and the breaker bound it.
 
 A live item offers `2 - serve_count` seats. With 2 seats per question the pool holds less and turns over faster, so the defaults change:
 
@@ -495,7 +604,9 @@ Unchanged in shape: when no candidate exists, the attempt is created in `generat
 
 ### 5.5 Per-learner bound
 
-> Correction (27 Oct): the default is now 12, refills are counted per question, and the US$0.8 term below assumed G of about US$0.04; at the measured G one learner's 40 opens could exceed the whole pool cap. See the corrections section.
+> Correction (27 Oct): the default is now 12, refills are counted per question, and the US$0.8 term below assumed G of about US$0.04; at the Haiku 4.5 G one learner's 40 opens could exceed the whole pool cap. With Haiku 5.5 (H55) G is about US$0.038-0.060, so 12 opens use about US$0.23-0.36 of pool seats (US$0.75 at the rewrite pass rate's lower bound); and with `full` evaluation, the default since H55, every answer pays the Sonnet pair (20 x about US$0.06-0.07 platform-billed).
+>
+> Correction (27 Oct, H55 Fix, review H55-COST-4): "learner-billed" and "platform-billed" below are the budget each call is checked against, not separate accounts. Every row is written under the learner, and the user-day check sums all of them, finalize included (finalize only skips the check on its own call). So one learner's day is bounded by `AI_USER_DAILY_CAP_USD` plus the finalize stages of the evaluations already under way when it was reached (at most `REASONING_MAX_OPEN_ATTEMPTS`, 3, about US$0.1 each); the sum of the two lines below is looser than that. In tiered mode the finalize term per answer also holds stage 1 on LARGE when the SMALL model declined it (`small_refused`): stage 1 on Sonnet plus the pair, about US$0.09, the cost of a full-mode evaluation, and bounded by the same cap, so tripping the classifier on purpose buys nothing over the default (`test/reasoning-model-small.e2e.test.ts`).
 
 New: `REASONING_USER_DAILY_QUESTIONS` (default 40; 0 = no limit): questions a learner may open per UTC day (attempts created today, any state), checked in `create()` under the learner's lock, refused with new code `REASONING_DAILY_QUESTIONS_REACHED` (429, `details.resetAt`, Retry-After). Without it, a learner cycling through questions at `REASONING_RATE_CREATES_PER_HOUR` (10/h, 240/day) would consume 120 questions of pool inventory a day (about US$4, most of the pool's daily cap) and starve other learners into on-demand generation.
 
@@ -508,7 +619,7 @@ platform-billed <= REASONING_USER_DAILY_EVALUATIONS x pair_max          (escalat
 all of it        <= the global breaker (AI_GLOBAL_DAILY_CAP_USD) and, for pool work, REASONING_POOL_DAILY_CAP_USD
 ```
 
-A typical learner (5 questions answered) costs about 5 x US$0.045 = US$0.23 a day.
+A typical learner (5 questions answered) costs about 5 x US$0.045 = US$0.23 a day. (Correction, 27 Oct: at the Haiku 5.5 defaults with full evaluation a learner question costs about US$0.108-0.118, so about US$0.55 a day.)
 
 ---
 
@@ -528,7 +639,7 @@ attempt evaluating
                -> scoreAttempt(final = reconciler, ...) -> store (tier LARGE); a stage failure degrades as today
 ```
 
-`REASONING_EVALUATION_MODE=full` runs all three stages on every answer with the evaluator on LARGE, exactly as before (rollback switch). `EVALUATION_PROMPT_VERSION = 'reasoning-evaluate.v3'`.
+`REASONING_EVALUATION_MODE=full` runs all three stages on every answer with the evaluator on LARGE, exactly as before (rollback switch; the default since H55, see "Claude Haiku 5.5"). `EVALUATION_PROMPT_VERSION = 'reasoning-evaluate.v3'`.
 
 ### 6.2 Prompts and caching
 
@@ -573,7 +684,7 @@ An integrity flag the evaluator **did** raise is never escalated to be cleared: 
 - `reasoning_summary: str(600)`: two or three sentences on the justification as written, second person;
 - `improve: arr(str(220), 4)`.
 
-`maxOutputTokens: 3000`, `timeoutMs: 60000`, no `effort`.
+`maxOutputTokens: 3000`, `timeoutMs: 60000`, no `effort`. (On Haiku 5.5, since H55: 8,000 tokens, 120 s, `effort` from `REASONING_SMALL_EFFORT_EVALUATION`, medium. Stage 1 runs on SMALL only in tiered mode, which is no longer the default.)
 
 ### 6.5 Scoring and the deterministic contract
 
@@ -604,7 +715,7 @@ Stored: `reasoning_evaluations.tier` = `SMALL` (single pass) or `LARGE` (escalat
 
 | Work | Tier | Policy | Estimate used for admission |
 |---|---|---|---|
-| Stage 1 | SMALL (LARGE in `full` mode) | `reasoning` | `evaluatorRequestBound(domain, null, answer?, evaluatorTier(mode))`: about US$0.024 on Haiku (was about US$0.047-0.05 on Sonnet) |
+| Stage 1 | SMALL (LARGE in `full` mode) | `reasoning` | `evaluatorRequestBound(domain, null, answer?, evaluatorTier(mode))`: about US$0.024 on Haiku 4.5 (was about US$0.047-0.05 on Sonnet); since 27 Oct `full` mode, the default, runs stage 1 on Sonnet (the 0.047-0.05 figure), and Haiku 5.5 in `tiered` mode is about US$0.004-0.008 |
 | Stages 2-3 | LARGE | `finalize` (breaker with 10% grace, `AI_FINALIZE_SOURCE_CAP_USD` per attempt and feature) | not pre-checked (as today) |
 | Pool generation | ladder | `pool` | `generationEstimateUsd` (ladder worst case) |
 | On-demand generation | ladder | `reasoning` + `keepFreeUsd = evaluationRoomUsd` | the same |
@@ -619,7 +730,7 @@ Stored: `reasoning_evaluations.tier` = `SMALL` (single pass) or `LARGE` (escalat
 
 ## 7. Cost model
 
-Prices (USD per million tokens, `pricing.ts`): Haiku 4.5 input 1, output 5, cache write 1.25, cache read 0.10; Sonnet 5.5 input 2, output 10, cache write 2.50, cache read 0.20.
+Prices (USD per million tokens, `pricing.ts`): Haiku 4.5 input 1, output 5, cache write 1.25, cache read 0.10; Sonnet 5.5 input 2, output 10, cache write 2.50, cache read 0.10 (corrected 27 Oct; the registry had 0.20, so the cached rows below overstate the read by US$0.0004); Haiku 5.5 (added 27 Oct) input 0.10, output 0.50, cache write 0.125, cache read 0.01, five times that for every token of a call whose prompt is over 100,000 tokens.
 
 ### 7.1 Per stored question
 
@@ -643,7 +754,7 @@ At high traffic the old 25-serve cap spread one question over more learners: per
 
 ### 7.2 Per evaluated answer
 
-> Correction (27 Oct): measured escalated pair US$0.078 with no cache read (design US$0.050), single pass US$0.0126. See the corrections section.
+> Correction (27 Oct): measured escalated pair US$0.078 with no cache read (design US$0.050), single pass US$0.0126 on Haiku 4.5 (US$0.0013-0.0016 on Haiku 5.5, H55; pair US$0.060 there). See the corrections section and "Claude Haiku 5.5".
 
 ```
 E_before = C(evaluator) + C(challenger) + C(reconciler)
@@ -663,7 +774,7 @@ E_after  = C_HE + e x (C_chal_cached + C_rec_cached)
 
 ### 7.3 Per learner question and per day
 
-> Correction (27 Oct): at the measured G (US$0.29) and pair cost the "After" column is about US$0.18-0.20 per learner question, above "Before". See the corrections section.
+> Correction (27 Oct): at the Haiku 4.5 G (US$0.29) and pair cost the "After" column was about US$0.18-0.20 per learner question, above "Before". With Haiku 5.5 and the H55 defaults (`full` evaluation) it is about US$0.108-0.118 (about US$0.151 with the Sonnet rewrite's pass rate at its lower bound); with tiered evaluation it would be about US$0.033-0.059. See "Claude Haiku 5.5".
 
 | | Before (questions served once) | Before (served twice) | After |
 |---|---|---|---|
@@ -676,6 +787,8 @@ Idle pool stock: before 45 buckets x 2 x 0.074 = US$6.7; after US$2.7-3.6.
 ---
 
 ## 8. Configuration (GEN adds all of it in phase 0)
+
+> Correction (27 Oct, H55): `REASONING_EVALUATION_MODE` defaults to `full`; new `REASONING_MODEL_SMALL` (`claude-haiku-5-5`), `REASONING_SMALL_EFFORT_GENERATION` (`low`) and `REASONING_SMALL_EFFORT_EVALUATION` (`medium`). See "Claude Haiku 5.5" and `docs/ATTACK_REASONING.md`.
 
 | Key | Default | New/changed | Meaning |
 |---|---|---|---|
@@ -952,7 +1065,7 @@ Also: fix `reasoning.real.test.ts`, which still reads `reasoning_items WHERE id 
 
 ## 12. Further ways to cut API cost (not chosen; for the owner)
 
-- **Claude Haiku 5.5** (`claude-haiku-5-5`, listed at US$0.10/0.50 per million tokens, a tenth of Haiku 4.5) was not in the verified registry when `pricing.ts` was written (25 Sep 2026); the ADD already names it for SMALL. Once verified and added to the registry, the SMALL-tier calls of this design would cost about 90% less (generation about US$0.004 per Haiku try, evaluation stage 1 about US$0.001). Its thinking is on by default, so output tokens need re-measuring.
+- **Claude Haiku 5.5** (`claude-haiku-5-5`, US$0.10/0.50 per million tokens, a tenth of Haiku 4.5): chosen. Added to the registry on 27 Oct 2026 and measured (a try US$0.0048 at low effort with its thinking, a stage-1 grade US$0.0013-0.0016); Attack Reasoning's SMALL default since H55, interviews unchanged. See "Claude Haiku 5.5".
 - **Batch API** for pool refills (50% off, results within hours) and **rubric shortening**: the owner did not choose them.
 - **Lower effort on the Sonnet retry** (`low` instead of `medium`) if VERIFY shows it still passes the gate: saves about a third of that call.
 - **Reconciler only** on escalation (reconciler acting as its own challenger, a mode the prompt already supports): about US$0.02 less per escalated answer, at some cost in rigour.

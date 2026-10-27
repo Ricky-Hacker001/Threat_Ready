@@ -51,17 +51,23 @@ describe('attack reasoning configuration', () => {
     expect(loadConfig(base)).toMatchObject({ REASONING_POOL_TARGET: 8, REASONING_POOL_IDLE_TARGET: 2, REASONING_POOL_DEMAND_DAYS: 7, REASONING_POOL_MAX_ITEMS: 24, REASONING_POOL_MIN_AVAILABLE: 3 });
   });
 
-  it('defaults to the cost design of 26 Oct 2026: two learners per question, Haiku writes first with one Sonnet retry, tiered evaluation, a daily question bound', () => {
+  it('defaults to the cost design of 26 Oct 2026 as decided after the Haiku 5.5 measurement: two learners per question, Haiku 5.5 writes first with one Sonnet retry, full evaluation, a daily question bound', () => {
     expect(loadConfig(base)).toMatchObject({
       REASONING_ITEM_MAX_SERVES: 2,
       REASONING_MAX_GENERATION_TRIES: 2,
       REASONING_GENERATION_FIRST_TIER: 'SMALL',
+      // H55 Decide (27 Oct 2026; intentional, was unset / medium / tiered): Attack Reasoning's SMALL model is
+      // Haiku 5.5 writing at low effort, and the three LARGE stages grade every answer until tiered mode
+      // passes a larger agreement check (docs/ATTACK_REASONING_COST_DESIGN.md, "Claude Haiku 5.5").
+      REASONING_MODEL_SMALL: 'claude-haiku-5-5',
+      REASONING_SMALL_EFFORT_GENERATION: 'low',
+      REASONING_SMALL_EFFORT_EVALUATION: 'medium',
       REASONING_LIBRARY_BANK_SIZE: 300,
       REASONING_SERVE_LEGACY_ITEMS: true,
       // 12 since the 27 Oct review (AR-SEC-2, AR-BIZ-8, COST-4; was 40), and learner-triggered refills counted in questions.
       REASONING_USER_DAILY_QUESTIONS: 12,
       REASONING_USER_DAILY_REFILLS: 12,
-      REASONING_EVALUATION_MODE: 'tiered',
+      REASONING_EVALUATION_MODE: 'full',
       REASONING_ESCALATION_CENTER: 60,
       REASONING_ESCALATION_BAND: 8,
       // Review fixes: a random 10% audit of single-pass grades (AR-SEC-1), no prompt-cache markers (COST-2),
@@ -70,10 +76,10 @@ describe('attack reasoning configuration', () => {
       REASONING_PROMPT_CACHE: false,
       REASONING_LIBRARY_BANK_DAYS: 30,
     });
-    // The rollback switches and the off values.
-    expect(loadConfig({ ...base, REASONING_GENERATION_FIRST_TIER: 'LARGE', REASONING_EVALUATION_MODE: 'full', REASONING_USER_DAILY_QUESTIONS: '0', REASONING_SERVE_LEGACY_ITEMS: 'false', REASONING_ESCALATION_BAND: '0' })).toMatchObject({
+    // The switches and the off values.
+    expect(loadConfig({ ...base, REASONING_GENERATION_FIRST_TIER: 'LARGE', REASONING_EVALUATION_MODE: 'tiered', REASONING_USER_DAILY_QUESTIONS: '0', REASONING_SERVE_LEGACY_ITEMS: 'false', REASONING_ESCALATION_BAND: '0' })).toMatchObject({
       REASONING_GENERATION_FIRST_TIER: 'LARGE',
-      REASONING_EVALUATION_MODE: 'full',
+      REASONING_EVALUATION_MODE: 'tiered',
       REASONING_USER_DAILY_QUESTIONS: 0,
       REASONING_SERVE_LEGACY_ITEMS: false,
       REASONING_ESCALATION_BAND: 0,

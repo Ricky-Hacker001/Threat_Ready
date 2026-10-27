@@ -36,7 +36,7 @@ created on sign-up; the sign-in screen is a development screen.
 
 | ADD | Here | Reason |
 |---|---|---|
-| SMALL = `claude-haiku-5-5` at US$0.10/0.50 | SMALL = `claude-haiku-4-5` (US$1/5), configurable | `claude-haiku-5-5` is not in Anthropic's verified model table (2026-09-25). Config refuses unverified ids unless explicitly priced via `LLM_PRICING_OVERRIDES` |
+| SMALL = `claude-haiku-5-5` at US$0.10/0.50 | Interviews: SMALL = `claude-haiku-4-5` (US$1/5), configurable; Attack Reasoning: `claude-haiku-5-5` (`REASONING_MODEL_SMALL`) | `claude-haiku-5-5` was not in Anthropic's verified model table on 2026-09-25. It is in the registry since 2026-10-27 (prices verified, with its thinking, effort and long-context fields), for Attack Reasoning only; interviews were not measured on it (see `docs/ATTACK_REASONING.md`). Config refuses other unverified ids unless explicitly priced via `LLM_PRICING_OVERRIDES`; an override of a registered id changes only the fields it names |
 | States `created → parsing → planned …` | `parsing → profiled → planned …` | The product requires the candidate to confirm extracted details and configure before planning. Documents exist before the session, so `created` is unused |
 | Gap analysis then plan in one worker job | Gap analysis in the analysis job; plan built in code at confirmation | Config (type, difficulty, duration, focus) is chosen after the briefing; the plan is pure code, so it runs synchronously |
 | StoragePort `putUrl/getUrl/move/delete` | adds `head/read/put` | The worker must read uploads and write PDFs (ADD LLD-4/LLD-6 do both) |

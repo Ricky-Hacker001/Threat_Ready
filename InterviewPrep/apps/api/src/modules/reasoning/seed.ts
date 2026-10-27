@@ -1,5 +1,5 @@
 import type { ReasoningDifficulty } from '@threatready/contracts';
-import { surfacesFor, type ArchitectureDef, type AttackSurface } from './architectures/index.js';
+import { getArchitecture, surfacesFor, type ArchitectureDef, type AttackSurface } from './architectures/index.js';
 import { fingerprintOf, type ReasoningDomain, type VariationSeed } from './domain.types.js';
 
 export type Rng = () => number;
@@ -66,6 +66,21 @@ export function describeSeed(domain: ReasoningDomain, s: VariationSeed) {
 }
 
 /**
+ * The attack structure a seed is expected to yield: `<architecture>|<entry>><via>><target nodes>|<objective>`.
+ * Keyed on the surface's nodes, not its id (review H55-COST-5): surfaces are listed per domain, and on one
+ * architecture different domains' surfaces often cross the same nodes (b1's cloud_security
+ * leaked-deploy-key and incident_response exports-download both run deploy-key > exports-bucket), so by
+ * id the picker could not see a collision the similarity check then rejected after the paid try. A
+ * surface the library no longer has keeps its id.
+ */
+export function structureKeyOf(s: Pick<VariationSeed, 'domain' | 'topology' | 'entryPoint' | 'objective'>): string {
+  const arch = getArchitecture(s.topology);
+  const surface = arch ? surfacesFor(arch, s.domain).find((x) => x.id === s.entryPoint) : undefined;
+  const nodes = surface ? `${[...surface.entryNodeIds].sort().join(',')}>${surface.viaNodeIds.join(',')}>${[...surface.targetNodeIds].sort().join(',')}` : s.entryPoint;
+  return `${s.topology}|${nodes}|${s.objective}`;
+}
+
+/**
  * The variation for a question written on the architecture library (gen.v3, design §3.1). `recent`
  * are the seeds to spread away from: the bucket's live questions for a pool refill (plus the seeds
  * already chosen in the batch), the learner's own questions for an on-demand generation. In order:
@@ -78,14 +93,10 @@ export function describeSeed(domain: ReasoningDomain, s: VariationSeed) {
  * 64 draws, then an exhaustive pass in least-used order, then any (the quality gate's similarity check
  * still applies). For a library seed `topology` is the architecture id and `entryPoint` the surface id,
  * so the fingerprint reads domain|architecture|surface|objective|technique.
- * `avoidStructures` (`<architecture>|<surface>|<objective>` of live questions, review AR-BIZ-2) are
- * passed over like a used fingerprint while another combination remains: such a seed usually yields the
- * same attack path and objective, which the similarity check would reject only after a paid call.
+ * `avoidStructures` (structureKeyOf of live questions, review AR-BIZ-2) are passed over like a used
+ * fingerprint while another combination remains: such a seed usually yields the same attack path and
+ * objective, which the similarity check would reject only after a paid call.
  */
-export function structureKeyOf(s: Pick<VariationSeed, 'topology' | 'entryPoint' | 'objective'>): string {
-  return `${s.topology}|${s.entryPoint}|${s.objective}`;
-}
-
 export function pickLibrarySeed(
   domain: ReasoningDomain,
   level: ReasoningDifficulty,

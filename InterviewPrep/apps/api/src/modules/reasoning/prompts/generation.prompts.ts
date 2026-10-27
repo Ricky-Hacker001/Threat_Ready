@@ -7,6 +7,7 @@ import { architectureText, ATTACK_STEPS, levelOf, type ArchitectureDef, type Att
 import { ATTACK_ENTERPRISE, type ReasoningDomain, type VariationSeed } from '../domain.types.js';
 import type { GeneratorOutput, LibraryGeneratorOutput } from '../item.types.js';
 import { describeSeed } from '../seed.js';
+import type { SmallTierParams } from '../small-tier.js';
 
 /**
  * Bump when the prompt or the item shape changes; stored on every item. v3 (26 Oct 2026): questions
@@ -83,6 +84,7 @@ export function generationRequest(ctx: GenerationContext): LlmRequest {
   const framing = domain.framing ?? 'an architecture diagram, an active attack';
   return {
     tier: 'LARGE',
+    modelProfile: 'reasoning',
     promptVersion: GENERATION_PROMPT_VERSION,
     // The item is a large JSON object (diagram, four options, rubric, reference answer): give it room,
     // at medium effort so generation stays within about a minute.
@@ -214,6 +216,8 @@ export interface QuestionContext {
   seed: VariationSeed;
   surface: AttackSurface;
   tier: LlmTier;
+  /** How the SMALL tier is asked on the model it resolves to (smallTierParams); absent: as on Haiku 4.5. */
+  small?: SmallTierParams;
   /** Questions already written on this architecture for this domain: steer away from their path, objective and wording. */
   avoid: { title: string; question: string; path: string; objective: string }[];
   /** The quality gate's findings on the previous try, fed back for the retry. */
@@ -226,6 +230,19 @@ const TIER_PARAMS: Record<LlmTier, Pick<LlmRequest, 'maxOutputTokens' | 'effort'
   SMALL: { maxOutputTokens: 8000, timeoutMs: 90_000 },
   LARGE: { maxOutputTokens: 12_000, effort: 'medium' },
 };
+
+/**
+ * A SMALL model that thinks adaptively (Haiku 5.5): its thinking counts toward max_tokens, so twice
+ * Haiku 4.5's room (which wrote 2.6-3.6k visible tokens in 41-54 s), and a timeout for about 11k tokens
+ * at that rate. Measured on Haiku 5.5 (H55, 27 Oct 2026): at low effort at most 11.8k tokens and 57 s
+ * a try; at medium 4 of 12 tries used all 16,000, so raise this before writing at medium.
+ */
+const SMALL_THINKING_PARAMS: Pick<LlmRequest, 'maxOutputTokens' | 'timeoutMs'> = { maxOutputTokens: 16_000, timeoutMs: 180_000 };
+
+function tierParams(tier: LlmTier, small: SmallTierParams | undefined): Pick<LlmRequest, 'maxOutputTokens' | 'effort' | 'timeoutMs'> {
+  if (tier === 'LARGE') return TIER_PARAMS.LARGE;
+  return { ...(small?.thinking ? SMALL_THINKING_PARAMS : TIER_PARAMS.SMALL), ...(small?.effort ? { effort: small.effort } : {}) };
+}
 
 /** The stable, cacheable first system block: the writer's rules and the architecture. Byte-identical for every question on one architecture. */
 export function questionPrefix(arch: ArchitectureDef): string {
@@ -280,8 +297,9 @@ ${LIBRARY_LEVEL_GUIDE[level]}`;
   }${ctx.previousFailure.length ? `\n\nTry ${ctx.tryNumber}: the previous item was rejected by the quality check. Fix every point:\n${ctx.previousFailure.map((e) => `- ${e}`).join('\n')}` : ''}`;
   return {
     tier: ctx.tier,
+    modelProfile: 'reasoning',
     promptVersion: GENERATION_PROMPT_VERSION,
-    ...TIER_PARAMS[ctx.tier],
+    ...tierParams(ctx.tier, ctx.small),
     systemPrefix: questionPrefix(arch),
     system,
     messages: [{ role: 'user', content: user }],

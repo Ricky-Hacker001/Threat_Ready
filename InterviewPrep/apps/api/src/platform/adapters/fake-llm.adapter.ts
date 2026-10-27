@@ -1,6 +1,21 @@
 import { PortError, type PortErrorKind } from '@threatready/shared';
 import type { AppConfig } from '../../config/config.js';
-import { promptChars, type LlmChunk, type LlmObject, type LlmPort, type LlmRequest, type LlmText, type LlmTier, type LlmUsage, type StructuredSchema } from '../ports/llm.port.js';
+import { MODEL_PRICING } from '../../modules/ai/pricing.js';
+import {
+  promptChars,
+  resolveModel,
+  withRefusalCategory,
+  withUsage,
+  type LlmChunk,
+  type LlmObject,
+  type LlmPort,
+  type LlmRequest,
+  type LlmText,
+  type LlmTier,
+  type LlmUsage,
+  type ModelProfile,
+  type StructuredSchema,
+} from '../ports/llm.port.js';
 import { fakeReasoning } from './fake/reasoning.fake.js';
 
 /**
@@ -10,7 +25,8 @@ import { fakeReasoning } from './fake/reasoning.fake.js';
  * failures and overrides per schema name.
  */
 export class FakeLlmAdapter implements LlmPort {
-  readonly calls: { kind: 'text' | 'structured' | 'stream'; tier: LlmTier; name?: string; promptVersion: string; chars: number; prefixChars: number }[] = [];
+  /** Every call, with the model its tier and profile resolved to. */
+  readonly calls: { kind: 'text' | 'structured' | 'stream'; tier: LlmTier; model: string; name?: string; promptVersion: string; chars: number; prefixChars: number }[] = [];
   /**
    * Prompt-cache simulation, as the provider behaves (review COST-2): an entry per model, output format
    * (the structured-output schema name: a different format invalidates the cache) and systemPrefix; the
@@ -20,20 +36,31 @@ export class FakeLlmAdapter implements LlmPort {
    * reset() empties it.
    */
   private readonly cache = new Set<string>();
-  /** schema name (or 'question' for streams) -> failure kinds to throw, consumed in order. */
-  failures = new Map<string, PortErrorKind[]>();
+  /**
+   * schema name (or 'question' for streams) -> failures to throw, consumed in order: a kind, or a billed
+   * refusal with its stop_details category (refuseNext).
+   */
+  failures = new Map<string, (PortErrorKind | { refusal: string })[]>();
   overrides = new Map<string, (req: LlmRequest) => unknown>();
   /** Artificial latency, for timeout tests. */
   delayMs = 0;
 
-  constructor(private readonly cfg: Pick<AppConfig, 'LLM_MODEL_SMALL' | 'LLM_MODEL_LARGE'>) {}
+  constructor(private readonly cfg: Pick<AppConfig, 'LLM_MODEL_SMALL' | 'LLM_MODEL_LARGE'> & Partial<Pick<AppConfig, 'REASONING_MODEL_SMALL' | 'pricing'>>) {}
 
-  modelFor(tier: LlmTier): string {
-    return tier === 'SMALL' ? this.cfg.LLM_MODEL_SMALL : this.cfg.LLM_MODEL_LARGE;
+  modelFor(tier: LlmTier, profile?: ModelProfile): string {
+    return resolveModel(this.cfg, tier, profile);
   }
 
   failNext(name: string, ...kinds: PortErrorKind[]): void {
     this.failures.set(name, [...(this.failures.get(name) ?? []), ...kinds]);
+  }
+
+  /**
+   * The next call with this schema name is declined as the real API declines one (HTTP 200, stop_reason
+   * refusal): a PortError 'refusal' carrying the category and the billed usage of the prompt.
+   */
+  refuseNext(name: string, category = 'cyber'): void {
+    this.failures.set(name, [...(this.failures.get(name) ?? []), { refusal: category }]);
   }
 
   reset(): void {
@@ -71,7 +98,7 @@ export class FakeLlmAdapter implements LlmPort {
   }
 
   private record(kind: 'text' | 'structured' | 'stream', req: LlmRequest, name?: string) {
-    this.calls.push({ kind, tier: req.tier, name, promptVersion: req.promptVersion, chars: promptChars(req), prefixChars: req.systemPrefix?.length ?? 0 });
+    this.calls.push({ kind, tier: req.tier, model: this.modelFor(req.tier, req.modelProfile), name, promptVersion: req.promptVersion, chars: promptChars(req), prefixChars: req.systemPrefix?.length ?? 0 });
   }
 
   private async maybeFail(name: string, req: LlmRequest) {
@@ -88,11 +115,12 @@ export class FakeLlmAdapter implements LlmPort {
     }
     const queue = this.failures.get(name);
     const kind = queue?.shift();
+    if (typeof kind === 'object') throw withUsage(withRefusalCategory(new PortError('refusal', 'fake refusal', { retryable: false }), kind.refusal), this.usage(req, '', name));
     if (kind) throw new PortError(kind, `fake ${kind}`, { retryable: kind !== 'invalid_output' && kind !== 'refusal' ? undefined : kind === 'invalid_output' });
   }
 
   private usage(req: LlmRequest, out: string, format: string): LlmUsage {
-    const model = this.modelFor(req.tier);
+    const model = this.modelFor(req.tier, req.modelProfile);
     const prefix = req.systemPrefix ?? '';
     const prefixTokens = Math.ceil(prefix.length / 4);
     let cacheReadTokens = 0;
@@ -107,7 +135,10 @@ export class FakeLlmAdapter implements LlmPort {
       }
     }
     const rest = promptChars(req) - prefix.length;
-    return { model, inputTokens: Math.ceil(rest / 4), outputTokens: Math.ceil(out.length / 4), cacheReadTokens, cacheWriteTokens };
+    const visible = Math.ceil(out.length / 4);
+    // A model that thinks adaptively bills its thinking as output, within max_tokens.
+    const thinking = (this.cfg.pricing ?? MODEL_PRICING)[model]?.adaptiveThinking ? Math.min(Math.ceil(visible * FAKE_THINKING[req.effort ?? 'medium']), Math.max(0, req.maxOutputTokens - visible)) : 0;
+    return { model, inputTokens: Math.ceil(rest / 4), outputTokens: visible + thinking, cacheReadTokens, cacheWriteTokens };
   }
 
   private produce(name: string, req: LlmRequest, schema: Record<string, unknown>): unknown {
@@ -130,6 +161,9 @@ export class FakeLlmAdapter implements LlmPort {
     }
   }
 }
+
+/** Thinking tokens per visible output token on a model that thinks adaptively, by effort: a stand-in so cost tests see it billed. */
+const FAKE_THINKING = { low: 0.5, medium: 1, high: 2 } as const;
 
 const lastUser = (req: LlmRequest) => req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
 const tagged = (s: string, tag: string) => s.match(new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`))?.[1];

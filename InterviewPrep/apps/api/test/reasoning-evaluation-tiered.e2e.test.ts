@@ -12,8 +12,12 @@ import { drainJobs, ORIGIN, resetDatabase, signUp, startApp, type Agent, type Te
  * Tiered Attack Reasoning evaluation end to end (cost design 26 Oct 2026, §6): the option is scored in
  * code, one SMALL evaluator pass grades the justification, and the LARGE challenger and reconciler run
  * only when an escalation rule fires, every stage carrying the item as one system prefix (not marked for
- * caching unless REASONING_PROMPT_CACHE, review COST-2). PostgreSQL and the fake LLM only.
+ * caching unless REASONING_PROMPT_CACHE, review COST-2). Full mode is the default since H55 (27 Oct 2026),
+ * so every app here but the full-mode case sets REASONING_EVALUATION_MODE=tiered; stage 1 runs on the
+ * default SMALL model, Haiku 5.5. PostgreSQL and the fake LLM only.
  */
+
+const TIERED = { REASONING_EVALUATION_MODE: 'tiered' };
 
 /** Fifty-plus words that name no particular component: the fake evaluator credits every point (quote = first sentence). */
 const STRONG =
@@ -28,7 +32,7 @@ describe('attack reasoning: tiered evaluation', () => {
 
   beforeAll(async () => {
     await resetDatabase();
-    t = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '40', REASONING_USER_DAILY_EVALUATIONS: '0' });
+    t = await startApp({ ...TIERED, RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '40', REASONING_USER_DAILY_EVALUATIONS: '0' });
     learner = await signUp(t, 'Tiered Learner');
   });
   beforeEach(() => t.llm.reset());
@@ -95,18 +99,18 @@ describe('attack reasoning: tiered evaluation', () => {
     expect(evaluationCalls(t).map((c) => [c.name, c.tier])).toEqual([['reasoning_evaluator', 'SMALL']]);
     expect(evaluationCalls(t)[0]!.prefixChars).toBeGreaterThan(2000);
     const rows = await ledger(t, a.id);
-    expect(rows.map((l) => [l.feature, l.tier, l.model, l.status])).toEqual([['reasoning.evaluator', 'SMALL', 'claude-haiku-4-5', 'settled']]);
+    expect(rows.map((l) => [l.feature, l.tier, l.model, l.status])).toEqual([['reasoning.evaluator', 'SMALL', 'claude-haiku-5-5', 'settled']]);
     // Not marked for caching (REASONING_PROMPT_CACHE off, review COST-2): no write premium.
     expect(rows[0]!.cache_write_tokens).toBe(0);
     expect(rows[0]!.cache_read_tokens).toBe(0);
 
     const s = await stored(t, a.id);
-    expect(s).toMatchObject({ tier: 'SMALL', model: 'claude-haiku-4-5', prompt_version: 'reasoning-evaluate.v4', scoring_version: 'reasoning-score.v3.2026-10-27', degraded: false });
+    expect(s).toMatchObject({ tier: 'SMALL', model: 'claude-haiku-5-5', prompt_version: 'reasoning-evaluate.v4', scoring_version: 'reasoning-score.v3.2026-10-27', degraded: false });
     expect(s.stages.escalation).toEqual({ mode: 'tiered', escalated: false, reasons: [] });
     expect(s.stages.challenger).toBeNull();
     expect(s.stages.reconciler).toBeNull();
     const { rows: evidence } = await t.pool.query(`SELECT DISTINCT tier, model FROM skill_evidence WHERE source = 'reasoning' AND source_id = $1`, [a.id]);
-    expect(evidence).toEqual([{ tier: 'SMALL', model: 'claude-haiku-4-5' }]);
+    expect(evidence).toEqual([{ tier: 'SMALL', model: 'claude-haiku-5-5' }]);
 
     // Feedback without a reconciler: the evaluator's summary and tips, the authored analysis and reference answer.
     expect(r.feedback.reasoning).toBe(s.stages.evaluator.reasoning_summary);
@@ -257,7 +261,7 @@ describe('attack reasoning: tiered evaluation', () => {
   });
 
   it('the random audit (REASONING_ESCALATION_AUDIT_RATE) sends an otherwise final answer to the second review, without telling the learner (review AR-SEC-1)', async () => {
-    const ta = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', REASONING_ESCALATION_AUDIT_RATE: '0.15' });
+    const ta = await startApp({ ...TIERED, RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', REASONING_ESCALATION_AUDIT_RATE: '0.15' });
     try {
       const l = await signUp(ta, 'Audit Learner');
       const evaluation = ta.app.get(EvaluationService);
@@ -309,7 +313,7 @@ describe('attack reasoning: tiered evaluation', () => {
     expect(r2.notices).toHaveLength(2);
     expect(r2.feedback.architectureAnalysis).toBe(kb.private.architectureAnalysis);
     expect(r2.feedback.expertExplanation).toBe(kb.private.referenceAnswer);
-    expect(await stored(t, b.id)).toMatchObject({ tier: 'SMALL', model: 'claude-haiku-4-5', degraded: true });
+    expect(await stored(t, b.id)).toMatchObject({ tier: 'SMALL', model: 'claude-haiku-5-5', degraded: true });
   });
 
   it('gives an item written before the library (no authored analysis) complete feedback: a readable account of the attack path, not the graders\' diagram listing (review AR-BIZ-10)', async () => {
@@ -375,7 +379,7 @@ describe('attack reasoning: tiered evaluation', () => {
     expect(single).toMatchObject({ totalScore: 100, confidence: 'high', reviewFlag: false });
 
     // The same answer reviewed (the random audit, or full mode): the withdrawn points cost marks.
-    const ta = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', REASONING_ESCALATION_AUDIT_RATE: '1' });
+    const ta = await startApp({ ...TIERED, RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', REASONING_ESCALATION_AUDIT_RATE: '1' });
     try {
       const l = await signUp(ta, 'Divergence Learner');
       const b = await ready(ta, l);

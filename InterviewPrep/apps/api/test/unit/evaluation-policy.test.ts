@@ -275,12 +275,14 @@ describe('tiered evaluation: prompts and the cached grader prefix', () => {
   });
 
   it('the stage-1 estimate prices the tier and counts the whole prompt, prefix included', () => {
-    const llm = new LlmService(new FakeLlmAdapter(cfg), null as never, cfg);
+    // On Haiku 4.5, the model this was designed on (Haiku 5.5, the default since H55, is priced in reasoning-model-small.e2e.test.ts).
+    const h45 = { ...cfg, REASONING_MODEL_SMALL: 'claude-haiku-4-5' };
+    const llm = new LlmService(new FakeLlmAdapter(h45), null as never, h45);
     const bound = evaluatorRequestBound(CLOUD_SECURITY, null);
     const small = llm.estimate(bound);
     const large = llm.estimate(evaluatorRequestBound(CLOUD_SECURITY, null, undefined, 'LARGE'));
     expect(large).toBeGreaterThan(small * 1.5);
-    // About US$0.024 on Haiku (the design's figure): 25k prompt characters at ~3 per token plus 3,000 output tokens.
+    // About US$0.024 on Haiku 4.5 (the design's figure): 25k prompt characters at ~3 per token plus 3,000 output tokens.
     expect(small).toBeGreaterThan(0.015);
     expect(small).toBeLessThan(0.03);
     // The prefix counts: dropping it would make the estimate cheaper.

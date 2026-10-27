@@ -6,6 +6,7 @@ import { toOutputSchema, untrusted } from '../../ai/json-schema.js';
 import { arr, enumOf, INJECTION_RULES, prose, str } from '../../ai/prompts/common.js';
 import type { ReasoningDomain } from '../domain.types.js';
 import type { ReasoningItemPrivate } from '../item.types.js';
+import type { SmallTierParams } from '../small-tier.js';
 import { diagramText } from './diagram-text.js';
 
 /**
@@ -20,7 +21,7 @@ export const EVALUATION_PROMPT_VERSION = 'reasoning-evaluate.v4';
 const STATUS = ['met', 'partial', 'missed'] as const;
 const CONFIDENCE = ['high', 'medium', 'low'] as const;
 
-/** REASONING_EVALUATION_MODE: 'tiered' grades once on SMALL and escalates; 'full' runs three LARGE stages on every answer (rollback). */
+/** REASONING_EVALUATION_MODE: 'tiered' grades once on SMALL and escalates; 'full' (the default since H55) runs three LARGE stages on every answer. */
 export type EvaluationMode = 'tiered' | 'full';
 
 /** The tier stage 1 runs on: Haiku in tiered mode, Sonnet in full mode (exactly the old pipeline). */
@@ -144,6 +145,13 @@ export function evaluatorSchema(item: EvaluationItem): StructuredSchema<Evaluato
 const EVALUATOR_MAX_OUTPUT_TOKENS = 3000;
 /** Haiku writes about 1.3k tokens here; the SMALL tier default (20 s) is too short for that, 60 s stays inside the queue policy. */
 const EVALUATOR_SMALL_TIMEOUT_MS = 60_000;
+/**
+ * A SMALL model that thinks adaptively (Haiku 5.5): its thinking counts toward max_tokens, so room for
+ * it next to the 1.3-1.5k visible tokens, and a timeout for that much output at Haiku 4.5's measured
+ * rate (about 70 tokens a second here); still inside the queue policy. Measured on Haiku 5.5 (H55,
+ * 27 Oct 2026): 1.1-2.9k output tokens and 6-13 s at low or medium effort.
+ */
+const EVALUATOR_SMALL_THINKING: Pick<LlmRequest, 'maxOutputTokens' | 'timeoutMs'> = { maxOutputTokens: 8000, timeoutMs: 120_000 };
 /** Upper bound of an item's context (scenario, diagram, key, rubric) for estimates made without the item's key (before it exists, or in the API, which cannot read it); real items run 6-14k characters. */
 const ITEM_CONTEXT_BOUND_CHARS = 18_000;
 
@@ -153,25 +161,30 @@ const ITEM_CONTEXT_BOUND_CHARS = 18_000;
  * budget check needs to know an answer can be evaluated before the learner writes it (or before the
  * submission is accepted). The API passes no item: since migration 0016 a learner's transaction
  * cannot read the answer key, so the item's context is taken at ITEM_CONTEXT_BOUND_CHARS. `tier` is
- * the tier stage 1 runs on (evaluatorTier(REASONING_EVALUATION_MODE)); the estimate prices it.
+ * the tier stage 1 runs on (evaluatorTier(REASONING_EVALUATION_MODE)) and `small` how its SMALL model is
+ * asked (smallTierParams); the estimate prices the model and the output room they resolve to.
  */
-export function evaluatorRequestBound(domain: ReasoningDomain, item: EvaluationItem | null, answer?: { selected: OptionId; justification: string }, tier: LlmTier = 'SMALL'): LlmRequest {
+export function evaluatorRequestBound(domain: ReasoningDomain, item: EvaluationItem | null, answer?: { selected: OptionId; justification: string }, tier: LlmTier = 'SMALL', small?: SmallTierParams): LlmRequest {
   const selected = answer?.selected ?? 'A';
   const justification = answer?.justification ?? 'x'.repeat(REASONING_LIMITS.justificationMaxChars);
-  return evaluatorRequest(domain, item, selected, justification, tier);
+  return evaluatorRequest(domain, item, selected, justification, tier, small);
 }
 
 /**
- * Stage 1. On SMALL (tiered mode, the default) it is usually the only stage; on LARGE (full mode) it
- * is the old first stage with medium effort. Without an item (an estimate before the key can be
- * read) the prefix holds ITEM_CONTEXT_BOUND_CHARS in place of the item's context.
+ * Stage 1. On SMALL (tiered mode) it is usually the only stage; on LARGE (full mode, the default, or
+ * after the SMALL model declined) it is the old first stage with medium effort. `small` is how the SMALL
+ * model is asked (smallTierParams; absent: as on Haiku 4.5). Without an item (an estimate before the key
+ * can be read) the prefix holds ITEM_CONTEXT_BOUND_CHARS in place of the item's context.
  */
-export function evaluatorRequest(domain: ReasoningDomain, item: EvaluationItem | null, selected: OptionId, justification: string, tier: LlmTier = 'SMALL'): LlmRequest {
+export function evaluatorRequest(domain: ReasoningDomain, item: EvaluationItem | null, selected: OptionId, justification: string, tier: LlmTier = 'SMALL', small?: SmallTierParams): LlmRequest {
   return {
     tier,
+    modelProfile: 'reasoning',
     promptVersion: EVALUATION_PROMPT_VERSION,
     maxOutputTokens: EVALUATOR_MAX_OUTPUT_TOKENS,
-    ...(tier === 'SMALL' ? { timeoutMs: EVALUATOR_SMALL_TIMEOUT_MS } : { effort: 'medium' as const }),
+    ...(tier === 'SMALL'
+      ? { timeoutMs: EVALUATOR_SMALL_TIMEOUT_MS, ...(small?.thinking ? EVALUATOR_SMALL_THINKING : {}), ...(small?.effort ? { effort: small.effort } : {}) }
+      : { effort: 'medium' as const }),
     systemPrefix: item ? graderPrefix(domain, item) : graderPrefixWith(domain, 'x'.repeat(ITEM_CONTEXT_BOUND_CHARS)),
     system: `You are stage 1 (the evaluator). Grade the justification in the user message against the rubric points of the item above. Your grading may be final, or the application may send it to a second review.
 
@@ -222,6 +235,7 @@ export function challengerSchema(item: EvaluationItem): StructuredSchema<Challen
 export function challengerRequest(domain: ReasoningDomain, item: EvaluationItem, selected: OptionId, justification: string, evaluator: EvaluatorOutput): LlmRequest {
   return {
     tier: 'LARGE',
+    modelProfile: 'reasoning',
     promptVersion: EVALUATION_PROMPT_VERSION,
     maxOutputTokens: 2500,
     effort: 'medium',
@@ -295,6 +309,7 @@ export function reconcilerSchema(item: EvaluationItem): StructuredSchema<Reconci
 export function reconcilerRequest(domain: ReasoningDomain, item: EvaluationItem, selected: OptionId, justification: string, evaluator: EvaluatorOutput, challenger: ChallengerOutput | null): LlmRequest {
   return {
     tier: 'LARGE',
+    modelProfile: 'reasoning',
     promptVersion: EVALUATION_PROMPT_VERSION,
     maxOutputTokens: 5000,
     effort: 'medium',

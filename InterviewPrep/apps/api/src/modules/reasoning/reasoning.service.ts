@@ -33,6 +33,7 @@ import type { GeneratedItem } from './item.types.js';
 import type { StoredFeedback } from './evaluation.service.js';
 import { GenerationService, poolBucket } from './generation.service.js';
 import { evaluatorRequestBound, evaluatorTier } from './prompts/evaluation.prompts.js';
+import { smallTierParams } from './small-tier.js';
 import { DIMENSION_KEYS, DIMENSION_LABELS, normaliseWeights } from './scoring.js';
 
 const OPEN_STATES = ['generating', 'ready', 'evaluating'] as const;
@@ -177,9 +178,9 @@ export class ReasoningService {
     return picked ?? null;
   }
 
-  /** One first-stage evaluation at the item-context bound, on the tier stage 1 runs on (REASONING_EVALUATION_MODE). */
+  /** One first-stage evaluation at the item-context bound, on the tier stage 1 runs on (REASONING_EVALUATION_MODE) and the model it resolves to. */
   private evaluationEstimateUsd(domain: ReasoningDomain, answer?: { selected: OptionId; justification: string }): number {
-    return this.llm.estimate(evaluatorRequestBound(domain, null, answer, evaluatorTier(this.cfg.REASONING_EVALUATION_MODE)));
+    return this.llm.estimate(evaluatorRequestBound(domain, null, answer, evaluatorTier(this.cfg.REASONING_EVALUATION_MODE), smallTierParams(this.cfg, 'evaluation')));
   }
 
   /**

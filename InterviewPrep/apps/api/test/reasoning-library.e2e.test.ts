@@ -74,7 +74,8 @@ describe('attack reasoning: questions on the architecture library', () => {
       for (const r of rows) {
         const arch = getArchitecture(r.architecture_id)!;
         expect(bucket).toContain(arch.id);
-        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.LLM_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v4', serve_count: 0 });
+        // Attack Reasoning's SMALL model (claude-haiku-5-5 by default since H55), not the interviews' LLM_MODEL_SMALL.
+        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.REASONING_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v4', serve_count: 0 });
         expect(r.seed.topology).toBe(arch.id);
         expect(r.seed.architecture).toMatchObject({ id: arch.id, version: arch.version, surface: r.seed.entryPoint });
         expect(r.seed.architecture.pathKey.startsWith(`${arch.id}:`)).toBe(true);
@@ -199,9 +200,9 @@ describe('attack reasoning: questions on the architecture library', () => {
     const one = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_GENERATION_TRIES: '1' });
     try {
       const single = one.app.get(GenerationService).generationEstimateUsd('threat_intelligence', 'advanced');
-      // 8k output tokens on Haiku, then 12k on Sonnet: the retry dominates the worst case.
-      expect(single).toBeGreaterThan(0.03);
-      expect(single).toBeLessThan(0.08);
+      // 16k output tokens on Haiku 5.5 (the default since H55; was 8k on Haiku 4.5, US$0.03-0.08), then 12k on Sonnet: the retry dominates the worst case.
+      expect(single).toBeGreaterThan(0.005);
+      expect(single).toBeLessThan(0.02);
       expect(ladder).toBeGreaterThan(single + 0.1);
     } finally {
       await one.close();

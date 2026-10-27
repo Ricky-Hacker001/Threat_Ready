@@ -8,7 +8,7 @@ import { Database } from '../../platform/db/database.js';
 import { emitMetric, logger } from '../../platform/logging/logger.js';
 import { JOBS, QUEUE_PORT, type QueuePort } from '../../platform/ports/queue.port.js';
 import { ContentService } from '../../platform/content/content.service.js';
-import { LlmService, type CallMeta } from '../ai/llm.service.js';
+import { LlmService, refusalOf, type CallMeta } from '../ai/llm.service.js';
 import { getDomain } from './domains/index.js';
 import type { ReasoningDomain, Weights } from './domain.types.js';
 import { drawnForAudit, escalationReasons, type EscalationReason } from './evaluation-policy.js';
@@ -30,7 +30,8 @@ import {
   type ReconcilerOutput,
 } from './prompts/evaluation.prompts.js';
 import { scoreAttempt, type PointJudgement, type ScoreOutcome, type ScoringInput } from './scoring.js';
-import type { LlmTier } from '../../platform/ports/llm.port.js';
+import { smallTierParams } from './small-tier.js';
+import type { LlmObject, LlmTier } from '../../platform/ports/llm.port.js';
 
 const TERMINAL_CODES = new Set(['LLM_BUDGET_EXCEEDED', 'AI_SERVICE_PAUSED']);
 
@@ -60,7 +61,9 @@ export interface StoredFeedback {
  * fabricated score. A failure of the first stage leaves the attempt in `evaluating` for the queue to
  * retry; the dead-letter handler marks it `evaluation_failed` so the learner sees a state and a retry
  * button. That manual retry runs under the normal escalation rules (no stage-1 grade existed to
- * dispute, review COST-6); `escalate` remains for an operator's forced second review.
+ * dispute, review COST-6); `escalate` remains for an operator's forced second review. When the SMALL
+ * model declines stage 1 (stop_reason refusal, billed and recorded), stage 1 runs again on LARGE and the
+ * answer escalates (`small_refused`): the learner's evaluation neither fails nor degrades.
  */
 @Injectable()
 export class EvaluationService {
@@ -106,11 +109,28 @@ export class EvaluationService {
     // Stage 1: always. Its tier is the mode's (SMALL tiered, LARGE full).
     let evaluator: EvaluatorOutput;
     let last: { model: string; tier: LlmTier };
+    let stage1Tier = evaluatorTier(mode);
+    let smallRefused = false;
+    const stage1 = (tier: LlmTier, budget: CallMeta['budget']): Promise<LlmObject<EvaluatorOutput>> =>
+      this.llm.structured(metaFor('evaluator', budget), { ...evaluatorRequest(domain, item, selected, justification, tier, smallTierParams(this.cfg, 'evaluation')), cache }, evaluatorSchema(item));
     try {
-      const tier = evaluatorTier(mode);
-      const r = await this.llm.structured(metaFor('evaluator', 'reasoning'), { ...evaluatorRequest(domain, item, selected, justification, tier), cache }, evaluatorSchema(item));
+      let r: LlmObject<EvaluatorOutput>;
+      try {
+        r = await stage1(stage1Tier, 'reasoning');
+      } catch (err) {
+        const refusal = stage1Tier === 'SMALL' ? refusalOf(err) : null;
+        if (!refusal) throw err;
+        // The SMALL model declined (Haiku 5.5's safety classifiers can stop an attack scenario; billed and
+        // recorded by LlmService). Not the learner's doing: stage 1 runs on LARGE, as 'finalize' since the
+        // evaluation has started, and the challenger and reconciler review it (escalation `small_refused`).
+        smallRefused = true;
+        stage1Tier = 'LARGE';
+        emitMetric('ReasoningRefusal', 1, 'Count', { Stage: 'evaluator', Model: this.llm.modelFor('SMALL', 'reasoning'), Category: refusal.category ?? 'unknown' });
+        logger.warn({ attempt_id: attemptId, model: this.llm.modelFor('SMALL', 'reasoning'), category: refusal.category }, 'reasoning evaluator declined on SMALL; stage 1 runs on LARGE');
+        r = await stage1('LARGE', 'finalize');
+      }
       evaluator = r.value;
-      last = { model: r.usage.model, tier };
+      last = { model: r.usage.model, tier: stage1Tier };
     } catch (err) {
       if (err instanceof DomainError && TERMINAL_CODES.has(err.code)) return this.markFailed(attemptId, err.code);
       throw err; // retried by the queue; dead-lettered after the policy's attempts
@@ -157,6 +177,7 @@ export class EvaluationService {
     const reasons = escalationReasons({
       mode,
       forced: opts.escalate === true,
+      smallRefused,
       selected,
       selectedIsBest: selected === item.private.correctOption,
       provisional,
@@ -215,11 +236,11 @@ export class EvaluationService {
       outcome = scoreAttempt({
         ...fixed,
         final,
-        // The disagreement baseline. Full mode keeps the old rule (stage 1 as written). An escalated
-        // tiered answer was sent on because stage 1's reading was doubtful, so disagreement with it is
-        // expected and not by itself a sign the final grade is uncertain: the baseline is stage 1 with
-        // the challenger's objections applied.
-        evaluator: mode === 'full' ? evaluatorPoints : applyChallenges(evaluator, challenger),
+        // The disagreement baseline. A LARGE stage 1 (full mode, or after the SMALL model declined) keeps
+        // the old rule (stage 1 as written). An escalated SMALL reading was sent on because it was
+        // doubtful, so disagreement with it is expected and not by itself a sign the final grade is
+        // uncertain: the baseline is stage 1 with the challenger's objections applied.
+        evaluator: stage1Tier === 'LARGE' ? evaluatorPoints : applyChallenges(evaluator, challenger),
         assertedClaims,
         technicalErrors,
         challenger: { hallucinatedReferences: challenger?.hallucinated_references.length ?? 0, fluentButWrong: challenger?.fluent_but_wrong ?? false, missingCritical: challenger?.missing_critical.length ?? 0 },

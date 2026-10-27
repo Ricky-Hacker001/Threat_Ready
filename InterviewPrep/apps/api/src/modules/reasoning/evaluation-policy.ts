@@ -8,9 +8,9 @@ import type { ScoreOutcome } from './scoring.js';
  * output and the provisional score, so the decision never rests on the model being asked whether it
  * should be checked. An empty list means the provisional result is final.
  */
-export type EscalationReason = 'mode_full' | 'forced' | 'borderline' | 'low_confidence' | 'unverified_credit' | 'integrity_suspected' | 'penalty_unconfirmed' | 'audit';
+export type EscalationReason = 'mode_full' | 'forced' | 'small_refused' | 'borderline' | 'low_confidence' | 'unverified_credit' | 'integrity_suspected' | 'penalty_unconfirmed' | 'audit';
 
-export const ESCALATION_REASONS: readonly EscalationReason[] = ['mode_full', 'forced', 'borderline', 'low_confidence', 'unverified_credit', 'integrity_suspected', 'penalty_unconfirmed', 'audit'];
+export const ESCALATION_REASONS: readonly EscalationReason[] = ['mode_full', 'forced', 'small_refused', 'borderline', 'low_confidence', 'unverified_credit', 'integrity_suspected', 'penalty_unconfirmed', 'audit'];
 
 /** Credited points the quote check withdrew before an answer is escalated as unverified_credit. */
 export const UNVERIFIED_CREDIT_MIN = 2;
@@ -19,6 +19,11 @@ export interface EscalationInput {
   mode: EvaluationMode;
   /** The job asked for the second review (an operator's re-run; a learner's retry no longer forces it, review COST-6). */
   forced: boolean;
+  /**
+   * The SMALL model declined stage 1 (stop_reason refusal: Haiku 5.5's safety classifiers can stop an
+   * attack scenario), so stage 1 ran on LARGE; the challenger and reconciler always follow.
+   */
+  smallRefused?: boolean;
   selected: OptionId;
   /** Whether the selected option is the item's best one (the deductions on a wrong option matter less, below). */
   selectedIsBest?: boolean;
@@ -45,11 +50,12 @@ export function escalationReasons(input: EscalationInput): EscalationReason[] {
   const reasons: EscalationReason[] = [];
   if (input.mode === 'full') reasons.push('mode_full');
   if (input.forced) reasons.push('forced');
+  if (input.smallRefused) reasons.push('small_refused');
   const ev = input.evaluator;
   // An integrity flag raised by stage 1 fixes the outcome: flags are never cleared by a later stage
   // (audit TR-21) and they zero every reasoning dimension, so a second review could not change any
-  // number. Such results are already low confidence and flagged for human review; only the rollback
-  // mode and an explicit request send them to the later stages.
+  // number. Such results are already low confidence and flagged for human review; only full mode and
+  // an explicit request send them to the later stages.
   if (ev.integrity.instructs_grader || ev.integrity.off_topic) return reasons;
   if (input.band > 0 && Math.abs(input.provisional.total - input.center) <= input.band) reasons.push('borderline');
   if (ev.confidence === 'low') reasons.push('low_confidence');

@@ -50,6 +50,12 @@ services:
       # (default claude-sonnet-5-5) may be set the same way.
       - key: LLM_MODEL_SMALL
         value: claude-haiku-4-5
+      # Attack Reasoning only: REASONING_MODEL_SMALL runs AR's SMALL calls on its own model, claude-haiku-5-5
+      # by default in config.ts since the 27 Oct 2026 measurement (H55), so it needs no entry here; set it
+      # to claude-haiku-4-5 in the dashboard to put AR back on Haiku 4.5 (the launcher drops empty values).
+      # Interviews always use LLM_MODEL_SMALL.
+      # Forwarded to InterviewPrep by the REASONING_ prefix (deploy/child-env.mjs), like
+      # REASONING_EVALUATION_MODE (default full; tiered after a larger agreement check).
       # --- Cloudflare Turnstile (CAPTCHA on sign-up, sign-in and OTP requests). Set BOTH or none:
       #     without them production runs on rate limits alone (the launcher warns at start).
       - key: TURNSTILE_SITE_KEY

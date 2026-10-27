@@ -176,6 +176,26 @@ const EnvSchema = z
     REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(2),
     /** The tier that writes a question first: SMALL (Haiku, default) or LARGE (rollback: Sonnet writes every question). */
     REASONING_GENERATION_FIRST_TIER: z.enum(['SMALL', 'LARGE']).default('SMALL'),
+    /**
+     * Attack Reasoning's own SMALL model (the question writer's first try, the stage-1 evaluator).
+     * claude-haiku-5-5 since the H55 measurement (27 Oct 2026): about US$0.060 per stored question
+     * weighted by level, with a Sonnet rewrite on failure, against US$0.074 for the old Sonnet writer and
+     * US$0.29 measured with Haiku 4.5. That figure rests on 1 passing rewrite in 4 (none of 2 at
+     * intermediate): at that rate's 90% lower bound it is about US$0.125, still far below Sonnet writing
+     * first. claude-haiku-4-5 puts it back on Haiku 4.5 (empty: LLM_MODEL_SMALL, but the Render launcher
+     * drops empty values). Interviews always use LLM_MODEL_SMALL, so this never changes an interview's
+     * model or the caps derived from its price.
+     */
+    REASONING_MODEL_SMALL: z.string().default('claude-haiku-5-5'),
+    /**
+     * Thinking depth (output_config.effort) of Attack Reasoning's SMALL calls: question writing and the
+     * stage-1 evaluator. Sent only when the resolved SMALL model accepts it (Haiku 5.5; never Haiku 4.5).
+     * Writing at low since H55: Haiku 5.5 passed the gate on 14 of 24 tries at US$0.0048 and 40 s each,
+     * against 5 of 12 at US$0.0075 and 65 s at medium, where 4 tries ran out of output room. Grading
+     * stays at medium, the effort the comparison with full mode was run at (low saves US$0.0004 an answer).
+     */
+    REASONING_SMALL_EFFORT_GENERATION: z.enum(['low', 'medium', 'high']).default('low'),
+    REASONING_SMALL_EFFORT_EVALUATION: z.enum(['low', 'medium', 'high']).default('medium'),
     /** Questions per architecture compared with a new one (similarity bank on top of the live items). */
     REASONING_LIBRARY_BANK_SIZE: z.coerce.number().int().min(50).max(2000).default(300),
     /**
@@ -196,10 +216,13 @@ const EnvSchema = z
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
     /**
      * Evaluation: `tiered` scores the option in code, grades the justification once on SMALL and runs the
-     * LARGE challenger and reconciler only for borderline or disputed answers; `full` (rollback) runs the
-     * three LARGE stages on every answer.
+     * LARGE challenger and reconciler only for borderline or disputed answers; `full` runs the three LARGE
+     * stages on every answer. Full by default since H55 (27 Oct 2026): of 3 answers graded both ways, the
+     * single Haiku 5.5 pass gave a reasoned wrong answer 24 where full mode gave 12, at high confidence, so
+     * nothing escalated it, and it missed a must-not-credit claim Sonnet's first stage applied. Tiered
+     * (about US$0.014 an answer against US$0.089) waits for a larger agreement check.
      */
-    REASONING_EVALUATION_MODE: z.enum(['tiered', 'full']).default('tiered'),
+    REASONING_EVALUATION_MODE: z.enum(['tiered', 'full']).default('full'),
     /** Centre and half-width of the provisional-score band that escalates a single-pass grade (band 0 = never on score alone). */
     REASONING_ESCALATION_CENTER: z.coerce.number().min(0).max(100).default(60),
     REASONING_ESCALATION_BAND: z.coerce.number().min(0).max(50).default(8),
@@ -338,15 +361,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           outputPerMTok: z.number().positive(),
           cacheReadPerMTok: z.number().nonnegative(),
           cacheWritePerMTok: z.number().nonnegative(),
-          supportsEffort: z.boolean().default(false),
-          maxOutputTokens: z.number().int().positive().default(32_000),
+          supportsEffort: z.boolean().optional(),
+          maxOutputTokens: z.number().int().positive().optional(),
+          adaptiveThinking: z.boolean().optional(),
+          longContext: z
+            .object({ aboveTokens: z.number().int().positive(), inputPerMTok: z.number().positive(), outputPerMTok: z.number().positive(), cacheReadPerMTok: z.number().nonnegative(), cacheWritePerMTok: z.number().nonnegative() })
+            .optional(),
+          charsPerToken: z.number().positive().optional(),
         }),
       )
       .parse(JSON.parse(cfg.LLM_PRICING_OVERRIDES));
-    Object.assign(pricing, overrides);
+    // An override of a registered id changes only the fields it names (review H55-SEC-3): replacing the
+    // whole entry dropped Haiku 5.5's thinking, effort, tokenizer and long-context fields, so its SMALL
+    // calls went out with Haiku 4.5's output room and no effort. A new id starts from no effort and 32k.
+    for (const [id, o] of Object.entries(overrides)) pricing[id] = { supportsEffort: false, maxOutputTokens: 32_000, ...pricing[id], ...o };
   }
   // An unverified model id is a configuration error, never a silent default (L15).
-  for (const key of ['LLM_MODEL_SMALL', 'LLM_MODEL_LARGE', 'LLM_REFUSAL_FALLBACK_MODEL'] as const) {
+  for (const key of ['LLM_MODEL_SMALL', 'LLM_MODEL_LARGE', 'LLM_REFUSAL_FALLBACK_MODEL', 'REASONING_MODEL_SMALL'] as const) {
     const model = cfg[key];
     if (model && !Object.hasOwn(pricing, model)) {
       throw new Error(`Invalid configuration: ${key}=${model} is not in the verified model registry; add LLM_PRICING_OVERRIDES after verifying it`);

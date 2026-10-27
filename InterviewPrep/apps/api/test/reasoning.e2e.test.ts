@@ -77,7 +77,7 @@ describe('attack reasoning: cloud security end to end', () => {
     expect(unknown.status).toBeLessThan(500);
   });
 
-  it('runs the whole journey: generate, answer with a justification, evaluation (one SMALL pass for a clear answer), result, history, analytics, skill evidence', async () => {
+  it('runs the whole journey: generate, answer with a justification, evaluation (the three LARGE stages, the default since H55), result, history, analytics, skill evidence', async () => {
     const a = await createReady(t, learner);
     // The public view carries the scenario, a valid diagram and four options, and nothing from the private half.
     expect(a.item!.options.map((o) => o.id)).toEqual(['A', 'B', 'C', 'D']);
@@ -86,9 +86,10 @@ describe('attack reasoning: cloud security end to end', () => {
     expect(a.item!.scenario.length).toBeGreaterThan(200);
     const raw = JSON.stringify(a);
     for (const secret of ['correctOption', 'rubric', 'referenceAnswer', 'mustNotCredit', 'optionAnalysis', 'verdict']) expect(raw).not.toContain(secret);
-    // Cost design 26 Oct 2026: questions are written on the architecture library, Haiku (SMALL) first.
+    // Cost design 26 Oct 2026: questions are written on the architecture library, Haiku (SMALL) first:
+    // Haiku 5.5 since H55 Decide (27 Oct 2026).
     expect(t.llm.calls.filter((c) => c.name === 'reasoning_question')).toHaveLength(1);
-    expect(t.llm.calls[0]!.tier).toBe('SMALL');
+    expect([t.llm.calls[0]!.tier, t.llm.calls[0]!.model]).toEqual(['SMALL', 'claude-haiku-5-5']);
 
     // No result before the learner has reasoned.
     expect((await learner.get(`/v1/reasoning/attempts/${a.id}/result`)).status).toBe(409);
@@ -116,11 +117,16 @@ describe('attack reasoning: cloud security end to end', () => {
     expect(r.feedback.whyAlternatives).toHaveLength(3);
     expect(r.feedback.improve.length).toBeGreaterThan(0);
     expect(r.scoring.version).toMatch(/^reasoning-score\./);
-    // Tiered evaluation: a clear, confident answer away from the threshold is graded once on SMALL; the
-    // challenger and reconciler run only when an escalation rule fires (reasoning-evaluation-tiered.e2e).
-    expect(t.llm.calls.filter((c) => c.name !== 'reasoning_question').map((c) => [c.name, c.tier])).toEqual([['reasoning_evaluator', 'SMALL']]);
+    // Full evaluation, the default since H55 Decide (27 Oct 2026; intentional, was one SMALL pass in tiered
+    // mode): the evaluator, challenger and reconciler run on LARGE for every answer. Tiered mode, which grades
+    // a clear answer once on SMALL, has its own suite (reasoning-evaluation-tiered.e2e).
+    expect(t.llm.calls.filter((c) => c.name !== 'reasoning_question').map((c) => [c.name, c.tier])).toEqual([
+      ['reasoning_evaluator', 'LARGE'],
+      ['reasoning_challenger', 'LARGE'],
+      ['reasoning_reconciler', 'LARGE'],
+    ]);
     const { rows: ledger } = await t.pool.query(`SELECT feature, status FROM llm_call_log WHERE source_id = $1 ORDER BY id`, [a.id]);
-    expect(ledger.map((l) => l.feature)).toEqual(['reasoning.generate', 'reasoning.evaluator']);
+    expect(ledger.map((l) => l.feature)).toEqual(['reasoning.generate', 'reasoning.evaluator', 'reasoning.challenger', 'reasoning.reconciler']);
     expect(ledger.every((l) => l.status === 'settled')).toBe(true);
 
     // Persisted and retrievable: attempt view, history, dashboard.
@@ -144,7 +150,7 @@ describe('attack reasoning: cloud security end to end', () => {
     expect(skills.body.some((s: { skillId: string }) => s.skillId === 'cloudsec.iam')).toBe(true);
     // Stored with versions, model and tier for audit.
     const { rows: evs } = await t.pool.query(`SELECT scoring_version, prompt_version, rubric_version, model, tier, latency_ms FROM reasoning_evaluations WHERE attempt_id = $1`, [a.id]);
-    expect(evs[0]).toMatchObject({ prompt_version: 'reasoning-evaluate.v4', scoring_version: 'reasoning-score.v3.2026-10-27', rubric_version: expect.stringMatching(/^gen\./), model: 'claude-haiku-4-5', tier: 'SMALL' });
+    expect(evs[0]).toMatchObject({ prompt_version: 'reasoning-evaluate.v4', scoring_version: 'reasoning-score.v3.2026-10-27', rubric_version: expect.stringMatching(/^gen\./), model: 'claude-sonnet-5-5', tier: 'LARGE' });
     expect(evs[0].latency_ms).toBeGreaterThanOrEqual(0);
   });
 
