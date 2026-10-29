@@ -560,8 +560,13 @@ export class OrgService {
     }));
   }
 
-  auditOf(p: Principal): Promise<OrgAuditRow[]> {
-    return this.auditRows(this.orgOf(p));
+  /**
+   * The organisation's own view of its log. Changes a platform admin made (approval, suspension, plan)
+   * show as ThreatReady's: the staff member's user id and email stay in the platform admin's view.
+   */
+  async auditOf(p: Principal): Promise<OrgAuditRow[]> {
+    const rows = await this.auditRows(this.orgOf(p));
+    return rows.map((r) => (r.detail?.by === "platform_admin" ? { ...r, actor: { id: null, email: null } } : r));
   }
 
   /** The CSV export is a bulk read of the team's data: recorded like the admin console's export. */

@@ -499,6 +499,17 @@ describe("business accounts: platform admin", () => {
     assert.equal(reinstate.status, 200);
     assert.equal((await admin.c.get("/api/org")).status, 200);
 
+    // The organisation's log shows the platform admin's changes as ThreatReady's, without the staff member's identity.
+    const platformId = (await platform.c.get("/api/me")).json.user.id;
+    const orgLog = await admin.c.get("/api/org/audit");
+    assert.equal(orgLog.status, 200);
+    const byStaff = orgLog.json.filter((r) => r.detail?.by === "platform_admin");
+    assert.deepEqual(byStaff.map((r) => r.action).sort(), ["org.reinstate", "org.suspend", "plan.set"]);
+    for (const r of byStaff) assert.deepEqual(r.actor, { id: null, email: null }, r.action);
+    assert.ok(!orgLog.text.includes(platform.email) && !orgLog.text.includes(platformId), "no staff email or id anywhere in the organisation's log");
+    const staffView = await platform.c.get(`/api/admin/orgs/${admin.org.id}`);
+    assert.equal(staffView.json.audit.find((r) => r.action === "plan.set").actor.email, platform.email, "the platform admin's own view keeps who did it");
+
     const users = await platform.c.get(`/api/admin/users?q=${encodeURIComponent(admin.email)}`);
     assert.equal(users.status, 200);
     const u = users.json.rows.find((r) => r.email === admin.email);
