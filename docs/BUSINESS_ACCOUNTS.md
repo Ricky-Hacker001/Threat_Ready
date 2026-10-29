@@ -29,6 +29,7 @@ An organisation (a company, team or institute) owns seats, a plan and the people
 - `memberships.role` gains `manager`, `member` (`org_admin` existed); `status` (`active | suspended`), `invited_by`; one organisation membership per user (partial unique index).
 - `entitlements`: `seats`, `status` (`trialing | active | past_due | suspended | cancelled`), `period_end`, `ai_cap_usd`, `notes`; `plan` gains `business_trial`, `business`.
 - `org_invitations` (token stored as SHA-256; one open row per address per organisation), `org_audit_log` (append-only for the API role).
+- Migration 0013: `admin_audit_log` also takes `org.plan` and `org.status` (a platform admin's changes to an organisation). Migration 0014: index `org_audit_log (action, at)` for the platform-wide invitation counts.
 - `feature_launches` gets a no-request-user SELECT policy (the consoles count launches per organisation the way the shared tables already allow since 0011); the owner policies stay.
 - Existing rows are untouched: personal workspaces keep `personal` / `learner` / `free`.
 
@@ -62,7 +63,8 @@ Billing and invoices (plans are set by hand in the admin console), assignments, 
 
 ## Tests
 
-- `apps/api/test/org-rules.test.mjs` (8): seats, tokens, invitation states, accepting, roles, suspension/removal/leaving, invite batches, when the plan applies.
-- `apps/api/test/org.e2e.test.mjs` (11, API + PostgreSQL): creating, one-per-account, cross-origin refusal; invite → email → accept with the right and wrong account, preview, once-only, seats across a batch, revoke/resend, expiry; manager vs admin, last admin, suspend/reinstate/remove, member visibility, launches recorded on the organisation; platform admin list/detail/plan/status, users' account column, overview counts.
+- `apps/api/test/org-rules.test.mjs` (12): seats (incl. reinstating, renewing an expired invitation and accepting while over), tokens, invitation states, accepting, roles, suspension/removal/leaving, invite batches, when the plan applies, the windows the console may show and the audit log read as their history, invitation email caps.
+- `apps/api/test/units.test.mjs`: link-like organisation names refused and kept out of the invitation email.
+- `apps/api/test/org.e2e.test.mjs` (16, API + PostgreSQL): creating, one-per-account, link-like names, cross-origin refusal; invite → email → accept with the right and wrong account, preview, once-only, seats across a batch, revoke/resend, seats never overbooked (reinstate, expired resend, accept while over), three emails per address a day, expiry; manager vs admin, last admin, suspend/reinstate/remove, a member or suspended member leaving, member visibility, the console showing activity only while on the plan (stub of the apps' summary endpoint), launches recorded on the organisation; approval restarting the trial; platform admin list/detail/plan/status, the organisation's log without the staff identity, the admin_audit_log trail, users' account column, overview counts.
 - `test/e2e.test.mjs`: the RLS test's `feature_launches` expectation updated for the new read policy.
 - Browser walk-through (Playwright, local stack): business sign-up → console → invite → accept in a second browser → people/member/settings/audit → admin organisations → plan saved; phone width without sideways scroll.
