@@ -1,4 +1,4 @@
-import { OTP_TTL_SECONDS } from "@threatready/contracts";
+import { OTP_TTL_SECONDS, looksLikeLink } from "@threatready/contracts";
 import type { EmailMessage } from "./email.port.js";
 
 const minutes = Math.round(OTP_TTL_SECONDS / 60);
@@ -97,8 +97,14 @@ export function signInLockedEmail(to: string, minutes: number, loginUrl: string)
   return { to, subject: "Sign-in to your ThreatReady account was paused", text, html, kind: "signin-locked" };
 }
 
-/** An organisation admin invited this address to join their ThreatReady business account. */
-export function orgInviteEmail(to: string, orgName: string, invitedBy: string | null, role: "member" | "manager", acceptUrl: string, days: number): EmailMessage {
+/**
+ * An organisation admin invited this address to join their ThreatReady business account. The
+ * organisation's name and the inviter are chosen by users: anything a mail client would turn into a
+ * link (looksLikeLink) is left out, though orgNameSchema already refuses such names.
+ */
+export function orgInviteEmail(to: string, name: string, inviter: string | null, role: "member" | "manager", acceptUrl: string, days: number): EmailMessage {
+  const orgName = looksLikeLink(name) ? "an organisation" : name;
+  const invitedBy = inviter && !looksLikeLink(inviter) ? inviter : null;
   const who = invitedBy ? `${invitedBy} has invited you` : "You've been invited";
   const what = role === "manager" ? "as a manager (you'll be able to invite people and see the team's progress)" : "as a member";
   const lead = `${who} to join ${orgName} on ThreatReady ${what}.`;

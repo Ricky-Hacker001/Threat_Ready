@@ -200,6 +200,13 @@ describe("business accounts: creating an organisation", () => {
     const badName = await fresh.c.post("/api/org", { name: "<script>alert(1)</script>", segment: "business" });
     assert.equal(badName.status, 400);
     assert.equal(badName.json.code, "VALIDATION_FAILED");
+    // Names go into invitation emails: nothing a mail client would turn into a link, on create or rename.
+    const linkName = await fresh.c.post("/api/org", { name: "paypal.com/verify", segment: "business" });
+    assert.equal(linkName.status, 400, linkName.text);
+    assert.equal(linkName.json.code, "VALIDATION_FAILED");
+    const rename = await c.patch("/api/org", { name: "secure-login.example.com" });
+    assert.equal(rename.status, 400, rename.text);
+    assert.equal((await c.patch("/api/org", { name: `Renamed ${uid()}` })).status, 200);
 
     const guest = new Client();
     const g = await guest.post("/api/auth/sign-in/anonymous");

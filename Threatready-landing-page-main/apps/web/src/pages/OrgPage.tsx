@@ -20,6 +20,12 @@ const FEATURE_LABEL: Record<FeatureKey, string> = { interview: "Interviews", sim
 const ROLE_LABEL: Record<OrgRole, string> = { org_admin: "Organisation admin", manager: "Manager", member: "Member" };
 const PLAN_STATUS_LABEL: Record<string, string> = { trialing: "Trial", active: "Active", past_due: "Past due", suspended: "Suspended", cancelled: "Cancelled" };
 
+/** The first reason a name is refused (length, characters, looks like a web address), or null. */
+function orgNameError(name: string): string | null {
+  const r = orgNameSchema.safeParse(name);
+  return r.success ? null : (r.error.issues[0]?.message ?? "Use 2–80 letters, numbers, spaces and basic punctuation.");
+}
+
 /** Opens the console for managers and org admins; sends everyone else where they belong. */
 export function OrgGate({ children }: { children: ReactNode }) {
   const { me } = useMe();
@@ -586,7 +592,7 @@ export function OrgSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
-  const nameError = orgNameSchema.safeParse(name).success ? null : "Use 2–80 letters, numbers, spaces and basic punctuation.";
+  const nameError = orgNameError(name);
 
   async function save(e: FormEvent) {
     e.preventDefault();
@@ -761,7 +767,7 @@ export function OrgNewPage() {
   const [error, setError] = useState<string | null>(null);
   if (me.org) return <Navigate to={me.org.role === "member" ? "/app/profile" : "/app/org"} replace />;
   if (me.user.isTrial) return <Navigate to="/?mode=business" replace />;
-  const nameError = orgNameSchema.safeParse(name).success ? null : "Use 2–80 letters, numbers, spaces and basic punctuation.";
+  const nameError = orgNameError(name);
 
   async function submit(e: FormEvent) {
     e.preventDefault();

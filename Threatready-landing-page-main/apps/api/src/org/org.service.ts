@@ -496,9 +496,9 @@ export class OrgService {
       }
       return { sent, skipped: plan.skipped, seats: await this.seatsOf(tx, orgId, org.seats.purchased, now) };
     });
-    // After commit: the link must not reach an inbox for a row that was rolled back.
-    const inviter = p.username ?? p.email;
-    for (const { email, token } of toSend) dispatch(this.email, orgInviteEmail(email, p.org!.name, inviter, body.role, this.acceptUrl(token), ttl), this.logger);
+    // After commit: the link must not reach an inbox for a row that was rolled back. The inviter is
+    // named by username only (never their email address), and not at all when it looks like a link.
+    for (const { email, token } of toSend) dispatch(this.email, orgInviteEmail(email, p.org!.name, p.username ?? null, body.role, this.acceptUrl(token), ttl), this.logger);
     return result;
   }
 
@@ -532,7 +532,7 @@ export class OrgService {
       await tx.update(orgInvitations).set({ tokenHash: hash, expiresAt }).where(eq(orgInvitations.id, inv.id));
       await this.audit(tx, orgId, "invite.resend", { userId: p.userId, email: p.email }, null, { email: inv.email, invitationId: inv.id }, ip);
     });
-    dispatch(this.email, orgInviteEmail(inv.email, p.org!.name, p.username ?? p.email, inv.role === "manager" ? "manager" : "member", this.acceptUrl(token), ttl), this.logger);
+    dispatch(this.email, orgInviteEmail(inv.email, p.org!.name, p.username ?? null, inv.role === "manager" ? "manager" : "member", this.acceptUrl(token), ttl), this.logger);
     return (await this.invitationRows(orgId)).find((r) => r.id === inv.id)!;
   }
 

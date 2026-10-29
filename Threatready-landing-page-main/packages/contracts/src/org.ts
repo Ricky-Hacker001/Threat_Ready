@@ -32,13 +32,23 @@ export type OrgPlan = z.infer<typeof orgPlanSchema>;
 export const planStatusSchema = z.enum(["trialing", "active", "past_due", "suspended", "cancelled"]);
 export type PlanStatus = z.infer<typeof planStatusSchema>;
 
+/**
+ * Text a mail client turns into a link on its own: a domain ("paypal.com", "login.example.co/verify")
+ * or an IPv4 address. Names that go into ThreatReady's own emails (organisation names, inviters)
+ * must never look like one: the platform's sending domain would vouch for an attacker's link.
+ */
+export const LINK_LIKE = /[\p{L}\p{N}-]\.\p{L}{2,}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/u;
+export const looksLikeLink = (text: string): boolean => LINK_LIKE.test(text);
+
 export const orgNameSchema = z
   .string()
   .trim()
   .min(ORG_NAME_MIN, `Organisation name must be at least ${ORG_NAME_MIN} characters`)
   .max(ORG_NAME_MAX, `Organisation name must be at most ${ORG_NAME_MAX} characters`)
   // Letters, digits, spaces and common punctuation; no control characters or markup.
-  .regex(/^[\p{L}\p{N} .,&'()\-_/]+$/u, "Use letters, numbers, spaces and basic punctuation");
+  .regex(/^[\p{L}\p{N} .,&'()\-_/]+$/u, "Use letters, numbers, spaces and basic punctuation")
+  // It is sent in invitation emails: nothing a mail client would turn into a link.
+  .refine((name) => !looksLikeLink(name), "An organisation name can't look like a web address (no \"name.com\")");
 
 /** `POST /api/org`: create the organisation the caller will administer. */
 export const orgCreateSchema = z.object({
