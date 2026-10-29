@@ -68,6 +68,11 @@ services:
       # --- Optional: platform admins (comma-separated verified emails) ---
       - key: ADMIN_EMAILS
         sync: false
+      # --- Business accounts: "true" queues every new organisation for approval in the admin console
+      #     (default self-serve). Trial size and invitation settings: ORG_TRIAL_SEATS, ORG_TRIAL_DAYS,
+      #     ORG_INVITE_TTL_DAYS, ORG_INVITES_PER_DAY (docs/BUSINESS_ACCOUNTS.md). ---
+      - key: ORG_APPROVAL_REQUIRED
+        sync: false
       # --- Optional: error tracking (Sentry project DSN). Forwarded to the APIs; without it the
       #     service still boots and the launcher logs a warning. ---
       - key: SENTRY_DSN

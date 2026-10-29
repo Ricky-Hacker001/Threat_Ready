@@ -59,6 +59,7 @@ const Icon = ({ d }: { d: string }) => (
 export function ProfileMenu({
   user,
   isAdmin,
+  org,
   apps,
   current,
   signingOut,
@@ -66,8 +67,10 @@ export function ProfileMenu({
 }: {
   user: ProfileUser;
   isAdmin?: boolean;
+  /** Set when the user runs an organisation (org admin or manager): links to its console. */
+  org?: { name: string } | null;
   apps: AppInfo[];
-  current: "home" | "profile" | "admin";
+  current: "home" | "profile" | "admin" | "org";
   signingOut: boolean;
   onSignOut: () => void;
 }) {
@@ -150,6 +153,13 @@ export function ProfileMenu({
             <Icon d="M12 12a4 4 0 100-8 4 4 0 000 8zM4 21c1-4 4-6 8-6s7 2 8 6" />
             Profile and progress
           </Link>
+          {org ? (
+            <Link className="tr-menu-item" to="/app/org" aria-current={current === "org" ? "page" : undefined} onClick={close}>
+              <Icon d="M3 21V8l9-5 9 5v13M9 21v-6h6v6M7 12h2M11 12h2M15 12h2" />
+              {org.name}
+              <span className="tr-menu-sub">Organisation console</span>
+            </Link>
+          ) : null}
           {isAdmin ? (
             <Link className="tr-menu-item" to="/app/admin" aria-current={current === "admin" ? "page" : undefined} onClick={close}>
               <Icon d="M12 3l7 3v5c0 4.5-3 8-7 10-4-2-7-5.5-7-10V6z" />

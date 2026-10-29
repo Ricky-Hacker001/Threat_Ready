@@ -4,7 +4,7 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
-import { clearNext, pendingNext, rememberNext, takeNext } from "../lib/platform";
+import { clearNext, pendingNext, rememberNext, takeNext, takePendingOrg } from "../lib/platform";
 import { appAt, AppSwitcher, BrandLink, nextPrefixes, PlatformFooter, PlatformHeader, PlatformLoading, rememberApps, ThemeToggle, type ShellLocation } from "./Platform";
 import { ProfileMenu } from "./ProfileMenu";
 import { Button, Notice } from "./ui";
@@ -33,7 +33,7 @@ export function AppShell() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   // Header "current" follows the route; only /app itself is Home.
-  const here: ShellLocation = pathname.startsWith("/app/admin") ? "admin" : pathname.startsWith("/app/profile") ? "profile" : "home";
+  const here: ShellLocation = pathname.startsWith("/app/admin") ? "admin" : pathname.startsWith("/app/org") ? "org" : pathname.startsWith("/app/profile") ? "profile" : "home";
   const [me, setMe] = useState<Me | null>(null);
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +82,24 @@ export function AppShell() {
     void refresh();
   }, [sessionUserId, refresh]);
 
+  // A business sign-up: the account is in, now the organisation it asked for (once; see AuthPage).
+  const creatingOrg = useRef(false);
+  useEffect(() => {
+    if (!me || me.user.isTrial || me.org || creatingOrg.current) return;
+    const pending = takePendingOrg();
+    if (!pending) return;
+    creatingOrg.current = true;
+    api.org
+      .create(pending)
+      .then(async (org) => {
+        await refresh();
+        navigate("/app/org", { replace: true, state: { created: org.name } });
+      })
+      .catch((err: unknown) => {
+        setFlash(err instanceof ApiError && err.code === "ORG_ALREADY_MEMBER" ? err.message : `We couldn't set up ${pending.name} yet. You can do it from your profile.`);
+      });
+  }, [me, navigate, refresh]);
+
   // Signed in and came from another app: send them back there (once).
   useEffect(() => {
     if (!me || !config || !pendingNext()) return;
@@ -94,7 +112,7 @@ export function AppShell() {
     const { url, bounced } = takeNext(config.appOrigins, nextPrefixes(config.apps));
     if (url) {
       const target = new URL(url);
-      if (target.origin === window.location.origin && /^\/app(\/|$)/.test(target.pathname)) {
+      if (target.origin === window.location.origin && /^\/(app|invite)(\/|$)/.test(target.pathname)) {
         // One of onboard's own pages (a session that expired here): no reload needed.
         navigate(`${target.pathname}${target.search}${target.hash}`, { replace: true });
         return;
@@ -140,6 +158,7 @@ export function AppShell() {
       <ProfileMenu
         user={user}
         isAdmin={me.user.isAdmin}
+        org={me.org && me.org.role !== "member" && me.org.memberStatus === "active" && me.org.status !== "suspended" ? { name: me.org.name } : null}
         apps={config?.apps ?? []}
         current={here}
         signingOut={signingOut}

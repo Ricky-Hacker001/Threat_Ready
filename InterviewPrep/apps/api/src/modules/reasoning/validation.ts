@@ -1,6 +1,7 @@
 import type { DiagramData, OptionId } from '@threatready/contracts';
 import { ATTACK_ENTERPRISE, fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
 import type { GeneratedItem, GeneratorOutput } from './item.types.js';
+import { qualityChecks } from './quality.js';
 
 /**
  * Code validation of a generated item before it is stored or shown (spec §2, §3). AI generation is
@@ -225,6 +226,11 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   if (!out.techniques.some((t) => t.id === seed.technique)) errors.push(`techniques: the assigned technique ${seed.technique} must be among the techniques in play`);
   if (out.techniques.length > 6) warnings.push('techniques: more than six listed');
   if (out.difficulty !== seed.difficulty) warnings.push(`difficulty: generator wrote ${out.difficulty}, seed asked for ${seed.difficulty}`);
+
+  // Content quality (quality.ts): answer given away in the visible text, a timeline that runs
+  // backwards, misstated regulation figures, distractors not shown to fail. Run after the structural
+  // rules so one regeneration gets every reason at once (the feedback keeps the first twelve).
+  for (const f of qualityChecks(out)) (f.severity === 'error' ? errors : warnings).push(f.message);
 
   return { ok: errors.length === 0, errors, warnings };
 }

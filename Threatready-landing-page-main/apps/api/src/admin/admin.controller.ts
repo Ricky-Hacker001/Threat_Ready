@@ -1,11 +1,13 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Header, HttpCode, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import type { Request } from "express";
-import type { AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList } from "@threatready/contracts";
-import { adminRoleChangeSchema } from "@threatready/contracts";
+import type { AdminOrgDetail, AdminOrgList, AdminOrgPlan, AdminOrgRow, AdminOrgStatus, AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList } from "@threatready/contracts";
+import { adminOrgPlanSchema, adminOrgStatusSchema, adminRoleChangeSchema } from "@threatready/contracts";
 import { CurrentPrincipal, FreshSession, RequirePermission, type Principal } from "../authz/authz.js";
 import { UserThrottlerGuard, clientIp } from "../common/throttle.js";
 import { CONFIG, type Config } from "../config.js";
+import { ZodBody } from "../common/zod.js";
+import { AdminOrgsService, orgListQuerySchema } from "./admin-orgs.service.js";
 import { AdminService, listQuerySchema, parseRange } from "./admin.service.js";
 import { toCsv } from "./csv.js";
 
@@ -19,8 +21,58 @@ import { toCsv } from "./csv.js";
 export class AdminController {
   constructor(
     private readonly admin: AdminService,
+    private readonly orgs: AdminOrgsService,
     @Inject(CONFIG) private readonly config: Config,
   ) {}
+
+  private firstParty(req: Request): void {
+    const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
+    // The admin console is onboard's own page: no other app origin may change organisations or roles.
+    if (!origin || origin !== new URL(this.config.WEB_ORIGIN).origin) throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
+  }
+
+  /* ---------------- Organisations (business accounts) ---------------- */
+
+  @Get("orgs")
+  @RequirePermission("admin:read")
+  orgList(@Query() query: Record<string, unknown>): Promise<AdminOrgList> {
+    const parsed = orgListQuerySchema.safeParse(query);
+    if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Invalid filters" });
+    return this.orgs.list(parseRange(query), parsed.data);
+  }
+
+  /** One organisation: plan, members with their usage, pending invitations and its audit log. Audited. */
+  @Get("orgs/:id")
+  @RequirePermission("admin:read")
+  async orgDetail(@Param("id") id: string, @Query() query: Record<string, unknown>, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminOrgDetail> {
+    const detail = await this.orgs.detail(id, parseRange(query));
+    await this.admin.audit("org.view", me, null, { orgId: detail.org.id, name: detail.org.name }, clientIp(req) ?? null);
+    return detail;
+  }
+
+  /** Set the plan by hand (billing is a later phase): plan, status, seats, period end and AI cap. The caller retypes the organisation's name. */
+  @Post("orgs/:id/plan")
+  @RequirePermission("admin:write")
+  @FreshSession()
+  @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  orgPlan(@Param("id") id: string, @Body(ZodBody(adminOrgPlanSchema)) body: AdminOrgPlan, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminOrgRow> {
+    this.firstParty(req);
+    return this.orgs.setPlan(me, id, body, clientIp(req) ?? null);
+  }
+
+  /** Approve a pending organisation, suspend it, or reinstate it. */
+  @Post("orgs/:id/status")
+  @RequirePermission("admin:write")
+  @FreshSession()
+  @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  orgStatus(@Param("id") id: string, @Body(ZodBody(adminOrgStatusSchema)) body: AdminOrgStatus, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<AdminOrgRow> {
+    this.firstParty(req);
+    return this.orgs.setStatus(me, id, body, clientIp(req) ?? null);
+  }
 
   @Get("overview")
   @RequirePermission("admin:read")

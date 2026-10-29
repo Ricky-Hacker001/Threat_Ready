@@ -3,6 +3,7 @@ import {
   OTP_TTL_SECONDS,
   PASSWORD_MIN,
   emailSchema,
+  orgNameSchema,
   otpSchema,
   passwordSchema,
   usernameSchema,
@@ -16,7 +17,7 @@ import { Brand, Button, Field, GitHubLogo, GoogleLogo, Notice, PasswordField } f
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor, OAUTH_MESSAGES, type ErrorLike } from "../lib/errors";
-import { pendingNext } from "../lib/platform";
+import { pendingNext, rememberPendingOrg } from "../lib/platform";
 import { useTurnstile } from "../lib/turnstile";
 
 type Flash = { tone: "ok" | "info" | "error"; text: string } | null;
@@ -24,6 +25,7 @@ type Flash = { tone: "ok" | "info" | "error"; text: string } | null;
 type View =
   | { name: "signin"; username?: string; flash?: Flash }
   | { name: "signup" }
+  | { name: "business" }
   | { name: "verify"; email?: string; username?: string; fromSignIn?: boolean }
   | { name: "forgot-username" }
   | { name: "forgot-password" };
@@ -50,6 +52,7 @@ function focusFirstInvalid(form: HTMLFormElement) {
 const TABS = [
   { name: "signin", label: "Sign in" },
   { name: "signup", label: "Create account" },
+  { name: "business", label: "For your team" },
 ] as const;
 type TabName = (typeof TABS)[number]["name"];
 
@@ -61,6 +64,7 @@ export function AuthPage() {
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [view, setView] = useState<View>(() => {
     if (params.get("mode") === "signup") return { name: "signup" };
+    if (params.get("mode") === "business") return { name: "business" };
     const oauthError = params.get("error");
     return {
       name: "signin",
@@ -87,6 +91,7 @@ export function AuthPage() {
   // this page is already open when the link is followed.
   useEffect(() => {
     if (params.get("mode") === "signup") setView((v) => (v.name === "signup" ? v : { name: "signup" }));
+    if (params.get("mode") === "business") setView((v) => (v.name === "business" ? v : { name: "business" }));
     if (params.has("error") || params.has("username") || params.has("mode") || params.has("reason")) setParams({}, { replace: true });
   }, [params, setParams]);
 
@@ -143,6 +148,11 @@ export function AuthPage() {
       lead = "We'll email you a code to confirm your address.";
       body = <SignUp siteKey={siteKey} go={go} />;
       break;
+    case "business":
+      heading = "Set up your organisation";
+      lead = "A business account for your team or institute: you become its admin, invite people by email, and see their progress in one console. Starts on a free trial; no card needed.";
+      body = <SignUpBusiness siteKey={siteKey} go={go} />;
+      break;
     case "verify":
       heading = "Verify your email";
       lead = null;
@@ -160,7 +170,7 @@ export function AuthPage() {
       break;
   }
 
-  const showTabs = view.name === "signin" || view.name === "signup";
+  const showTabs = view.name === "signin" || view.name === "signup" || view.name === "business";
   // Sent here by another ThreatReady app: say where they'll land after signing in.
   const returningTo = (() => {
     const next = pendingNext();
@@ -239,7 +249,7 @@ export function AuthPage() {
 
             {body}
 
-            {showTabs ? (
+            {showTabs && view.name !== "business" ? (
               <>
                 <div className="divider">or</div>
                 <SocialButtons providers={config?.providers} />
@@ -417,6 +427,125 @@ function SignUp({ siteKey, go }: { siteKey: string | null; go: (v: View) => void
       <Button type="submit" block loading={busy} disabled={!ts.ready}>
         Create account
       </Button>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+/**
+ * The same account creation as "Create account", plus the organisation's name. The account comes
+ * first (verified email, then sign-in); AppShell creates the organisation on that first sign-in from
+ * what is remembered here, so a verification that never completes leaves nothing behind.
+ */
+function SignUpBusiness({ siteKey, go }: { siteKey: string | null; go: (v: View) => void }) {
+  const ts = useTurnstile(siteKey, "sign-up-business");
+  const [form, setForm] = useState({ org: "", segment: "business" as "business" | "institute", username: "", email: "", password: "" });
+  const [touched, setTouched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const errors = {
+    org: check(orgNameSchema, form.org),
+    username: check(usernameSchema, form.username),
+    email: check(emailSchema, form.email),
+    password: check(passwordSchema, form.password),
+  };
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setTouched(true);
+    if (errors.org || errors.username || errors.email || errors.password) {
+      focusFirstInvalid(e.currentTarget as HTMLFormElement);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const username = form.username.trim();
+    const email = form.email.trim().toLowerCase();
+    const { error: err } = await authClient.signUp.email({
+      username,
+      name: username,
+      email,
+      password: form.password,
+      fetchOptions: { headers: ts.headers },
+    });
+    ts.reset();
+    setBusy(false);
+    if (err) {
+      setError(messageFor(err as AuthError));
+      return;
+    }
+    rememberPendingOrg({ name: form.org.trim(), segment: form.segment });
+    go({ name: "verify", email, username });
+  }
+
+  return (
+    <form className="form" onSubmit={submit} noValidate>
+      {error ? <Notice tone="error">{error}</Notice> : null}
+      <Field
+        label="Organisation name"
+        name="organization"
+        autoComplete="organization"
+        value={form.org}
+        onChange={set("org")}
+        hint="Your company, team or institute, as your people know it."
+        error={touched ? errors.org : null}
+        required
+      />
+      <fieldset className="field segment-choice">
+        <legend>This organisation is</legend>
+        <label className="check">
+          <input type="radio" name="segment" value="business" checked={form.segment === "business"} onChange={() => setForm((f) => ({ ...f, segment: "business" }))} />
+          A company or team
+        </label>
+        <label className="check">
+          <input type="radio" name="segment" value="institute" checked={form.segment === "institute"} onChange={() => setForm((f) => ({ ...f, segment: "institute" }))} />
+          A college or training institute
+        </label>
+      </fieldset>
+      <Field
+        label="Your username"
+        name="username"
+        autoComplete="username"
+        autoCapitalize="none"
+        spellCheck={false}
+        value={form.username}
+        onChange={set("username")}
+        hint="3–30 characters: letters, numbers, dots and underscores."
+        error={touched ? errors.username : null}
+        required
+      />
+      <Field
+        label="Work email"
+        name="email"
+        type="email"
+        autoComplete="email"
+        inputMode="email"
+        value={form.email}
+        onChange={set("email")}
+        hint="You'll verify it, then invite your people from the organisation console."
+        error={touched ? errors.email : null}
+        required
+      />
+      <PasswordField
+        label="Password"
+        name="new-password"
+        autoComplete="new-password"
+        value={form.password}
+        onChange={set("password")}
+        hint={`At least ${PASSWORD_MIN} characters. A short phrase works well.`}
+        error={touched ? errors.password : null}
+        required
+      />
+      {ts.element}
+      <Button type="submit" block loading={busy} disabled={!ts.ready}>
+        Create organisation account
+      </Button>
+      <p className="field-hint">
+        Already have a ThreatReady account? Sign in and set up the organisation from your profile instead.
+      </p>
     </form>
   );
 }

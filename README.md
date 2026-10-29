@@ -54,6 +54,10 @@ onboard /api/overview, /api/admin/*  ──►  each app  GET /internal/v1/users
 
 The contract (shapes of identity, summary and AI usage) lives in `Threatready-landing-page-main/packages/contracts/src/platform.ts`; InterviewPrep (`packages/contracts/src/platform.ts`) and Labs (`server/identity.ts`, `server/app.ts`) mirror it.
 
+## Business accounts (organisations)
+
+Since 28 Oct 2026 a company, team or institute can hold a **business account**: the sign-in page's "For your team" tab (or Profile → "Set up an organisation") creates an organisation whose admin invites people by email; invitees join with the invited address and use the product on the organisation's plan; org admins and managers get an **organisation console** at `/app/org` (people, invitations, progress, activity log) and the platform admin console gets an **Organisations** page where plans and seats are set by hand (billing comes later). Onboard migration `0012_business_accounts`; settings `ORG_*` in `Threatready-landing-page-main/apps/api/.env.example`; details in `docs/BUSINESS_ACCOUNTS.md`.
+
 ## Run everything locally
 
 Node 24 or newer: every `package.json` sets `engines.node` to `>=24`, matching Render's `NODE_VERSION` and CI (pnpm refuses to install onboard on older Node).

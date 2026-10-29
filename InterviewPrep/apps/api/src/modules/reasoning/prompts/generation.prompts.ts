@@ -9,7 +9,8 @@ import { describeSeed } from '../seed.js';
 
 /** Bump when the prompt or the item shape changes; stored on every item. */
 export const GENERATOR_VERSION = 'gen.v2.2026-10-21';
-export const GENERATION_PROMPT_VERSION = 'reasoning-generate.v2';
+/** v3 (28 Oct 2026): no remedy or option wording in the visible text, ordered timeline, exact regulation figures, every distractor shown to fail. */
+export const GENERATION_PROMPT_VERSION = 'reasoning-generate.v3';
 
 const DIFFICULTY_GUIDE: Record<ReasoningDifficulty, string> = {
   beginner: 'Architecture: 5 to 7 components in 2 or 3 trust boundaries, one obvious entry point. Attack: 1 or 2 steps that the narrative states plainly, with the evidence named (which log, which call). Question: one direct decision; the best option follows from one fact in the scenario; the three distractors are real controls that clearly address something else. Rubric: 6 points, each satisfiable in one sentence.',
@@ -93,8 +94,11 @@ Diagram rules (the diagram is data, rendered by the application; the learner rea
 Question rules:
 - The scenario describes the business, the environment, the sensitive data and the controls in place (180-320 words). The attack narrative describes what happened, step by step, with the evidence an engineer would have (log lines, alerts, timestamps) (100-200 words). Neither may hint at the answer. Keep every text field tight; the whole item should stay compact.
 - One assessment objective. The question asks exactly what the objective says; one decision, not several.
-- Four options A-D of similar length and form (each 15-45 words). Exactly one best answer. The other three must be plausible to a competent engineer: real controls or actions that are wrong for this scenario because they address a later step, do not break the path shown, violate the constraint, or destroy evidence. No "all of the above", no joke options, no option that restates the question.
-- option_analysis: for every option, a verdict (best, plausible = defensible runner-up, weak = helps little here, wrong = harmful or does not apply) and why, written to the learner in the second person.
+- Four options A-D of similar length and form (each 15-45 words). Exactly one best answer. The other three must be plausible to a competent engineer: real controls or actions that are wrong for this scenario because they address a later step, do not break the path shown, violate the constraint, or destroy evidence. No "all of the above", no joke options, no option that restates the question, no option that restates the best option in other words.
+- option_analysis: for every option, a verdict (best, plausible = defensible runner-up, weak = helps little here, wrong = harmful or does not apply) and why, written to the learner in the second person. For every non-best option, "why" must state the reason it fails in this scenario (which step it does not touch, which constraint it breaks, what evidence it destroys, what it costs); never "also works", "equally valid" or "not wrong". If two options are both defensible, change the scenario or the constraint until only one is.
+- The scenario, attack narrative, objective, question and title state facts and evidence only. They never recommend an action, quote a runbook step, say what the team plans or should do, repeat the wording of any option, or refer to an option by letter. A reader must not be able to pick the answer from the text without reasoning about the diagram.
+- Times in the attack narrative appear in the order the events happened and increase; "N minutes later at HH:MM" must add up. Refer to anything earlier only with explicit words (earlier, had been, created on).
+- Quote a regulation's figure only when certain, and use the real one: GDPR Art. 33 notification to the supervisory authority within 72 hours; GDPR fines up to 4% of global annual turnover or EUR 20 million (lower tier 2% / EUR 10 million); GDPR data subject requests answered within one month; HIPAA breach notice no later than 60 days; SEC Form 8-K Item 1.05 within four business days; NIS2 early warning 24 hours and notification 72 hours; India DPDP detailed report to the Board within 72 hours; PCI DSS audit logs retained 12 months with 3 months immediately available. Otherwise name the obligation without a number.
 
 Rubric rules (server-only, never shown before grading):
 - 6 to 10 points. dimension reasoning (at least 3): what a sound justification states, uses as evidence, or rules out. dimension architecture (at least 2): the components, trust relationships, path steps and controls the learner must show they understood. dimension risk (at least 1): the trade-off, residual risk, evidence-preservation or business constraint a strong answer recognises.

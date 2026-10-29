@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AdminUserAccount } from "./org.js";
 
 /* ------------------------------------------------------------------ */
 /* Platform: one identity (onboard.threatready.io), separate apps on    */
@@ -42,6 +43,20 @@ export const identitySchema = z.object({
     isAdmin: z.boolean(),
   }),
   session: z.object({ id: z.string(), expiresAt: z.string() }),
+  /**
+   * The organisation (business account) whose plan this session's launches count against, when the
+   * user is an active member of one with a live plan; absent for individuals. Apps record it next to
+   * their usage so the organisation console can report per team. Optional: older app builds ignore it.
+   */
+  org: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      kind: z.enum(["business", "institute"]),
+      role: z.enum(["org_admin", "manager", "member"]),
+      plan: z.string(),
+    })
+    .optional(),
 });
 export type Identity = z.infer<typeof identitySchema>;
 
@@ -167,6 +182,8 @@ export interface AdminUserRow {
   timeZone: string | null;
   /** The app (and area) used most recently. */
   lastApp: { app: ActivityApp; area: string; at: string } | null;
+  /** Individual (free plan) or a member of an organisation, with that organisation's name and the user's role in it. */
+  account: AdminUserAccount;
 }
 
 export interface AdminTimeByArea {
@@ -178,7 +195,19 @@ export interface AdminTimeByArea {
 
 export interface AdminOverview {
   range: { from: string; to: string };
-  users: { total: number; verified: number; trial: number; admins: number; activeLast7Days: number; newInRange: number };
+  users: {
+    total: number;
+    verified: number;
+    trial: number;
+    admins: number;
+    activeLast7Days: number;
+    newInRange: number;
+    /** Accounts that belong to an organisation (business or institute) */
+    organisationMembers: number;
+    /** Accounts on an individual plan (total minus organisation members) */
+    individuals: number;
+  };
+  organisations: { total: number; active: number; pending: number; suspended: number; newInRange: number };
   /** `users`: distinct users with at least one AI call in the range (for cost per AI user) */
   ai: AiUsageTotals & { byApp: Partial<Record<AppKey, AiUsageTotals>>; users: number };
   byModel: (AiUsageTotals & { model: string })[];

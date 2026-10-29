@@ -17,13 +17,13 @@ export const cell = (v: unknown): string => {
 
 export function toCsv(rows: AdminUserRow[], range: { from: Date; to: Date }): string {
   const head = [
-    "Name", "Email", "Username", "Admin", "Trial", "Email verified", "Joined", "Last seen", "Active sessions",
+    "Name", "Email", "Username", "Admin", "Trial", "Email verified", "Account", "Organisation", "Organisation role", "Joined", "Last seen", "Active sessions",
     "Hours used", "Country", "Time zone", "Last app", "Last area", "Last active",
     "LLM calls", "Input tokens", "Output tokens", "Cache tokens", "AI cost (USD)",
     ...APP_KEYS.map((k) => `AI cost ${k} (USD)`),
   ];
   const lines = rows.map((u) => [
-    u.name, u.email, u.username, u.isAdmin, u.isTrial, u.emailVerified, u.createdAt, u.lastSeenAt, u.activeSessions,
+    u.name, u.email, u.username, u.isAdmin, u.isTrial, u.emailVerified, u.account.type, u.account.org?.name, u.account.org?.role, u.createdAt, u.lastSeenAt, u.activeSessions,
     (u.seconds / 3600).toFixed(2), u.country, u.timeZone, u.lastApp?.app, u.lastApp?.area, u.lastApp?.at,
     u.ai.calls, u.ai.inputTokens, u.ai.outputTokens, u.ai.cacheReadTokens + u.ai.cacheWriteTokens, u.ai.costUsd.toFixed(4),
     ...APP_KEYS.map((k) => (u.aiByApp[k]?.costUsd ?? 0).toFixed(4)),

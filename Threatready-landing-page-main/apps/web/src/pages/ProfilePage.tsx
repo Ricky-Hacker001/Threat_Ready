@@ -5,6 +5,7 @@ import { useMe } from "../components/AppShell";
 import { ActivityList, AppCards, AppCardsSkeleton } from "../components/Overview";
 import { Avatar, displayName } from "../components/ProfileMenu";
 import { Button, GitHubLogo, GoogleLogo, Notice } from "../components/ui";
+import { OrgCard } from "./OrgPage";
 import { api } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 
@@ -138,6 +139,8 @@ export function ProfilePage() {
           </>
         )}
       </section>
+
+      <OrgCard />
 
       <section className="module-panel" aria-labelledby="profile-account">
         <h2 id="profile-account" className="profile-section-title">
