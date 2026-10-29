@@ -18,8 +18,8 @@ const assert = (c: any, m: string) => { if (!c) throw new Error(`ASSERT: ${m}`);
 
 // deploy/gateway.mjs, verbatim.
 const GATEWAY_CSP = [
-  "default-src 'self'", "script-src 'self' https://challenges.cloudflare.com 'wasm-unsafe-eval'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com", "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
+  "default-src 'self'", "script-src 'self' https://challenges.cloudflare.com 'wasm-unsafe-eval'", "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:", "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
   "connect-src 'self' blob: data:", "worker-src 'self' blob:", "media-src 'self' blob:", 'frame-src https://challenges.cloudflare.com', "frame-ancestors 'none'", "base-uri 'self'", "form-action 'self'", "object-src 'none'",
 ].join('; ');
 

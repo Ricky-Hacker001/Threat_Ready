@@ -1,5 +1,12 @@
-import { useId, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
+
+/** The tab title for the current screen ("Profile · ThreatReady", WCAG 2.4.2); null keeps the bare app name. */
+export function usePageTitle(title: string | null | undefined) {
+  useEffect(() => {
+    document.title = title ? `${title} · ThreatReady` : "ThreatReady";
+  }, [title]);
+}
 
 export function BrandMark() {
   return <img className="brand-mark" src="/logo-sm.png" width="28" height="27" alt="" />;

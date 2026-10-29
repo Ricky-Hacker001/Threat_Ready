@@ -3,12 +3,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL } from "../components/Overview";
-import { Button, Notice } from "../components/ui";
+import { Button, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
 import { fmtAgo, fmtCompact, fmtDate, fmtInt, fmtUsd } from "../lib/format";
-import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
+import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, Tile, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
 
 export const RANGES = [
   { key: "1d", label: "24 hours", days: 1 },
@@ -39,15 +39,7 @@ export function RangePicker({ value, onChange }: { value: RangeKey; onChange: (k
   );
 }
 
-export function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
-  return (
-    <div className="tile">
-      <span className="tile-label">{label}</span>
-      <span className="tile-value">{value}</span>
-      {sub ? <span className="tile-sub">{sub}</span> : null}
-    </div>
-  );
-}
+export { Tile };
 
 /** App identity: a dot in the app's fixed hue, always beside its name (never color alone). */
 export function AppTag({ app }: { app: AppKey }) {
@@ -120,12 +112,14 @@ const errorText = (err: unknown) =>
  * and cost (from each app's own LLM ledger).
  */
 export function AdminPage() {
+  usePageTitle("Admin console");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);
   const [q, setQ] = useState(params.get("q") ?? "");
   const sort = params.get("sort") ?? "cost";
   const includeTrial = params.get("trial") === "1";
+  const account = params.get("account") ?? "";
   const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
 
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -154,6 +148,7 @@ export function AdminPage() {
         q: params.get("q") ?? undefined,
         sort,
         includeTrial,
+        account: account || undefined,
         page,
         size: 25,
       }),
@@ -175,7 +170,7 @@ export function AdminPage() {
     };
     // range.from/to change every render of rangeFor; key on the inputs instead.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.key, params.get("q"), sort, includeTrial, page]);
+  }, [range.key, params.get("q"), sort, includeTrial, account, page]);
 
   const pages = list ? Math.max(1, Math.ceil(list.total / 25)) : 1;
   const unavailable = overview?.unavailable ?? [];
@@ -192,6 +187,9 @@ export function AdminPage() {
         </div>
         <div className="admin-head-actions">
           <RangePicker value={range.key} onChange={(k) => set({ range: k, page: null })} />
+          <Link className="btn btn-secondary" to={`/app/admin/orgs?range=${range.key}`}>
+            Organisations{overview?.organisations.pending ? ` (${overview.organisations.pending} pending)` : ""}
+          </Link>
           <a
             className="btn btn-secondary"
             href={`${API_ORIGIN}/api/admin/export/users.csv?${new URLSearchParams({ from: range.from, to: range.to, sort, includeTrial: String(includeTrial), ...(params.get("q") ? { q: params.get("q")! } : {}) })}`}
@@ -223,7 +221,12 @@ export function AdminPage() {
             <Summary o={overview} rangeLabel={RANGES.find((r) => r.key === range.key)!.label} />
           </p>
           <section aria-label="Headline numbers" className="tiles">
-            <Tile label="Users" value={fmtInt(overview.users.total)} sub={`${fmtInt(overview.users.verified)} verified`} />
+            <Tile label="Users" value={fmtInt(overview.users.total)} sub={`${fmtInt(overview.users.individuals)} individual · ${fmtInt(overview.users.organisationMembers)} in organisations`} />
+            <Tile
+              label="Organisations"
+              value={fmtInt(overview.organisations.total)}
+              sub={overview.organisations.pending ? `${fmtInt(overview.organisations.pending)} pending approval` : `${fmtInt(overview.organisations.active)} active · ${fmtInt(overview.organisations.newInRange)} new in range`}
+            />
             <Tile label="Active, last 7 days" value={fmtInt(overview.users.activeLast7Days)} />
             <Tile label="New in range" value={fmtInt(overview.users.newInRange)} sub={`${fmtInt(overview.users.trial)} trial sessions exist`} />
             <Tile
@@ -424,6 +427,14 @@ export function AdminPage() {
               <option value="recent">Recently active</option>
               <option value="created">Newest</option>
             </select>
+            <label className="visually-hidden" htmlFor="admin-account">
+              Account type
+            </label>
+            <select id="admin-account" className="input" value={account} onChange={(e) => set({ account: e.target.value || null, page: null })}>
+              <option value="">All accounts</option>
+              <option value="individual">Individuals</option>
+              <option value="organisation">Organisation members</option>
+            </select>
             <label className="check">
               <input type="checkbox" checked={includeTrial} onChange={(e) => set({ trial: e.target.checked ? "1" : null, page: null })} />
               Include trial users
@@ -441,6 +452,7 @@ export function AdminPage() {
                 <thead>
                   <tr>
                     <th scope="col">User</th>
+                    <th scope="col">Account</th>
                     <th scope="col">Joined</th>
                     <th scope="col">Last seen</th>
                     <th scope="col">Last active in</th>
@@ -462,6 +474,24 @@ export function AdminPage() {
                           {u.email ?? (u.username ? `@${u.username}` : "—")} <UserBadges u={u} />
                         </span>
                       </th>
+                      <td>
+                        {u.account.org ? (
+                          <>
+                            <Link to={`/app/admin/orgs/${encodeURIComponent(u.account.org.id)}?range=${range.key}`} onClick={(e) => e.stopPropagation()}>
+                              {u.account.org.name}
+                            </Link>
+                            <span className="cell-sub">
+                              {u.account.org.role === "org_admin" ? "Org admin" : u.account.org.role === "manager" ? "Manager" : "Member"}
+                              {u.account.org.status === "suspended" ? " · suspended" : ""}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            Individual
+                            <span className="cell-sub">{u.isTrial ? "Guest" : "Free plan"}</span>
+                          </>
+                        )}
+                      </td>
                       <td>{fmtDate(u.createdAt)}</td>
                       <td>{fmtAgo(u.lastSeenAt)}</td>
                       <td>

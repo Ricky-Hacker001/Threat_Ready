@@ -5,7 +5,7 @@ import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { api, ApiError, messageFor } from '../lib/api';
 import { redirectToSignIn, redirectToSignUp, useMe } from '../lib/auth';
 import { PlatformFooter, PlatformHeader, PlatformLoading } from './PlatformShell';
-import { Busy, CardSkeleton, focusMainHeading, RouteErrorBoundary, ToastProvider } from '../ui/components';
+import { Busy, CardSkeleton, focusMainHeading, NotFoundState, RouteErrorBoundary, ToastProvider, usePageTitle } from '../ui/components';
 
 const Dashboard = lazy(() => import('../features/interview-prep/pages/DashboardPage'));
 const CreateInterview = lazy(() => import('../features/interview-prep/pages/CreateInterviewPage'));
@@ -48,18 +48,30 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-/** After an in-app navigation, focus moves to the new screen's h1 so screen readers announce it. */
+/**
+ * After an in-app navigation, focus moves to the new screen's h1 so screen readers announce it. Not on the
+ * first screen: the comparison is with the last path focused, not a first-run flag, because React StrictMode
+ * runs effects twice in development and a flag reset by the second run focused (and outlined) the h1 on load.
+ */
 function RouteFocus() {
   const { pathname } = useLocation();
-  const first = useRef(true);
+  const last = useRef(pathname);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
+    if (last.current === pathname) return;
+    last.current = pathname;
     focusMainHeading();
   }, [pathname]);
   return null;
+}
+
+/** An address under /interview-prep that is no screen: say so, rather than silently showing the dashboard. */
+function NotFoundScreen() {
+  usePageTitle('Page not found');
+  return (
+    <NotFoundState title="Page not found" to="/interview-prep" linkLabel="Go to the dashboard">
+      There is nothing at this address. The link may be mistyped or out of date.
+    </NotFoundState>
+  );
 }
 
 /**
@@ -142,7 +154,7 @@ export function App() {
                   <Route path="/interview-prep/sessions/:id" element={<RequireAuth><SessionPage /></RequireAuth>} />
                   <Route path="/interview-prep/sessions/:id/report" element={<RequireAuth><ReportPage /></RequireAuth>} />
                   {CapturePage && <Route path="/interview-prep/__capture" element={<CapturePage />} />}
-                  <Route path="*" element={<Navigate to="/interview-prep" replace />} />
+                  <Route path="*" element={<RequireAuth><NotFoundScreen /></RequireAuth>} />
                 </Routes>
               </Suspense>
             </RouteErrorBoundary>

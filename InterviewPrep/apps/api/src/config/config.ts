@@ -159,15 +159,86 @@ const EnvSchema = z
     REASONING_MAX_OPEN_ATTEMPTS: z.coerce.number().int().positive().default(3),
     /** Answers a learner may submit for evaluation per UTC day (each evaluation is up to three LARGE calls). 0 = no daily limit. */
     REASONING_USER_DAILY_EVALUATIONS: z.coerce.number().int().min(0).default(20),
-    /** Pool refills one learner may trigger per UTC day (via create or prefetch); the schedule refills the rest. 0 = no limit. */
-    REASONING_USER_DAILY_REFILLS: z.coerce.number().int().min(0).default(60),
+    /**
+     * Pool questions one learner's starts and prefetches may have generated per UTC day (review AR-SEC-2:
+     * counted in questions, not refill jobs, which each generated up to REASONING_POOL_BATCH); the schedule
+     * refills the rest. 0 = no limit.
+     */
+    REASONING_USER_DAILY_REFILLS: z.coerce.number().int().min(0).default(12),
     /** Manual retries of a failed generation, and separately of a failed evaluation, per attempt. 0 = no ceiling. */
     REASONING_MAX_RETRIES: z.coerce.number().int().min(0).max(20).default(2),
     /** Hours an unanswered (ready) question stays open before the sweeper marks it skipped. 0 = never. */
     REASONING_READY_TTL_HOURS: z.coerce.number().int().min(0).max(720).default(24),
-    REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(3),
+    /**
+     * Model calls per generated question: try 1 on REASONING_GENERATION_FIRST_TIER, every later try on
+     * LARGE (a question that fails the quality gate is rewritten once by the stronger model).
+     */
+    REASONING_MAX_GENERATION_TRIES: z.coerce.number().int().min(1).max(6).default(2),
+    /** The tier that writes a question first: SMALL (Haiku, default) or LARGE (rollback: Sonnet writes every question). */
+    REASONING_GENERATION_FIRST_TIER: z.enum(['SMALL', 'LARGE']).default('SMALL'),
+    /**
+     * Attack Reasoning's own SMALL model (the question writer's first try, the stage-1 evaluator).
+     * claude-haiku-5-5 since the H55 measurement (27 Oct 2026): about US$0.060 per stored question
+     * weighted by level, with a Sonnet rewrite on failure, against US$0.074 for the old Sonnet writer and
+     * US$0.29 measured with Haiku 4.5. That figure rests on 1 passing rewrite in 4 (none of 2 at
+     * intermediate): at that rate's 90% lower bound it is about US$0.125, still far below Sonnet writing
+     * first. claude-haiku-4-5 puts it back on Haiku 4.5 (empty: LLM_MODEL_SMALL, but the Render launcher
+     * drops empty values). Interviews always use LLM_MODEL_SMALL, so this never changes an interview's
+     * model or the caps derived from its price.
+     */
+    REASONING_MODEL_SMALL: z.string().default('claude-haiku-5-5'),
+    /**
+     * Thinking depth (output_config.effort) of Attack Reasoning's SMALL calls: question writing and the
+     * stage-1 evaluator. Sent only when the resolved SMALL model accepts it (Haiku 5.5; never Haiku 4.5).
+     * Writing at low since H55: Haiku 5.5 passed the gate on 14 of 24 tries at US$0.0048 and 40 s each,
+     * against 5 of 12 at US$0.0075 and 65 s at medium, where 4 tries ran out of output room. Grading
+     * stays at medium, the effort the comparison with full mode was run at (low saves US$0.0004 an answer).
+     */
+    REASONING_SMALL_EFFORT_GENERATION: z.enum(['low', 'medium', 'high']).default('low'),
+    REASONING_SMALL_EFFORT_EVALUATION: z.enum(['low', 'medium', 'high']).default('medium'),
+    /** Questions per architecture compared with a new one (similarity bank on top of the live items). */
+    REASONING_LIBRARY_BANK_SIZE: z.coerce.number().int().min(50).max(2000).default(300),
+    /**
+     * Days a retired question stays in that bank for text similarity (review AR-BIZ-2): by count alone, an
+     * architecture whose recent questions all collide stops storing new ones and its window never moves.
+     * Live questions and, on demand, the learner's own always stay in the bank.
+     */
+    REASONING_LIBRARY_BANK_DAYS: z.coerce.number().int().min(1).max(3650).default(30),
+    /** Serve questions generated before the architecture library (architecture_id null) until they retire. */
+    REASONING_SERVE_LEGACY_ITEMS: bool.default(true),
+    /**
+     * Questions a learner may open per UTC day (any state), so one learner cannot drain the shared pool.
+     * 12 since the 27 Oct review (AR-SEC-2, AR-BIZ-8, COST-4; was 40, sized for US$0.02 a seat; at the
+     * measured generation cost 40 opens could use up the whole pool cap). 0 = no limit.
+     */
+    REASONING_USER_DAILY_QUESTIONS: z.coerce.number().int().min(0).default(12),
     /** Jaccard similarity (3-gram shingles) above which a generated item is too close to one the user has seen. */
     REASONING_SIMILARITY_THRESHOLD: z.coerce.number().min(0.05).max(1).default(0.35),
+    /**
+     * Evaluation: `tiered` scores the option in code, grades the justification once on SMALL and runs the
+     * LARGE challenger and reconciler only for borderline or disputed answers; `full` runs the three LARGE
+     * stages on every answer. Full by default since H55 (27 Oct 2026): of 3 answers graded both ways, the
+     * single Haiku 5.5 pass gave a reasoned wrong answer 24 where full mode gave 12, at high confidence, so
+     * nothing escalated it, and it missed a must-not-credit claim Sonnet's first stage applied. Tiered
+     * (about US$0.014 an answer against US$0.089) waits for a larger agreement check.
+     */
+    REASONING_EVALUATION_MODE: z.enum(['tiered', 'full']).default('full'),
+    /** Centre and half-width of the provisional-score band that escalates a single-pass grade (band 0 = never on score alone). */
+    REASONING_ESCALATION_CENTER: z.coerce.number().min(0).max(100).default(60),
+    REASONING_ESCALATION_BAND: z.coerce.number().min(0).max(50).default(8),
+    /**
+     * Share (0-1) of tiered answers that no rule escalated which still get the second review, drawn at
+     * random (review AR-SEC-1): text that talks the SMALL grader round without tripping a rule cannot
+     * count on a single pass. 0 = off. About +US$0.008 per answer per 0.1 at the measured pair cost.
+     */
+    REASONING_ESCALATION_AUDIT_RATE: z.coerce.number().min(0).max(1).default(0.1),
+    /**
+     * Mark Attack Reasoning prompts for prompt caching. Off by default (review COST-2): each stage sends
+     * its own structured-output format, which invalidates the cache, generation calls run in parallel on
+     * different architectures and tiers, and a second learner's evaluation of an item rarely follows
+     * within the 5-minute lifetime, so the real run wrote 71k tokens and read 4k (+US$0.024, 6% of spend).
+     */
+    REASONING_PROMPT_CACHE: bool.default(false),
     /**
      * Shared question pool: questions are generated ahead of time per domain and difficulty and served
      * to learners in random order, never twice to the same learner. Demand-driven: a bucket served in
@@ -178,16 +249,20 @@ const EnvSchema = z
      * production (unset = NODE_ENV === 'production'); when off, the schedule is removed and refills are no-ops.
      */
     REASONING_POOL_ENABLED: bool.optional(),
-    REASONING_POOL_TARGET: z.coerce.number().int().min(0).max(500).default(12),
+    // Sized for the 2-serve rule (a live question offers at most 2 seats): see docs/ATTACK_REASONING_COST_DESIGN.md §5.3.
+    REASONING_POOL_TARGET: z.coerce.number().int().min(0).max(500).default(8),
     REASONING_POOL_IDLE_TARGET: z.coerce.number().int().min(0).max(500).default(2),
     REASONING_POOL_DEMAND_DAYS: z.coerce.number().int().min(1).max(90).default(7),
     /** Hard ceiling per bucket for schedule top-ups past the target on behalf of active learners. At or below the target: no top-ups. */
-    REASONING_POOL_MAX_ITEMS: z.coerce.number().int().min(0).max(2000).default(40),
-    REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(4),
+    REASONING_POOL_MAX_ITEMS: z.coerce.number().int().min(0).max(2000).default(24),
+    REASONING_POOL_MIN_AVAILABLE: z.coerce.number().int().min(0).max(50).default(3),
     REASONING_POOL_BATCH: z.coerce.number().int().min(1).max(10).default(4),
     REASONING_POOL_DAILY_CAP_USD: z.coerce.number().positive().default(5),
-    /** A pool question is retired from serving after this many learners have seen it (answer-key exposure bound). */
-    REASONING_ITEM_MAX_SERVES: z.coerce.number().int().positive().default(25),
+    /**
+     * A pool question is retired from serving after this many learners have seen it (answer-key exposure
+     * bound). Enforced atomically where the serve is recorded (migration 0017), so concurrent starts never overshoot it.
+     */
+    REASONING_ITEM_MAX_SERVES: z.coerce.number().int().positive().default(2),
 
     REPORT_PDF_ENABLED: bool.default(true),
     REPORT_EMAIL_ENABLED: bool.default(false),
@@ -286,15 +361,23 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
           outputPerMTok: z.number().positive(),
           cacheReadPerMTok: z.number().nonnegative(),
           cacheWritePerMTok: z.number().nonnegative(),
-          supportsEffort: z.boolean().default(false),
-          maxOutputTokens: z.number().int().positive().default(32_000),
+          supportsEffort: z.boolean().optional(),
+          maxOutputTokens: z.number().int().positive().optional(),
+          adaptiveThinking: z.boolean().optional(),
+          longContext: z
+            .object({ aboveTokens: z.number().int().positive(), inputPerMTok: z.number().positive(), outputPerMTok: z.number().positive(), cacheReadPerMTok: z.number().nonnegative(), cacheWritePerMTok: z.number().nonnegative() })
+            .optional(),
+          charsPerToken: z.number().positive().optional(),
         }),
       )
       .parse(JSON.parse(cfg.LLM_PRICING_OVERRIDES));
-    Object.assign(pricing, overrides);
+    // An override of a registered id changes only the fields it names (review H55-SEC-3): replacing the
+    // whole entry dropped Haiku 5.5's thinking, effort, tokenizer and long-context fields, so its SMALL
+    // calls went out with Haiku 4.5's output room and no effort. A new id starts from no effort and 32k.
+    for (const [id, o] of Object.entries(overrides)) pricing[id] = { supportsEffort: false, maxOutputTokens: 32_000, ...pricing[id], ...o };
   }
   // An unverified model id is a configuration error, never a silent default (L15).
-  for (const key of ['LLM_MODEL_SMALL', 'LLM_MODEL_LARGE', 'LLM_REFUSAL_FALLBACK_MODEL'] as const) {
+  for (const key of ['LLM_MODEL_SMALL', 'LLM_MODEL_LARGE', 'LLM_REFUSAL_FALLBACK_MODEL', 'REASONING_MODEL_SMALL'] as const) {
     const model = cfg[key];
     if (model && !Object.hasOwn(pricing, model)) {
       throw new Error(`Invalid configuration: ${key}=${model} is not in the verified model registry; add LLM_PRICING_OVERRIDES after verifying it`);

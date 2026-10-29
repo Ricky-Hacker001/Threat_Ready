@@ -15,13 +15,15 @@ const SNIPPET = `
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), geolocation=()');
+    res.setHeader('X-Robots-Tag', 'noindex');
     next();
   });`;
 
-test('extracts every directive (both quote styles) and the four mirrored headers', () => {
+test('extracts every directive (both quote styles) and the five mirrored headers', () => {
   const h = extractGatewayHeaders(SNIPPET);
   assert.equal(h['Content-Security-Policy'], "default-src 'self'; frame-src https://challenges.cloudflare.com; object-src 'none'");
   assert.equal(h['Permissions-Policy'], 'camera=(), geolocation=()');
+  assert.equal(h['X-Robots-Tag'], 'noindex');
   assert.match(render(h), /^\/\*\n  Content-Security-Policy: default-src 'self'; frame-src/m);
   assert.match(render(h), /\n\/assets\/\*\n  Cache-Control: public, max-age=31536000, immutable\n$/);
 });

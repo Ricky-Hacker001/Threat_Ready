@@ -98,6 +98,12 @@ function Lab({ labId, user, logout, backToCatalog, onMissing }: { labId: string;
       if (!(e instanceof ApiError && (e.status === 401 || e.code === 'AUTH_ACCOUNT_REQUIRED'))) setLoadErr(e.message);
     }
   }, []);
+  // The console names its lab in the tab ("The Compromised Startup · Lab Simulations · ThreatReady", WCAG 2.4.2).
+  useEffect(() => {
+    if (!def?.title) return undefined;
+    document.title = `${def.title} · Lab Simulations · ThreatReady`;
+    return () => { document.title = 'Lab Simulations · ThreatReady'; };
+  }, [def?.title]);
   useEffect(() => { onConnection(setOnline); load(); const h = () => setRoute(parseHash()); window.addEventListener('hashchange', h); return () => window.removeEventListener('hashchange', h); }, []);
   useEffect(() => { const b = (e: BeforeUnloadEvent) => { if (dirty.current.size) { e.preventDefault(); e.returnValue = ''; } }; window.addEventListener('beforeunload', b); return () => window.removeEventListener('beforeunload', b); }, []);
   useEffect(() => { const lv = snap?.status.level; if (lv && prevLevel.current !== null && lv > prevLevel.current) setLevelUp(lv - 1); if (lv) prevLevel.current = lv; }, [snap?.status.level]);

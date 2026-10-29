@@ -1,8 +1,13 @@
+import type { MemberStatus, OrgContext, OrgPlan, OrgRole, OrgStatus, Plan, PlanStatus } from "@threatready/contracts";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/db.js";
 import { entitlements, memberships, organizations } from "../db/schema.js";
 
 export type PersonalRole = "learner" | "trial";
+
+/** Membership roles that make a user part of an organisation (business or institute account). */
+export const ORG_ROLES: readonly OrgRole[] = ["org_admin", "manager", "member"];
+export const isOrgRole = (role: string): role is OrgRole => (ORG_ROLES as readonly string[]).includes(role);
 
 /**
  * Every user gets a personal organisation with one membership and one
@@ -17,7 +22,6 @@ export async function ensurePersonalWorkspace(db: Db, userId: string, role: Pers
     const existing = await tx
       .select({ id: memberships.id })
       .from(memberships)
-      // Personal memberships only: from onboard migration 0012 a user may also hold an organisation membership.
       .where(and(eq(memberships.userId, userId), sql`${memberships.role} in ('learner', 'trial')`))
       .limit(1);
     if (existing.length > 0) return;
@@ -46,12 +50,164 @@ export async function findPersonalMembership(db: Db, userId: string): Promise<Me
     .from(memberships)
     .innerJoin(organizations, eq(organizations.id, memberships.orgId))
     .innerJoin(entitlements, eq(entitlements.orgId, memberships.orgId))
-    // Personal memberships only: from onboard migration 0012 a user may also hold an organisation
-    // membership, and without this filter limit(1) could return it first (403 NO_MEMBERSHIP).
     .where(and(eq(memberships.userId, userId), sql`${memberships.role} in ('learner', 'trial')`))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
   if (row.role !== "learner" && row.role !== "trial") return null;
+  if (row.plan !== "free" && row.plan !== "trial") return null;
   return { orgId: row.orgId, role: row.role, plan: row.plan };
+}
+
+/** The organisation membership as stored, before any decision about whether its plan applies. */
+export interface OrgMembership {
+  orgId: string;
+  name: string;
+  kind: "business" | "institute";
+  segment: "business" | "institute";
+  orgStatus: OrgStatus;
+  role: OrgRole;
+  memberStatus: MemberStatus;
+  plan: OrgPlan;
+  planStatus: PlanStatus;
+  seats: number;
+  periodEnd: Date | null;
+}
+
+/** The one organisation (business or institute account) the user belongs to, if any (one per user in phase 1). */
+export async function findOrgMembership(db: Db, userId: string): Promise<OrgMembership | null> {
+  const rows = await db
+    .select({
+      orgId: memberships.orgId,
+      role: memberships.role,
+      memberStatus: memberships.status,
+      name: organizations.name,
+      kind: organizations.kind,
+      segment: organizations.segment,
+      orgStatus: organizations.status,
+      plan: entitlements.plan,
+      planStatus: entitlements.status,
+      seats: entitlements.seats,
+      periodEnd: entitlements.periodEnd,
+    })
+    .from(memberships)
+    .innerJoin(organizations, eq(organizations.id, memberships.orgId))
+    .innerJoin(entitlements, eq(entitlements.orgId, memberships.orgId))
+    .where(and(eq(memberships.userId, userId), sql`${memberships.role} in ('org_admin', 'manager', 'member')`, sql`${organizations.kind} <> 'personal'`))
+    .limit(1);
+  const r = rows[0];
+  if (!r || !isOrgRole(r.role)) return null;
+  const kind = r.kind === "institute" ? "institute" : "business";
+  return {
+    orgId: r.orgId,
+    name: r.name,
+    kind,
+    segment: r.segment === "institute" ? "institute" : kind === "institute" ? "institute" : "business",
+    orgStatus: r.orgStatus as OrgStatus,
+    role: r.role,
+    memberStatus: r.memberStatus as MemberStatus,
+    plan: r.plan === "business" ? "business" : "business_trial",
+    planStatus: r.planStatus as PlanStatus,
+    seats: r.seats,
+    periodEnd: r.periodEnd,
+  };
+}
+
+/**
+ * Whether launches count against the organisation's plan right now: the organisation is active (not
+ * pending approval or suspended), the member is active, the plan is live (trialing or active; past_due
+ * is read-only on the organisation side) and the period has not ended. Otherwise the user is served
+ * from their personal workspace and plan, and the console says why.
+ */
+export function orgPlanApplies(m: Pick<OrgMembership, "orgStatus" | "memberStatus" | "planStatus" | "periodEnd">, now = new Date()): boolean {
+  if (m.orgStatus !== "active") return false;
+  if (m.memberStatus !== "active") return false;
+  if (m.planStatus !== "trialing" && m.planStatus !== "active") return false;
+  if (m.periodEnd && m.periodEnd.getTime() <= now.getTime()) return false;
+  return true;
+}
+
+/** A change, from the organisation's audit log, to one of the facts orgPlanApplies reads. */
+export type PlanHistoryEvent = { at: Date } & ({ orgStatus: OrgStatus } | { memberStatus: MemberStatus } | { planStatus: PlanStatus; periodEnd: Date | null });
+
+export interface PlanWindow {
+  from: Date;
+  to: Date;
+}
+
+/** The end of a window still open: the plan applies and nothing has changed since. */
+const OPEN_END = new Date(8.64e15);
+
+/**
+ * When the organisation's plan applied to one member: orgPlanApplies over time, from the moment they
+ * joined, rebuilt from the organisation's history (org-rules.ts planHistoryEvents). Before joining,
+ * while suspended, while the organisation waited for approval or was suspended, and once the plan
+ * lapsed, the member was in their personal workspace, which the organisation console never shows.
+ * Events before joining set the organisation's and the plan's state; the member's own events before
+ * joining belong to an earlier membership and are ignored. No history: an active, open-ended plan.
+ */
+export function planWindows(joinedAt: Date, history: readonly PlanHistoryEvent[]): PlanWindow[] {
+  const events = [...history].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const state: Pick<OrgMembership, "orgStatus" | "memberStatus" | "planStatus" | "periodEnd"> = { orgStatus: "active", memberStatus: "active", planStatus: "active", periodEnd: null };
+  const apply = (e: PlanHistoryEvent) => {
+    if ("orgStatus" in e) state.orgStatus = e.orgStatus;
+    else if ("memberStatus" in e) state.memberStatus = e.memberStatus;
+    else {
+      state.planStatus = e.planStatus;
+      state.periodEnd = e.periodEnd;
+    }
+  };
+  const out: PlanWindow[] = [];
+  const segment = (from: Date, to: Date) => {
+    if (!orgPlanApplies(state, from)) return;
+    const end = state.periodEnd && state.periodEnd.getTime() < to.getTime() ? state.periodEnd : to;
+    if (end.getTime() <= from.getTime()) return;
+    const last = out[out.length - 1];
+    if (last && last.to.getTime() >= from.getTime()) last.to = end.getTime() > last.to.getTime() ? end : last.to;
+    else out.push({ from, to: end });
+  };
+  for (const e of events) if (e.at.getTime() <= joinedAt.getTime() && !("memberStatus" in e)) apply(e);
+  let cursor = joinedAt;
+  for (const e of events) {
+    if (e.at.getTime() <= joinedAt.getTime()) continue;
+    segment(cursor, e.at);
+    apply(e);
+    cursor = e.at;
+  }
+  segment(cursor, OPEN_END);
+  return out;
+}
+
+/** Whether a moment falls inside one of the windows. An unparseable date never does. */
+export function inPlanWindows(at: Date, windows: readonly PlanWindow[]): boolean {
+  const t = at.getTime();
+  return windows.some((w) => t >= w.from.getTime() && t < w.to.getTime());
+}
+
+/** Whether a whole span (a day's activity in one area: first to last ping) falls inside one window. */
+export function spanInPlanWindow(from: Date, to: Date, windows: readonly PlanWindow[]): boolean {
+  return windows.some((w) => from.getTime() >= w.from.getTime() && to.getTime() < w.to.getTime());
+}
+
+export function toOrgContext(m: OrgMembership, now = new Date()): OrgContext {
+  return {
+    id: m.orgId,
+    name: m.name,
+    kind: m.kind,
+    segment: m.segment,
+    status: m.orgStatus,
+    role: m.role,
+    memberStatus: m.memberStatus,
+    plan: m.plan,
+    planStatus: m.planStatus,
+    seats: m.seats,
+    periodEnd: m.periodEnd ? m.periodEnd.toISOString() : null,
+    effective: orgPlanApplies(m, now),
+  };
+}
+
+/** The tenant and plan a request runs under: the organisation while its plan applies, else the personal workspace. */
+export function effectiveTenant(personal: Membership, org: OrgMembership | null, now = new Date()): { orgId: string; plan: Plan } {
+  if (org && orgPlanApplies(org, now)) return { orgId: org.orgId, plan: org.plan };
+  return { orgId: personal.orgId, plan: personal.plan };
 }

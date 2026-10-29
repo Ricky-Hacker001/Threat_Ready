@@ -5,7 +5,7 @@ import { eq, sql } from 'drizzle-orm';
 import { APP_CONFIG, type AppConfig } from '../../config/config.js';
 import { Database, type Tx } from '../../platform/db/database.js';
 import { emitMetric, logger, requestContext } from '../../platform/logging/logger.js';
-import { LLM_PORT, type LlmObject, type LlmPort, type LlmRequest, type LlmUsage, type StructuredSchema } from '../../platform/ports/llm.port.js';
+import { LLM_PORT, promptChars, type LlmObject, type LlmPort, type LlmRequest, type LlmUsage, type ModelProfile, type StructuredSchema } from '../../platform/ports/llm.port.js';
 import { costUsd, estimateTokens } from './pricing.js';
 
 /**
@@ -61,12 +61,17 @@ export class LlmService {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
   ) {}
 
-  modelFor(tier: LlmRequest['tier']): string {
-    return this.port.modelFor(tier);
+  modelFor(tier: LlmRequest['tier'], profile?: ModelProfile): string {
+    return this.port.modelFor(tier, profile);
   }
 
-  /** Structured call with one retry on a schema failure (L17b convention reused for interviews). */
-  async structured<T>(meta: CallMeta, req: LlmRequest, schema: StructuredSchema<T>): Promise<LlmObject<T>> {
+  /**
+   * Structured call with one retry on a schema failure (L17b convention reused for interviews).
+   * `retryInvalid: false` makes a schema failure final, for callers that escalate to another tier
+   * instead of repeating the same call (reasoning generation's Haiku-then-Sonnet ladder).
+   */
+  async structured<T>(meta: CallMeta, req: LlmRequest, schema: StructuredSchema<T>, opts: { retryInvalid?: boolean } = {}): Promise<LlmObject<T>> {
+    const retryInvalid = opts.retryInvalid ?? true;
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.metered(meta, req, async () => {
@@ -74,7 +79,7 @@ export class LlmService {
           return { result: r, usage: r.usage, extraUsage: r.extraUsage };
         });
       } catch (err) {
-        if (attempt === 0 && err instanceof PortError && err.kind === 'invalid_output') {
+        if (retryInvalid && attempt === 0 && err instanceof PortError && err.kind === 'invalid_output') {
           logger.warn({ feature: meta.feature, schema: schema.name }, 'structured output invalid; retrying once');
           continue;
         }
@@ -131,10 +136,10 @@ export class LlmService {
 
   /**
    * The provider reports dated ids for aliases (claude-haiku-4-5-20251001): price by the exact id, then
-   * without the date suffix, then the tier's configured model; never another tier's (cheaper) price.
+   * without the date suffix, then the model the request resolved to; never another tier's (cheaper) price.
    */
-  priceOf(model: string, tier: LlmRequest['tier']) {
-    return this.cfg.pricing[model] ?? this.cfg.pricing[model.replace(/-\d{8}$/, '')] ?? this.cfg.pricing[this.port.modelFor(tier)]!;
+  priceOf(model: string, req: Pick<LlmRequest, 'tier' | 'modelProfile'>) {
+    return this.cfg.pricing[model] ?? this.cfg.pricing[model.replace(/-\d{8}$/, '')] ?? this.cfg.pricing[this.port.modelFor(req.tier, req.modelProfile)]!;
   }
 
   /** Earlier billed messages of one call (a refused first try before the fallback answered): one failed row each, with its cost. */
@@ -156,7 +161,7 @@ export class LlmService {
           outputTokens: u.outputTokens,
           cacheReadTokens: u.cacheReadTokens,
           cacheWriteTokens: u.cacheWriteTokens,
-          costUsd: costUsd(this.priceOf(u.model, req.tier), u).toFixed(6),
+          costUsd: costUsd(this.priceOf(u.model, req), u).toFixed(6),
           settledAt: sql`now()`,
           requestId: requestContext.getStore()?.requestId,
         });
@@ -169,11 +174,15 @@ export class LlmService {
     return process.env.APP_ROLE === 'worker' ? this.db.system(fn) : this.db.user(owner, fn);
   }
 
-  /** Estimated cost of a call before it runs: the prompt at about 3 characters per token plus the whole output allowance. */
+  /**
+   * Estimated cost of a call before it runs, on the model the request resolves to: the whole prompt
+   * (cached prefix included) at that model's characters per token (estimateTokens) at the full input
+   * price, plus the whole output allowance, thinking included. Conservative on purpose: cache reads are
+   * ignored here and priced from the provider's usage at settlement.
+   */
   estimate(req: LlmRequest, meta?: Pick<CallMeta, 'feature'>): number {
-    const pricing = this.cfg.pricing[this.port.modelFor(req.tier)]!;
-    const promptChars = req.system.length + req.messages.reduce((n, m) => n + m.content.length, 0);
-    const inputTokens = estimateTokens(promptChars);
+    const pricing = this.cfg.pricing[this.port.modelFor(req.tier, req.modelProfile)]!;
+    const inputTokens = estimateTokens(promptChars(req), pricing);
     if (inputTokens > PROMPT_TOKEN_CEILING) {
       logger.error({ feature: meta?.feature, inputTokens }, 'prompt exceeds the 100K token ceiling');
       throw new DomainError('LLM_OUTPUT_INVALID', { message: 'The request was too large to process' });
@@ -195,7 +204,7 @@ export class LlmService {
 
   /** Reserve estimated cost before the call (tier 3). Throws a DomainError when a cap is reached. */
   private async reserve(meta: CallMeta, req: LlmRequest): Promise<number> {
-    const model = this.port.modelFor(req.tier);
+    const model = this.port.modelFor(req.tier, req.modelProfile);
     const estimate = this.estimate(req, meta);
 
     return this.ledger(meta.owner, async (tx) => {
@@ -277,7 +286,7 @@ export class LlmService {
   }
 
   private async settle(id: number, meta: CallMeta, req: LlmRequest, usage: LlmUsage, latencyMs: number): Promise<void> {
-    const cost = costUsd(this.priceOf(usage.model, req.tier), usage);
+    const cost = costUsd(this.priceOf(usage.model, req), usage);
     await this.ledger(meta.owner, (tx) =>
       tx.db
         .update(llmCallLog)
@@ -309,7 +318,7 @@ export class LlmService {
     // cut off part-way) carries its usage on the error: record the real cost so every budget sum and
     // admin total includes it. Only a failure with no usage (nothing reached the model) leaves cost null.
     const usage = billedUsage(err);
-    const cost = usage ? costUsd(this.priceOf(usage.model, req.tier), usage) : null;
+    const cost = usage ? costUsd(this.priceOf(usage.model, req), usage) : null;
     if (cost !== null) emitMetric('LlmBilledFailureMicroUsd', Math.round(cost * 1e6), 'None', { Feature: meta.feature });
     await this.ledger(meta.owner, (tx) =>
       tx.db
@@ -334,6 +343,15 @@ export class LlmService {
     if (err instanceof PortError) return llmPortErrorToDomain(err);
     return err as Error;
   }
+}
+
+/**
+ * Whether a call failed because the model declined (stop_reason refusal; LlmService throws it as
+ * LLM_OUTPUT_INVALID), and the stop_details category the adapter attached (withRefusalCategory), if any.
+ */
+export function refusalOf(err: unknown): { category: string | null } | null {
+  const port = err instanceof PortError ? err : err instanceof DomainError && err.cause instanceof PortError ? err.cause : null;
+  return port?.kind === 'refusal' ? { category: (port as { refusalCategory?: string | null }).refusalCategory ?? null } : null;
 }
 
 /** The provider usage an adapter attached to a failed call (see `withUsage` in the LLM port). */

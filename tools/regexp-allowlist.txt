@@ -11,7 +11,7 @@ soc/server/demo/guide.js:601  q is a quiz spec object from the scenario fixture;
 soc/server/demo/guide.js:905  F.ATK is the scenario fixture's attacker IP (server-side constant), dot-escaped before compiling
 soc/server/engine/alias.js:35  alternation of scenario entity names (server-side fixtures) passed through esc(); bounded fixed-size list, no learner input
 InterviewPrep/apps/api/src/modules/ai/json-schema.ts:60  tag is always a code literal ('untrusted_resume', 'untrusted_answer', ...) at every call site; the untrusted text is the subject, not the pattern
-InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:14  fake LLM adapter (tests/dev only); tag is a code literal
-InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:15  fake LLM adapter (tests/dev only); label is a code literal
-InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:111  fake LLM adapter (tests/dev only); tag is a code literal
-InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:121  fake LLM adapter (tests/dev only); term comes from the built-in rubric term list and is regex-escaped
+InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:21  fake LLM adapter (tests/dev only); tag is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake/reasoning.fake.ts:22  fake LLM adapter (tests/dev only); label is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:169  fake LLM adapter (tests/dev only); tag is a code literal
+InterviewPrep/apps/api/src/platform/adapters/fake-llm.adapter.ts:179  fake LLM adapter (tests/dev only); term comes from the built-in rubric term list and is regex-escaped

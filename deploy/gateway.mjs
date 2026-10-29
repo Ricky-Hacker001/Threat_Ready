@@ -393,13 +393,14 @@ function spa(dir) {
  * The platform's Content-Security-Policy directives, one source of truth (tools/gen-headers.mjs renders
  * the onboard _headers file from this array; keep it a plain list of string literals). connect-src is
  * 'self' blob: only: three.js loads the 3D interviewer's embedded textures with fetch(blob:) (GLTFLoader,
- * ImageBitmapLoader). No app fetches a data: URL, so data: is not allowed there.
+ * ImageBitmapLoader). No app fetches a data: URL, so data: is not allowed there. Every app ships its own
+ * fonts (@fontsource-variable), so style-src and font-src name no third-party origin.
  */
 export const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self' https://challenges.cloudflare.com 'wasm-unsafe-eval'",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' data: https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
   "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
   "connect-src 'self' blob:",
   "worker-src 'self' blob:",
@@ -426,6 +427,9 @@ export function securityHeaders(_req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), microphone=(self)');
+  // Nothing on the platform (sign-in, dashboards, labs, reports) belongs in search results; robots.txt keeps
+  // crawling allowed so this directive is seen. The SPA shells carry the same noindex meta for previews.
+  res.setHeader('X-Robots-Tag', 'noindex');
   next();
 }
 

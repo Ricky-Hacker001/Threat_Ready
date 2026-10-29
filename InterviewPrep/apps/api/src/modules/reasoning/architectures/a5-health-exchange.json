@@ -1,0 +1,537 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "a5-health-exchange",
+  "version": 1,
+  "level": "advanced",
+  "title": "Regional health information exchange",
+  "organisation": {
+    "name": "Alder Valley Health Exchange",
+    "industry": "Healthcare: regional health information exchange",
+    "size": "140 staff; 22 member hospitals and 60 partner apps",
+    "summary": "Alder Valley Health Exchange shares patient records between 22 member hospitals. Hospitals push records into a clinical data repository; everything is read through a FHIR API gateway that checks OAuth scopes and asks a consent service before partner apps (SMART on FHIR) read a patient's data. Patients and clinicians sign in through the national identity provider. The patient portal can summarise a record with an LLM summariser running on the exchange's Kubernetes platform. A nightly job de-identifies records into a research warehouse that researchers query inside a research enclave."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "partners", "label": "Partner apps", "kind": "vendor" },
+      { "id": "identity", "label": "National identity", "kind": "identity" },
+      { "id": "platform", "label": "Exchange platform", "kind": "cluster" },
+      { "id": "data", "label": "Data and research", "kind": "data" },
+      { "id": "hospitals", "label": "Member hospitals", "kind": "corporate" }
+    ],
+    "nodes": [
+      { "id": "patients", "label": "patients", "type": "user", "boundary": "internet", "detail": "Use the portal and mobile app", "controls": [] },
+      { "id": "patient-app", "label": "patient portal and app", "type": "client", "boundary": "internet", "detail": "Web portal and mobile app for patients", "controls": [] },
+      { "id": "smart-apps", "label": "SMART-on-FHIR partner apps", "type": "saas", "boundary": "partners", "detail": "Third-party apps reading records with patient consent", "controls": [] },
+      { "id": "national-idp", "label": "national IdP", "type": "identity", "boundary": "identity", "detail": "Signs in patients and clinicians", "controls": ["MFA"] },
+      { "id": "fhir-gw", "label": "FHIR API gateway", "type": "gateway", "boundary": "platform", "detail": "Every read of clinical data goes through it", "controls": ["OAuth scopes", "rate limits"] },
+      { "id": "consent", "label": "consent service", "type": "service", "boundary": "platform", "detail": "Patients' sharing decisions", "controls": ["consent checks"] },
+      { "id": "portal-api", "label": "patient portal API", "type": "api", "boundary": "platform", "detail": "Back end for the portal and app", "controls": [] },
+      { "id": "summariser", "label": "LLM summariser", "type": "model", "boundary": "platform", "detail": "Writes plain-language record summaries", "controls": [] },
+      { "id": "k8s-api", "label": "platform cluster API", "type": "control", "boundary": "platform", "detail": "Kubernetes control plane for the exchange", "controls": ["admission policy"] },
+      { "id": "siem", "label": "SOC SIEM", "type": "siem", "boundary": "platform", "detail": "FHIR audit and cluster events", "controls": ["FHIR anomaly rules"] },
+      { "id": "cdr", "label": "clinical data repository", "type": "database", "boundary": "data", "detail": "Longitudinal records from every member hospital", "controls": ["encryption at rest"] },
+      { "id": "deid", "label": "de-identification job", "type": "pipeline", "boundary": "data", "detail": "Nightly extract for research", "controls": ["k-anonymity check"] },
+      { "id": "warehouse", "label": "research warehouse", "type": "database", "boundary": "data", "detail": "De-identified records for approved studies", "controls": [] },
+      { "id": "enclave", "label": "research enclave", "type": "compute", "boundary": "data", "detail": "Where researchers query the warehouse", "controls": ["no egress"] },
+      { "id": "hospital-feeds", "label": "member hospital EHR feeds", "type": "service", "boundary": "hospitals", "detail": "Push records into the repository", "controls": [] },
+      { "id": "clinician-devices", "label": "clinician devices", "type": "endpoint", "boundary": "hospitals", "detail": "Clinical record viewer on PCs and phones", "controls": ["MDM"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "patients", "to": "patient-app", "label": "uses the portal", "kind": "data" },
+      { "id": "e2", "from": "national-idp", "to": "patient-app", "label": "patient sign-in", "kind": "auth" },
+      { "id": "e3", "from": "patient-app", "to": "portal-api", "label": "portal API calls", "kind": "data" },
+      { "id": "e4", "from": "portal-api", "to": "fhir-gw", "label": "FHIR reads", "kind": "data" },
+      { "id": "e5", "from": "portal-api", "to": "summariser", "label": "summary requests", "kind": "data" },
+      { "id": "e6", "from": "summariser", "to": "fhir-gw", "label": "fetches records", "kind": "data" },
+      { "id": "e7", "from": "smart-apps", "to": "fhir-gw", "label": "SMART-on-FHIR calls", "kind": "data" },
+      { "id": "e8", "from": "clinician-devices", "to": "fhir-gw", "label": "clinician viewer", "kind": "data" },
+      { "id": "e9", "from": "fhir-gw", "to": "consent", "label": "consent checks", "kind": "auth" },
+      { "id": "e10", "from": "fhir-gw", "to": "cdr", "label": "FHIR resources", "kind": "data" },
+      { "id": "e11", "from": "hospital-feeds", "to": "cdr", "label": "pushes records", "kind": "data" },
+      { "id": "e12", "from": "cdr", "to": "deid", "label": "nightly extract", "kind": "data" },
+      { "id": "e13", "from": "deid", "to": "warehouse", "label": "de-identified rows", "kind": "data" },
+      { "id": "e14", "from": "warehouse", "to": "enclave", "label": "research datasets", "kind": "data" },
+      { "id": "e15", "from": "k8s-api", "to": "summariser", "label": "schedules pods", "kind": "control" },
+      { "id": "e16", "from": "fhir-gw", "to": "siem", "label": "audit events", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    { "id": "rogue-partner", "label": "partner app developer", "boundary": "partners", "detail": "Controls one approved partner app" },
+    { "id": "insider", "label": "clinician at a member hospital", "boundary": "hospitals", "detail": "A clinician with ordinary viewer access" }
+  ],
+  "identities": [
+    {
+      "id": "patients-id",
+      "label": "patients",
+      "kind": "federated",
+      "nodeIds": ["national-idp", "patient-app", "portal-api"],
+      "privileges": ["read their own record", "manage consent", "ask for a summary"],
+      "notes": null
+    },
+    {
+      "id": "smart-clients",
+      "label": "partner app clients",
+      "kind": "vendor",
+      "nodeIds": ["smart-apps", "fhir-gw"],
+      "privileges": ["read resources of patients who consented, by OAuth scope"],
+      "notes": "Scopes like patient/*.read; refresh tokens last 90 days"
+    },
+    {
+      "id": "clinicians",
+      "label": "clinicians",
+      "kind": "federated",
+      "nodeIds": ["national-idp", "clinician-devices", "fhir-gw"],
+      "privileges": ["read records of patients in their care", "break-glass emergency access"],
+      "notes": null
+    },
+    {
+      "id": "portal-sa",
+      "label": "portal API service account",
+      "kind": "workload",
+      "nodeIds": ["portal-api", "fhir-gw"],
+      "privileges": ["system-level FHIR read"],
+      "notes": "The patient id comes from the portal session, not the token"
+    },
+    {
+      "id": "summariser-sa",
+      "label": "summariser service account",
+      "kind": "workload",
+      "nodeIds": ["summariser", "fhir-gw", "k8s-api"],
+      "privileges": ["system/*.read on the FHIR gateway"],
+      "notes": "Its token is mounted in the summariser pods"
+    },
+    {
+      "id": "researchers",
+      "label": "researchers",
+      "kind": "human",
+      "nodeIds": ["enclave", "warehouse"],
+      "privileges": ["query approved research datasets inside the enclave"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "cdr",
+      "data": "longitudinal patient records from member hospitals",
+      "classification": "regulated",
+      "regulations": ["health records law", "GDPR"]
+    },
+    { "nodeId": "consent", "data": "patients' consent decisions", "classification": "regulated", "regulations": ["health records law"] },
+    {
+      "nodeId": "warehouse",
+      "data": "de-identified records that keep dates and postcodes",
+      "classification": "confidential",
+      "regulations": ["GDPR"]
+    }
+  ],
+  "controls": [
+    {
+      "id": "idp-mfa",
+      "label": "MFA",
+      "nodeIds": ["national-idp"],
+      "status": "present",
+      "covers": "Patient and clinician sign-in",
+      "limits": "Protects the sign-in, not the portal session created after it"
+    },
+    {
+      "id": "scopes",
+      "label": "OAuth scopes",
+      "nodeIds": ["fhir-gw"],
+      "status": "present",
+      "covers": "Partner apps get only the resource types they were granted",
+      "limits": "System tokens are scoped by resource type, not by patient"
+    },
+    { "id": "rate", "label": "rate limits", "nodeIds": ["fhir-gw"], "status": "present", "covers": "Requests per client", "limits": null },
+    {
+      "id": "consent-check",
+      "label": "consent checks",
+      "nodeIds": ["consent"],
+      "status": "present",
+      "covers": "Partner reads need the patient's consent",
+      "limits": "System tokens used by the portal and the summariser skip the consent check"
+    },
+    {
+      "id": "encryption",
+      "label": "encryption at rest",
+      "nodeIds": ["cdr"],
+      "status": "present",
+      "covers": "Theft of storage and backups",
+      "limits": null
+    },
+    {
+      "id": "k-anon",
+      "label": "k-anonymity check",
+      "nodeIds": ["deid"],
+      "status": "partial",
+      "covers": "Removes names, numbers and addresses",
+      "limits": "Keeps full dates and postcodes for research quality"
+    },
+    {
+      "id": "no-egress",
+      "label": "no egress",
+      "nodeIds": ["enclave"],
+      "status": "present",
+      "covers": "Researchers cannot copy data out of the enclave",
+      "limits": "Results leave through an output review done by one person"
+    },
+    {
+      "id": "mdm",
+      "label": "MDM",
+      "nodeIds": ["clinician-devices"],
+      "status": "present",
+      "covers": "Encryption and screen lock on managed devices",
+      "limits": "The viewer also works in a browser on unmanaged phones"
+    },
+    {
+      "id": "admission",
+      "label": "admission policy",
+      "nodeIds": ["k8s-api"],
+      "status": "present",
+      "covers": "Only signed images run on the platform",
+      "limits": "Does not limit which service account tokens pods mount"
+    },
+    {
+      "id": "anomaly",
+      "label": "FHIR anomaly rules",
+      "nodeIds": ["siem"],
+      "status": "partial",
+      "covers": "Alerts on partner apps reading unusual volumes",
+      "limits": "Reads with system tokens are excluded"
+    },
+    {
+      "id": "patient-binding",
+      "label": "patient binding",
+      "nodeIds": ["fhir-gw", "summariser"],
+      "status": "missing",
+      "covers": "Binding system-token reads to the signed-in patient at the gateway",
+      "limits": null
+    },
+    {
+      "id": "grounding",
+      "label": "summary grounding check",
+      "nodeIds": ["summariser"],
+      "status": "missing",
+      "covers": "Checking that a summary uses only the requesting patient's record",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "idp-tokens",
+      "from": "national-idp",
+      "to": "fhir-gw",
+      "via": "the gateway accepts national IdP tokens for patients and clinicians",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "summariser-system",
+      "from": "summariser",
+      "to": "fhir-gw",
+      "via": "system/*.read token that skips consent",
+      "subtle": true,
+      "notes": "The patient id comes from the request, not the token"
+    },
+    {
+      "id": "hospital-feeds",
+      "from": "hospital-feeds",
+      "to": "cdr",
+      "via": "VPN tunnel per hospital; feeds are trusted as authoritative",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "reidentification",
+      "from": "warehouse",
+      "to": "enclave",
+      "via": "research datasets keep dates and postcodes",
+      "subtle": true,
+      "notes": "Can be linked back to people with outside data"
+    }
+  ],
+  "logSources": [
+    {
+      "id": "fhir-audit",
+      "label": "FHIR gateway audit log",
+      "nodeIds": ["fhir-gw"],
+      "records": "every read with client, scope, patient id and resource count",
+      "gaps": "system-token reads record the service, not the patient who asked"
+    },
+    {
+      "id": "consent-log",
+      "label": "consent decisions log",
+      "nodeIds": ["consent"],
+      "records": "consent grants, withdrawals and checks",
+      "gaps": null
+    },
+    {
+      "id": "portal-log",
+      "label": "portal API log",
+      "nodeIds": ["portal-api", "summariser"],
+      "records": "sessions and summary requests",
+      "gaps": "summariser prompts are not kept"
+    },
+    { "id": "enclave-log", "label": "enclave output log", "nodeIds": ["enclave"], "records": "approved exports with reviewer", "gaps": null },
+    {
+      "id": "k8s-audit",
+      "label": "platform cluster audit log",
+      "nodeIds": ["k8s-api"],
+      "records": "API requests including token and secret access",
+      "gaps": null
+    },
+    {
+      "id": "siem-feed",
+      "label": "SOC SIEM",
+      "nodeIds": ["siem"],
+      "records": "FHIR audit events and cluster events",
+      "gaps": "no portal or summariser logs"
+    }
+  ],
+  "attackSurfaces": {
+    "api_security": [
+      {
+        "id": "partner-scope-overreach",
+        "summary": "A partner app with patient/*.read pulls far more than its feature needs",
+        "entryNodeIds": ["smart-apps"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1528", "T1213", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "portal-patient-id",
+        "summary": "The portal API passes a patient id from the session that the gateway never checks",
+        "entryNodeIds": ["patient-app"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["portal-api", "fhir-gw"],
+        "techniques": ["T1550.001", "T1213", "T1190"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "clinician-token-replay",
+        "summary": "A clinician's token from a personal phone is replayed against the gateway",
+        "entryNodeIds": ["clinician-devices"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1539", "T1550.004", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "long-refresh-tokens",
+        "summary": "Partner refresh tokens last 90 days and outlive a patient's consent withdrawal",
+        "entryNodeIds": ["smart-apps"],
+        "targetNodeIds": ["consent"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1528", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "reidentification",
+        "summary": "De-identified data keeps dates and postcodes, so researchers can re-identify patients",
+        "entryNodeIds": ["deid"],
+        "targetNodeIds": ["enclave"],
+        "viaNodeIds": ["warehouse"],
+        "techniques": ["T1213", "T1119", "T1074"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "enclave-output",
+        "summary": "One reviewer can release record-level results from the enclave",
+        "entryNodeIds": ["cdr"],
+        "targetNodeIds": ["enclave"],
+        "viaNodeIds": ["deid", "warehouse"],
+        "techniques": ["T1567.002", "T1074", "T1020"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "consent-bypass-basis",
+        "summary": "System tokens skip consent; is that within the exchange's legal basis?",
+        "entryNodeIds": ["summariser"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1078", "T1213", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "partner-reassessment",
+        "summary": "Partner apps are approved once and never reassessed",
+        "entryNodeIds": ["smart-apps"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1199", "T1213", "T1530"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "system-token-trust",
+        "summary": "Internal services hold system tokens that are not bound to a patient",
+        "entryNodeIds": ["portal-api"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1078", "T1550.001", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unmanaged-viewer",
+        "summary": "The clinician viewer works from unmanaged phones through a browser",
+        "entryNodeIds": ["clinician-devices"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1078", "T1539", "T1550.004"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "sign-in-session-fixation",
+        "summary": "A portal session can be fixed before the national IdP sign-in completes",
+        "entryNodeIds": ["national-idp"],
+        "targetNodeIds": ["portal-api"],
+        "viaNodeIds": ["patient-app"],
+        "techniques": ["T1185", "T1539", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "summary-html",
+        "summary": "Summaries are rendered as HTML in the patient portal",
+        "entryNodeIds": ["summariser"],
+        "targetNodeIds": ["patient-app"],
+        "viaNodeIds": ["portal-api"],
+        "techniques": ["T1189", "T1185", "T1565.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "system-reads-excluded",
+        "summary": "System-token reads are excluded from the SIEM's anomaly rules",
+        "entryNodeIds": ["summariser"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1078", "T1562.001", "T1087"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "partner-volume-spike",
+        "summary": "A partner app's reads jump tenfold overnight",
+        "entryNodeIds": ["smart-apps"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1078", "T1567.002", "T1041"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "wrong-patient-summaries",
+        "summary": "Patients report summaries containing another person's diagnoses",
+        "entryNodeIds": ["portal-api"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["summariser", "fhir-gw"],
+        "techniques": ["T1078", "T1567", "T1070"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "altered-hospital-feed",
+        "summary": "A member hospital's feed starts sending altered records",
+        "entryNodeIds": ["hospital-feeds"],
+        "targetNodeIds": ["deid"],
+        "viaNodeIds": ["cdr"],
+        "techniques": ["T1078", "T1098", "T1105"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "clinician-infostealer",
+        "summary": "An infostealer on a clinician's home PC takes the viewer session",
+        "entryNodeIds": ["clinician-devices"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1555.003", "T1204.002", "T1113"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cached-records-phone",
+        "summary": "Records stay cached in the browser of an unmanaged phone",
+        "entryNodeIds": ["clinician-devices"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["fhir-gw"],
+        "techniques": ["T1113", "T1070.004", "T1036.005"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "summariser-token",
+        "summary": "The summariser pods' service account token carries the system/*.read scope",
+        "entryNodeIds": ["k8s-api"],
+        "targetNodeIds": ["fhir-gw"],
+        "viaNodeIds": ["summariser"],
+        "techniques": ["T1528", "T1552.007", "T1609"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "shared-node-escape",
+        "summary": "The summariser shares nodes with the portal API; a container escape reaches both",
+        "entryNodeIds": ["summariser"],
+        "targetNodeIds": ["fhir-gw"],
+        "viaNodeIds": ["portal-api"],
+        "techniques": ["T1611", "T1613", "T1610"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "record-note-injection",
+        "summary": "A free-text note in a patient record carries instructions the summariser follows",
+        "entryNodeIds": ["hospital-feeds"],
+        "targetNodeIds": ["summariser"],
+        "viaNodeIds": ["cdr", "fhir-gw"],
+        "techniques": ["AML.T0051.001", "AML.T0057", "AML.T0048"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "summarise-other-patient",
+        "summary": "A crafted request makes the summariser fetch another patient's record with its system token",
+        "entryNodeIds": ["portal-api"],
+        "targetNodeIds": ["cdr"],
+        "viaNodeIds": ["summariser", "fhir-gw"],
+        "techniques": ["AML.T0051.000", "AML.T0053", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Advanced: consent is enforced for partners but skipped by system tokens (subtle); de-identified data keeps quasi-identifiers (subtle). Present controls that do not apply to a path: consent checks (system tokens), MDM (browser on unmanaged phones), anomaly rules (system reads excluded), no-egress (output review)."
+}

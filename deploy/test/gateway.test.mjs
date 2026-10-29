@@ -361,6 +361,8 @@ test('CSP connect-src is self + blob: only (no data:), on every response', async
     const r = await request(g.gwPort, '/healthz');
     assert.equal(r.headers['content-security-policy'], CONTENT_SECURITY_POLICY);
     assert.equal(r.headers['strict-transport-security'], 'max-age=31536000; includeSubDomains');
+    assert.equal(r.headers['x-robots-tag'], 'noindex', 'the signed-in platform is never indexed');
+    assert.ok(!/googleapis|gstatic/.test(r.headers['content-security-policy']), 'fonts are self-hosted: no Google Fonts origins in the CSP');
   } finally { await g.stop(); }
 });
 
@@ -409,7 +411,7 @@ function rawSocket(port, lines) {
   });
 }
 
-const SECURITY_HEADERS = ['content-security-policy', 'strict-transport-security', 'x-content-type-options', 'referrer-policy', 'permissions-policy'];
+const SECURITY_HEADERS = ['content-security-policy', 'strict-transport-security', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'x-robots-tag'];
 const assertSecurityHeaders = (r, label) => { for (const h of SECURITY_HEADERS) assert.ok(r.headers[h], `${label}: missing ${h}`); };
 
 describe('gateway', () => {

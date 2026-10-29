@@ -1,0 +1,419 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "b1-online-shop",
+  "version": 1,
+  "level": "beginner",
+  "title": "Online shop on one cloud account",
+  "organisation": {
+    "name": "Halden Outdoor",
+    "industry": "Retail e-commerce",
+    "size": "120 staff; a two-person platform team",
+    "summary": "Halden Outdoor sells camping gear online. Customers browse and pay through the shop web app behind a CDN; card payments go to an external payment provider, which reports results back to the orders API by webhook. The orders database keeps order history, addresses and payment tokens, and a nightly job writes order exports to a storage bucket that finance downloads. Two platform engineers run everything in one cloud account and deploy from a hosted CI pipeline with a long-lived access key."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "cloud", "label": "Cloud account: shop", "kind": "vpc" },
+      { "id": "data", "label": "Data tier", "kind": "data" },
+      { "id": "cicd", "label": "CI/CD", "kind": "cicd" }
+    ],
+    "nodes": [
+      { "id": "customers", "label": "shop customers", "type": "user", "boundary": "internet", "detail": "Browse, sign in and pay", "controls": [] },
+      { "id": "payments", "label": "payment provider", "type": "saas", "boundary": "internet", "detail": "Hosted card fields; sends signed payment webhooks", "controls": ["signed webhooks"] },
+      { "id": "cdn-waf", "label": "CDN with WAF", "type": "gateway", "boundary": "cloud", "detail": "TLS termination and managed WAF rules for the shop", "controls": ["WAF"] },
+      { "id": "shop-app", "label": "shop web app", "type": "web", "boundary": "cloud", "detail": "Containers serving the storefront, accounts and staff admin pages", "controls": ["optional MFA"] },
+      { "id": "orders-api", "label": "orders API", "type": "api", "boundary": "cloud", "detail": "REST API behind the shop; also receives payment webhooks directly", "controls": ["JWT auth"] },
+      { "id": "orders-db", "label": "orders database", "type": "database", "boundary": "data", "detail": "Orders, addresses, customer accounts and payment tokens", "controls": ["encryption at rest"] },
+      { "id": "exports-bucket", "label": "exports-prod bucket", "type": "storage", "boundary": "data", "detail": "Nightly CSV order exports that finance downloads", "controls": ["versioning"] },
+      { "id": "ci", "label": "hosted CI pipeline", "type": "pipeline", "boundary": "cicd", "detail": "Builds and deploys on every merge to main", "controls": [] },
+      { "id": "deploy-key", "label": "deploy-prod access key", "type": "secret", "boundary": "cicd", "detail": "Long-lived cloud access key stored as a CI secret", "controls": [] },
+      { "id": "audit-log", "label": "cloud audit log", "type": "control", "boundary": "cloud", "detail": "Control-plane API calls for the account, kept 90 days", "controls": ["immutable retention"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "customers", "to": "cdn-waf", "label": "HTTPS 443", "kind": "data" },
+      { "id": "e2", "from": "cdn-waf", "to": "shop-app", "label": "HTTPS to origin", "kind": "data" },
+      { "id": "e3", "from": "shop-app", "to": "orders-api", "label": "REST calls with JWT", "kind": "auth" },
+      { "id": "e4", "from": "orders-api", "to": "orders-db", "label": "SQL 5432", "kind": "data" },
+      { "id": "e5", "from": "orders-api", "to": "exports-bucket", "label": "writes nightly exports", "kind": "data" },
+      { "id": "e6", "from": "payments", "to": "orders-api", "label": "payment webhooks", "kind": "data" },
+      { "id": "e7", "from": "ci", "to": "deploy-key", "label": "reads CI secret", "kind": "auth" },
+      { "id": "e8", "from": "deploy-key", "to": "shop-app", "label": "deploys containers", "kind": "control" },
+      { "id": "e9", "from": "deploy-key", "to": "audit-log", "label": "API calls recorded", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" }
+  ],
+  "identities": [
+    {
+      "id": "deploy-identity",
+      "label": "deploy-prod user",
+      "kind": "machine",
+      "nodeIds": ["deploy-key"],
+      "privileges": ["deploy containers to the shop service", "read and write the exports-prod bucket", "read orders database snapshots"],
+      "notes": "Created for CI two years ago; the key has never been rotated"
+    },
+    {
+      "id": "staff-admins",
+      "label": "shop staff admin accounts",
+      "kind": "human",
+      "nodeIds": ["shop-app"],
+      "privileges": ["view and refund orders in the admin pages", "export customer lists"],
+      "notes": "Password sign-in; MFA is optional and most staff have not turned it on"
+    },
+    {
+      "id": "orders-api-role",
+      "label": "orders API service role",
+      "kind": "workload",
+      "nodeIds": ["orders-api"],
+      "privileges": ["read and write the orders database", "write to the exports-prod bucket"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "orders-db",
+      "data": "order history, delivery addresses, customer accounts and payment tokens",
+      "classification": "regulated",
+      "regulations": ["PCI DSS", "GDPR"]
+    },
+    {
+      "nodeId": "exports-bucket",
+      "data": "nightly CSV exports with customer names, emails and addresses",
+      "classification": "confidential",
+      "regulations": ["GDPR"]
+    }
+  ],
+  "controls": [
+    {
+      "id": "waf",
+      "label": "WAF",
+      "nodeIds": ["cdn-waf"],
+      "status": "present",
+      "covers": "Common web attacks on the public path to the shop web app",
+      "limits": "Does not see webhook calls to the orders API or any cloud API call"
+    },
+    {
+      "id": "optional-mfa",
+      "label": "optional MFA",
+      "nodeIds": ["shop-app"],
+      "status": "partial",
+      "covers": "Staff and customer sign-in to the shop",
+      "limits": "Optional: most staff admin accounts have it switched off"
+    },
+    {
+      "id": "jwt",
+      "label": "JWT auth",
+      "nodeIds": ["orders-api"],
+      "status": "present",
+      "covers": "Every orders API call needs a signed customer or staff token",
+      "limits": "Checks that the token is valid, not that the order belongs to the caller"
+    },
+    {
+      "id": "encryption",
+      "label": "encryption at rest",
+      "nodeIds": ["orders-db"],
+      "status": "present",
+      "covers": "Theft of disks and snapshots",
+      "limits": "Transparent to anyone who can query the database"
+    },
+    {
+      "id": "versioning",
+      "label": "versioning",
+      "nodeIds": ["exports-bucket"],
+      "status": "present",
+      "covers": "Recovering exports that were overwritten or deleted",
+      "limits": "Does not restrict who can read the objects"
+    },
+    {
+      "id": "signed-webhooks",
+      "label": "signed webhooks",
+      "nodeIds": ["payments"],
+      "status": "present",
+      "covers": "The provider signs every webhook it sends",
+      "limits": "Only helps if the receiver checks the signature"
+    },
+    {
+      "id": "webhook-verify",
+      "label": "webhook signature check",
+      "nodeIds": ["orders-api"],
+      "status": "missing",
+      "covers": "Rejecting payment webhooks that were not sent by the provider",
+      "limits": null
+    },
+    {
+      "id": "ci-mfa",
+      "label": "MFA on CI accounts",
+      "nodeIds": ["ci"],
+      "status": "missing",
+      "covers": "Takeover of the hosted CI accounts",
+      "limits": null
+    },
+    {
+      "id": "key-rotation",
+      "label": "key rotation",
+      "nodeIds": ["deploy-key"],
+      "status": "missing",
+      "covers": "Limiting how long a leaked deploy key stays useful",
+      "limits": null
+    },
+    {
+      "id": "retention",
+      "label": "immutable retention",
+      "nodeIds": ["audit-log"],
+      "status": "present",
+      "covers": "Audit records cannot be deleted for 90 days",
+      "limits": "Records control-plane calls only, not who read which object"
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "ci-to-cloud",
+      "from": "ci",
+      "to": "shop-app",
+      "via": "long-lived deploy-prod access key stored as a CI secret",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "deploy-to-exports",
+      "from": "deploy-key",
+      "to": "exports-bucket",
+      "via": "IAM policy on the deploy-prod user grants read and write on exports-prod",
+      "subtle": false,
+      "notes": "Added for a one-off migration and never removed"
+    },
+    {
+      "id": "provider-webhooks",
+      "from": "payments",
+      "to": "orders-api",
+      "via": "webhook calls accepted from any internet address",
+      "subtle": false,
+      "notes": "The orders API does not verify the provider signature"
+    }
+  ],
+  "logSources": [
+    {
+      "id": "audit",
+      "label": "cloud audit log",
+      "nodeIds": ["audit-log"],
+      "records": "every control-plane API call with source IP and identity",
+      "gaps": "no object-level read events for the exports bucket"
+    },
+    {
+      "id": "cdn-logs",
+      "label": "CDN and WAF logs",
+      "nodeIds": ["cdn-waf"],
+      "records": "every request to the shop with client IP, path and WAF rule matches",
+      "gaps": "webhook calls to the orders API do not pass the CDN"
+    },
+    {
+      "id": "app-log",
+      "label": "shop application log",
+      "nodeIds": ["shop-app", "orders-api"],
+      "records": "sign-ins, admin actions and API errors",
+      "gaps": "kept 7 days; does not record which order an API call returned"
+    }
+  ],
+  "attackSurfaces": {
+    "cloud_security": [
+      {
+        "id": "leaked-deploy-key",
+        "summary": "The CI deploy key leaks and is used from outside to read the order exports",
+        "entryNodeIds": ["deploy-key"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1552.001", "T1530"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "public-exports",
+        "summary": "A bucket policy change makes the exports bucket readable from the internet",
+        "entryNodeIds": ["exports-bucket"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1580"],
+        "objectives": ["detect_first", "contain_now", "least_privilege_fix", "blast_radius", "priority_order"],
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "staff-spray",
+        "summary": "Password spraying against staff admin accounts that have no MFA",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1110.003", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "deploy-identity-misuse",
+        "summary": "The never-rotated deploy-prod user is the identity an attacker uses to change the account",
+        "entryNodeIds": ["deploy-key"],
+        "targetNodeIds": ["shop-app", "exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1098", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "review-xss",
+        "summary": "Stored script in a product review runs in a staff member's admin session",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1189", "T1539", "T1185"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "search-injection",
+        "summary": "An injection flaw in the shop search passes through the orders API to the database",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-db"],
+        "viaNodeIds": ["orders-api"],
+        "techniques": ["T1190", "T1213"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "order-idor",
+        "summary": "The orders API checks the token but not who owns the order, so one customer reads others",
+        "entryNodeIds": ["orders-api"],
+        "targetNodeIds": ["orders-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1213", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "forged-webhook",
+        "summary": "Payment webhooks are accepted without a signature check, so anyone can mark orders paid",
+        "entryNodeIds": ["orders-api"],
+        "targetNodeIds": ["orders-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1565.001", "T1199", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "exports-exposure",
+        "summary": "Order exports with personal data sit in a bucket the deploy key can read",
+        "entryNodeIds": ["deploy-key"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1552.001", "T1537"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "bulk-order-dump",
+        "summary": "Bulk reads through the orders API pull customer records out of the database",
+        "entryNodeIds": ["orders-api"],
+        "targetNodeIds": ["orders-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1213", "T1119", "T1041"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "ci-secret-theft",
+        "summary": "A malicious pull request or a taken-over CI account exposes the deploy-prod key",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["deploy-key"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078.004", "T1528"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "poisoned-deploy",
+        "summary": "A compromised CI pipeline deploys a modified shop container",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["shop-app"],
+        "viaNodeIds": ["deploy-key"],
+        "techniques": ["T1195.002", "T1072", "T1204.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "exports-download",
+        "summary": "Order exports are being downloaded from an unknown address with the deploy key",
+        "entryNodeIds": ["deploy-key"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1098", "T1567"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "shop-web-shell",
+        "summary": "A web shell in the shop container keeps the attacker in after a password reset",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1505.003", "T1105", "T1041"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "card-data-scope",
+        "summary": "A breach through the shop web app reaches stored payment tokens",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-db"],
+        "viaNodeIds": ["orders-api"],
+        "techniques": ["T1190", "T1213", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "exports-retention",
+        "summary": "Personal data exports are kept indefinitely in a bucket nobody reviews",
+        "entryNodeIds": ["exports-bucket"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1552", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "spray-then-signin",
+        "summary": "WAF blocks from one address are followed by a successful staff sign-in from it",
+        "entryNodeIds": ["shop-app"],
+        "targetNodeIds": ["orders-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1110.003", "T1078", "T1098"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "night-key-use",
+        "summary": "The audit log shows the deploy key used from a residential address at night",
+        "entryNodeIds": ["deploy-key"],
+        "targetNodeIds": ["exports-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1567.002", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Beginner: one account, obvious paths (a leaked CI key, a public bucket, missing MFA, an API that trusts any valid token, unverified webhooks). Webhooks bypass the CDN, so the WAF does not apply to them."
+}

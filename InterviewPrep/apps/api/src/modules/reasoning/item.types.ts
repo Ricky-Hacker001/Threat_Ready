@@ -32,6 +32,12 @@ export interface ReasoningItemPrivate {
   rubric: RubricPoint[];
   mustNotCredit: MustNotCredit[];
   referenceAnswer: string;
+  /**
+   * Authored walk-through of the components, boundaries and trust relationships the attack path crosses
+   * and which controls apply (library questions, gen.v3). Used as the feedback's architecture analysis
+   * when the reconciler did not run; absent on items generated before the architecture library.
+   */
+  architectureAnalysis?: string;
 }
 
 /** Everything the generator produced for one item, split as it is stored. */
@@ -41,6 +47,8 @@ export interface GeneratedItem {
   weights: Weights;
   seed: VariationSeed;
   fingerprint: string;
+  /** The library architecture the question was written on (reasoning_items.architecture_id); null/absent for legacy items. */
+  architectureId?: string | null;
 }
 
 /** The generator's raw structured output (snake_case, as the model writes it). */
@@ -62,6 +70,35 @@ export interface GeneratorOutput {
   rubric: { id: string; dimension: RubricDimension; text: string; weight: '1' | '2' | '3' | '4' | '5'; hint: string; explanation: string }[];
   must_not_credit: { id: string; claim: string; why: string; invalidates: string[] }[];
   reference_answer: string;
+  techniques: Technique[];
+  concepts: string[];
+  difficulty: ReasoningDifficulty;
+}
+
+/**
+ * The question writer's raw output for a library question (schema `reasoning_question`, gen.v3): the
+ * item without the diagram and the scenario (both come from the architecture), plus the short situation,
+ * the attack overlay on the architecture's node ids and the authored architecture analysis.
+ */
+export interface LibraryGeneratorOutput {
+  title: string;
+  /** What is happening at the company today and the constraint; code joins it after the organisation summary. */
+  situation: string;
+  attack_narrative: string;
+  objective: string;
+  question: string;
+  options: { id: OptionId; text: string }[];
+  correct_option: OptionId;
+  option_analysis: { id: OptionId; verdict: OptionVerdict; why: string }[];
+  attack: {
+    entry_node: string;
+    compromised_nodes: string[];
+    steps: { from: string; to: string; label: string }[];
+  };
+  rubric: GeneratorOutput['rubric'];
+  must_not_credit: GeneratorOutput['must_not_credit'];
+  reference_answer: string;
+  architecture_analysis: string;
   techniques: Technique[];
   concepts: string[];
   difficulty: ReasoningDifficulty;

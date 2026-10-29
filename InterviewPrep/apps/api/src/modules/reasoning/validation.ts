@@ -1,6 +1,10 @@
 import type { DiagramData, OptionId } from '@threatready/contracts';
+import { architectureText, composeDiagram, levelOf, normaliseOverlay, pathKey, pathNodeIds, surfacesFor, validateOverlay, type ArchitectureDef, type AttackOverlay } from './architectures/index.js';
 import { ATTACK_ENTERPRISE, fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
-import type { GeneratedItem, GeneratorOutput } from './item.types.js';
+import type { GeneratedItem, GeneratorOutput, LibraryGeneratorOutput } from './item.types.js';
+import { LIBRARY_LEVEL_LIMITS } from './prompts/generation.prompts.js';
+import { qualityChecks, type QualityFinding, type QualityView } from './quality.js';
+import { jaccard, shingles } from './similarity.js';
 
 /**
  * Code validation of a generated item before it is stored or shown (spec §2, §3). AI generation is
@@ -19,15 +23,34 @@ const GENERIC = new Set(['the', 'and', 'for', 'with', 'from', 'prod', 'service',
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-/** A label counts as mentioned when it appears verbatim, or every one of its specific words does. */
+/**
+ * A word without its plural ending, so "staff laptops" is named by "a staff laptop" and "policies" by
+ * "policy" (library labels are fixed and often plural; the text a model writes about them is not).
+ */
+const stem = (w: string): string => {
+  if (w.length < 4 || w.endsWith('ss')) return w;
+  if (w.endsWith('ies')) return w.slice(0, -3);
+  if (/(?:s|x|z|ch|sh)es$/.test(w)) return w.slice(0, -2);
+  return w.endsWith('s') ? w.slice(0, -1) : w;
+};
+
+/**
+ * A label counts as mentioned when it appears verbatim, or every one of its specific words does (in
+ * the singular or the plural). A label with no specific word of 4+ letters ("cloud ERP", "CDN with WAF",
+ * "SSO") counts when one of its non-generic 3-letter words appears as a whole word.
+ */
 export function mentionsLabel(text: string, label: string): boolean {
   const t = norm(text);
   const l = norm(label);
   if (!l) return true;
   if (t.includes(l)) return true;
   const words = l.split(' ').filter((w) => w.length >= 4 && !GENERIC.has(w));
-  if (!words.length) return t.includes(l);
-  return words.every((w) => t.includes(w));
+  if (!words.length) {
+    const short = l.split(' ').filter((w) => w.length === 3 && !GENERIC.has(w));
+    const padded = ` ${t} `;
+    return short.length ? short.some((w) => padded.includes(` ${w} `)) : t.includes(l);
+  }
+  return words.every((w) => t.includes(stem(w)));
 }
 
 export function validateDiagram(d: GeneratorOutput['diagram']): string[] {
@@ -226,6 +249,11 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   if (out.techniques.length > 6) warnings.push('techniques: more than six listed');
   if (out.difficulty !== seed.difficulty) warnings.push(`difficulty: generator wrote ${out.difficulty}, seed asked for ${seed.difficulty}`);
 
+  // Content quality (quality.ts): answer given away in the visible text, a timeline that runs
+  // backwards, misstated regulation figures, distractors not shown to fail. Run after the structural
+  // rules so one regeneration gets every reason at once (the feedback keeps the first twelve).
+  for (const f of qualityChecks(out)) (f.severity === 'error' ? errors : warnings).push(f.message);
+
   return { ok: errors.length === 0, errors, warnings };
 }
 
@@ -261,5 +289,348 @@ export function toGeneratedItem(out: GeneratorOutput, domain: ReasoningDomain, s
     weights,
     seed,
     fingerprint: fingerprintOf(seed),
+  };
+}
+
+/* ---------------- gen.v3: the quality gate for questions on the architecture library (design §3.4) ---------------- */
+
+/** The overlay a library question carries, as the model wrote it. */
+export const overlayOf = (out: LibraryGeneratorOutput): AttackOverlay => ({ entryNode: out.attack.entry_node, compromisedNodes: out.attack.compromised_nodes, steps: out.attack.steps });
+
+/** A composed diagram in the shape validateDiagram reads. */
+export function asGeneratorDiagram(d: DiagramData): GeneratorOutput['diagram'] {
+  return {
+    boundaries: d.boundaries,
+    nodes: d.nodes.map((n) => ({ id: n.id, label: n.label, type: n.type, boundary: n.boundary, detail: n.detail, compromised: n.compromised, entry_point: n.entryPoint, controls: n.controls })),
+    edges: d.edges,
+    attack_path: d.attackPath,
+  };
+}
+
+/** Runs of this many consecutive words shared by a private field and a public one count as leakage. */
+const LEAK_RUN = 8;
+/** Runs of this many words (outside component and control labels) the best option shares with the situation or narrative and no distractor does: a wording tell (review AR-SEC-3). */
+const TELL_RUN = 6;
+/** "option B", "answer C": a reference to an option by its letter outside the options. Capital letters only, so the article "a" never matches. */
+const OPTION_REF = /\b[Oo]ption\s+[A-D]\b|\b[Aa]nswer\s+[A-D]\b|\b[Cc]hoice\s+[A-D]\b/;
+const runs = (text: string, n = LEAK_RUN): Set<string> => {
+  const w = norm(text).split(' ').filter(Boolean);
+  const out = new Set<string>();
+  for (let i = 0; i + n <= w.length; i++) out.add(w.slice(i, i + n).join(' '));
+  return out;
+};
+/** `text` normalised with every component, origin and control label replaced by one placeholder word, so runs never span a label. */
+function withoutLabels(text: string, labels: readonly string[]): string {
+  let t = ` ${norm(text)} `;
+  for (const l of labels) t = t.split(` ${l} `).join(' \u0000 ');
+  return t.trim();
+}
+/** Runs of `n` words that contain no label placeholder. */
+const plainRuns = (text: string, labels: readonly string[], n: number): Set<string> => {
+  const out = new Set<string>();
+  const w = withoutLabels(text, labels).split(' ').filter(Boolean);
+  for (let i = 0; i + n <= w.length; i++) {
+    const run = w.slice(i, i + n);
+    if (!run.includes('\u0000')) out.add(run.join(' '));
+  }
+  return out;
+};
+const archRuns = new WeakMap<ArchitectureDef, Map<number, Set<string>>>();
+/** Word runs of the architecture text: wording every question on the architecture may share, never a leak. */
+function architectureRuns(arch: ArchitectureDef, n = LEAK_RUN): Set<string> {
+  let byLength = archRuns.get(arch);
+  if (!byLength) archRuns.set(arch, (byLength = new Map()));
+  let r = byLength.get(n);
+  if (!r) byLength.set(n, (r = runs(architectureText(arch), n)));
+  return r;
+}
+
+/** Component labels, attacker-origin labels and control labels an option may name. */
+function namedThings(arch: ArchitectureDef): string[] {
+  return [...new Set([...arch.diagram.nodes.map((n) => n.label), ...arch.diagram.nodes.flatMap((n) => n.controls), ...arch.controls.map((c) => c.label)].filter((l) => norm(l).length >= 3))];
+}
+
+/**
+ * Repairs that carry no information the gate needs: the overlay's mechanical omissions (normaliseOverlay:
+ * chain order, an inferred entry node, duplicate compromised ids), technique names taken from the domain's
+ * list, duplicate technique ids dropped, and the assigned technique added (the item was built around it).
+ */
+export function normaliseLibraryOutput(out: LibraryGeneratorOutput, arch: ArchitectureDef, domain: ReasoningDomain, seed: VariationSeed): { out: LibraryGeneratorOutput; overlay: AttackOverlay; repairs: string[] } {
+  const { overlay, repairs } = normaliseOverlay(arch, overlayOf(out));
+  const known = new Map(domain.techniques.map((t) => [t.id, t]));
+  let techniques = out.techniques.filter((t, i) => out.techniques.findIndex((x) => x.id === t.id) === i).map((t) => known.get(t.id) ?? t);
+  if (techniques.length !== out.techniques.length) repairs.push('duplicate techniques dropped');
+  if (!techniques.some((t) => t.id === seed.technique)) {
+    const t = known.get(seed.technique);
+    if (t) {
+      techniques = [t, ...techniques].slice(0, 6);
+      repairs.push(`assigned technique ${t.id} added`);
+    }
+  }
+  return {
+    out: { ...out, attack: { entry_node: overlay.entryNode, compromised_nodes: overlay.compromisedNodes, steps: overlay.steps }, techniques },
+    overlay,
+    repairs,
+  };
+}
+
+export interface LibraryValidation extends ValidationResult {
+  /** The composed diagram when the attack is grounded (null when the overlay itself failed). */
+  diagram: DiagramData | null;
+  /** The content-quality findings (rule 10, quality.ts); each is also in `errors` or `warnings` by its message. */
+  quality: QualityFinding[];
+}
+
+/**
+ * A library question as the content-quality rules read it (quality.ts). The situation stands in for the
+ * scenario: the organisation summary before it is fixed, reviewed architecture text. The attack-step labels
+ * are drawn on the diagram, so they are visible text for the echo and vocabulary rules. Component, origin
+ * and boundary labels are never distinctive. The objective's own wording (label, guide, question), which
+ * the writer is told to adapt, is no tell when a short field repeats it. Option letters are left to rule 5
+ * of the gate (OPTION_REF), which checks the same fields and the concepts.
+ */
+export function libraryQualityView(out: LibraryGeneratorOutput, arch: ArchitectureDef, domain: ReasoningDomain, seed: VariationSeed, overlay: AttackOverlay = overlayOf(out)): QualityView {
+  const objective = domain.variation.objectives.find((o) => o.id === seed.objective);
+  return {
+    visible: [
+      ['title', out.title],
+      ['situation', out.situation],
+      ['attack_narrative', out.attack_narrative],
+      ['objective', out.objective],
+      ['question', out.question],
+    ],
+    descriptionField: 'situation',
+    labels: overlay.steps.map((st, i): [string, string] => [`attack step ${i + 1} label`, st.label]),
+    letters: false,
+    attack_narrative: out.attack_narrative,
+    options: out.options,
+    correct_option: out.correct_option,
+    option_analysis: out.option_analysis,
+    names: [...arch.diagram.nodes.map((n) => n.label), ...arch.attackerOrigins.map((o) => o.label), ...arch.diagram.boundaries.map((b) => b.label)],
+    private: [
+      ...out.rubric.flatMap((p): [string, string][] => [[`rubric.${p.id}.text`, p.text], [`rubric.${p.id}.hint`, p.hint], [`rubric.${p.id}.explanation`, p.explanation]]),
+      ...out.must_not_credit.flatMap((m): [string, string][] => [[`must_not_credit.${m.id}.claim`, m.claim], [`must_not_credit.${m.id}.why`, m.why]]),
+      ['reference_answer', out.reference_answer],
+      ['architecture_analysis', out.architecture_analysis],
+    ],
+    given: objective ? `${objective.label} ${objective.guide} ${objective.question}` : undefined,
+  };
+}
+
+/**
+ * The quality gate (design §3.4), run on every model output after normaliseLibraryOutput. Any error fails
+ * the gate and the question is rewritten (once, by the stronger tier). The similarity check (rule 9)
+ * runs in GenerationService against the bank.
+ */
+export function validateLibraryItem(out: LibraryGeneratorOutput, arch: ArchitectureDef, domain: ReasoningDomain, seed: VariationSeed, overlay: AttackOverlay = overlayOf(out)): LibraryValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const level = levelOf(seed.difficulty);
+  const nodeById = new Map(arch.diagram.nodes.map((n) => [n.id, n]));
+  const origins = new Set(arch.attackerOrigins.map((o) => o.id));
+
+  // 2. Grounded attack: the overlay on this architecture, and the composed diagram.
+  const surface = surfacesFor(arch, domain.key).find((s) => s.id === seed.entryPoint);
+  if (!surface) errors.push(`attack: the architecture ${arch.id} has no ${domain.key} surface "${seed.entryPoint}"`);
+  const ov = validateOverlay(arch, overlay, { level, surface });
+  errors.push(...ov.errors);
+  warnings.push(...ov.warnings);
+  let diagram: DiagramData | null = null;
+  if (!ov.errors.length) {
+    diagram = composeDiagram(arch, overlay);
+    errors.push(...validateDiagram(asGeneratorDiagram(diagram)));
+  }
+  const pathNodes = pathNodeIds(overlay)
+    .filter((id) => !origins.has(id))
+    .map((id) => nodeById.get(id))
+    .filter((n): n is NonNullable<typeof n> => Boolean(n));
+
+  // 3. One correct option.
+  const ids = out.options.map((o) => o.id);
+  if (out.options.length !== 4 || OPTION_IDS.some((id) => ids.filter((x) => x === id).length !== 1)) errors.push('options: exactly four options with ids A, B, C and D are required');
+  if (!OPTION_IDS.includes(out.correct_option)) errors.push('correct_option must be one of A-D');
+  const analysisIds = out.option_analysis.map((a) => a.id);
+  if (OPTION_IDS.some((id) => analysisIds.filter((x) => x === id).length !== 1)) errors.push('option_analysis must cover every option exactly once');
+  const best = out.option_analysis.filter((a) => a.verdict === 'best');
+  if (best.length !== 1) errors.push('option_analysis: exactly one option must be marked best');
+  else if (best[0]!.id !== out.correct_option) errors.push('option_analysis: the best option must be the correct option');
+  if (!out.option_analysis.some((a) => a.id !== out.correct_option && (a.verdict === 'plausible' || a.verdict === 'weak'))) errors.push('option_analysis: at least one distractor must be plausible or weak, not every one wrong');
+
+  // 4. Plausible options, no tells.
+  for (const o of out.options) {
+    const len = o.text.trim().length;
+    if (len < 15) errors.push(`options: option ${o.id} is too short to be a real choice`);
+    if (len > 360) errors.push(`options: option ${o.id} is longer than 360 characters`);
+    if (BANNED_OPTION.test(o.text.trim())) errors.push(`options: option ${o.id} uses "all/none of the above"`);
+  }
+  const texts = out.options.map((o) => norm(o.text));
+  if (new Set(texts).size !== texts.length) errors.push('options: two options say the same thing');
+  const lens = out.options.map((o) => o.text.trim().length).filter((n) => n > 0);
+  if (lens.length === 4 && Math.max(...lens) / Math.min(...lens) > 2.5) errors.push('options: option lengths differ too much (the longest must not give the answer away)');
+  const correct = out.options.find((o) => o.id === out.correct_option);
+  const distractors = out.options.filter((o) => o.id !== out.correct_option);
+  if (correct && distractors.length) {
+    const longest = Math.max(...distractors.map((o) => o.text.trim().length));
+    if (correct.text.trim().length > longest * 1.2) errors.push(`options: the best option (${correct.id}) is more than 20% longer than every distractor, a length tell`);
+  }
+  const sh = out.options.map((o) => shingles(o.text));
+  for (let i = 0; i < sh.length; i++)
+    for (let j = i + 1; j < sh.length; j++) if (jaccard(sh[i]!, sh[j]!) >= 0.6) errors.push(`options: options ${out.options[i]!.id} and ${out.options[j]!.id} are worded almost the same`);
+  const things = namedThings(arch);
+  for (const o of out.options) if (!things.some((l) => mentionsLabel(o.text, l))) errors.push(`options: option ${o.id} names no component or control of the architecture (use their labels)`);
+  const onPath = out.options.filter((o) => pathNodes.some((n) => mentionsLabel(o.text, n.label)));
+  if (pathNodes.length && onPath.length < 2) errors.push('options: at least two options must name a component on the attack path, so naming the path is not a tell');
+
+  // 5. No answer leakage in the public fields. The attack-step labels (drawn on the diagram) and the
+  // concepts are public too (review AR-SEC-3).
+  const stepLabels = overlay.steps.map((st, i) => [`attack step ${i + 1} label`, st.label] as const);
+  const publicProse = [
+    ['title', out.title],
+    ['situation', out.situation],
+    ['attack_narrative', out.attack_narrative],
+    ['objective', out.objective],
+    ['question', out.question],
+  ] as const;
+  const conceptFields = out.concepts.map((c, i) => [`concept ${i + 1}`, c] as const);
+  for (const [field, text] of [...publicProse, ...stepLabels, ...conceptFields, ...out.options.map((o) => [`option ${o.id}`, o.text] as const)]) {
+    if (LEAK_PATTERNS.some((p) => p.test(text))) errors.push(`${field}: must not point at the answer`);
+  }
+  for (const [field, text] of [...publicProse, ...stepLabels, ...conceptFields]) if (OPTION_REF.test(text)) errors.push(`${field}: must not refer to an option by its letter`);
+  // Word-for-word runs of the answer key (review AR-BIZ-1). The title, objective and question must not
+  // share one with any of it. The situation, the narrative and the step labels state the evidence, which
+  // the key cites by design ("the audit log records the policy change"), so they are checked only
+  // against the best option's analysis, less what a distractor's analysis also says: that is where the
+  // reason the answer is right lives.
+  const shared = architectureRuns(arch);
+  const secret = new Set<string>();
+  for (const t of [out.reference_answer, out.architecture_analysis, ...out.option_analysis.map((a) => a.why)]) for (const r of runs(t)) if (!shared.has(r)) secret.add(r);
+  const distractorWhy = new Set<string>();
+  for (const a of out.option_analysis) if (a.id !== out.correct_option) for (const r of runs(a.why)) distractorWhy.add(r);
+  const bestWhy = new Set<string>();
+  for (const a of out.option_analysis) if (a.id === out.correct_option) for (const r of runs(a.why)) if (!shared.has(r) && !distractorWhy.has(r)) bestWhy.add(r);
+  const keyChecks: (readonly [string, string, Set<string>])[] = [
+    ['title', out.title, secret],
+    ['objective', out.objective, secret],
+    ['question', out.question, secret],
+    ['situation', out.situation, bestWhy],
+    ['attack_narrative', out.attack_narrative, bestWhy],
+    ...stepLabels.map(([f, t]) => [f, t, bestWhy] as const),
+  ];
+  for (const [field, text, against] of keyChecks) {
+    const hit = [...runs(text)].find((r) => against.has(r));
+    if (hit) errors.push(`${field}: repeats the answer key word for word ("${hit}")`);
+  }
+  // The best option must not reuse the situation's or the narrative's wording that no distractor uses
+  // (review AR-SEC-3): a run of TELL_RUN words outside component and control labels.
+  const labels = [...new Set([...namedThings(arch), ...arch.attackerOrigins.map((o) => o.label)].map(norm).filter(Boolean))].sort((a, b) => b.length - a.length);
+  const bestOption = out.options.find((o) => o.id === out.correct_option);
+  if (bestOption) {
+    const context = plainRuns(`${out.situation}\n${out.attack_narrative}`, labels, TELL_RUN);
+    const others = new Set<string>();
+    for (const o of out.options) if (o.id !== bestOption.id) for (const r of plainRuns(o.text, labels, TELL_RUN)) others.add(r);
+    const archTell = architectureRuns(arch, TELL_RUN);
+    const tell = [...plainRuns(bestOption.text, labels, TELL_RUN)].find((r) => context.has(r) && !others.has(r) && !archTell.has(r));
+    if (tell) errors.push(`options: the best option repeats the situation or narrative word for word ("${tell}") and no other option does, a wording tell`);
+  }
+
+  // Lengths of what the learner reads.
+  if (out.situation.trim().length < 200) errors.push('situation: too short (what is happening today and the constraint, 80-150 words)');
+  if (out.attack_narrative.trim().length < 120) errors.push('attack_narrative: too short (what happened, step by step)');
+  if (out.question.trim().length < 20) errors.push('question: too short');
+  if (out.title.trim().length < 8) errors.push('title: too short');
+
+  // 6. Narrative consistency: the text (not the shared organisation summary) names the path.
+  const visible = `${out.situation}\n${out.attack_narrative}\n${out.question}`;
+  const unmentioned = pathNodes.filter((n) => !mentionsLabel(visible, n.label));
+  if (pathNodes.length && unmentioned.length / pathNodes.length > 0.3) {
+    errors.push(`consistency: the situation and narrative must name the components on the attack path (missing: ${unmentioned.map((n) => `"${n.label}"`).join(', ')})`);
+  } else if (unmentioned.length) warnings.push(`consistency: not named in the narrative: ${unmentioned.map((n) => n.label).join(', ')}`);
+  const entry = nodeById.get(overlay.entryNode);
+  if (entry && !mentionsLabel(visible, entry.label)) errors.push(`consistency: the entry point "${entry.label}" must be named in the situation or narrative`);
+
+  // 7. Rubric complete.
+  const limits = LIBRARY_LEVEL_LIMITS[level];
+  const rIds = new Set<string>();
+  for (const p of out.rubric) {
+    if (rIds.has(p.id)) errors.push(`rubric: duplicate point id "${p.id}"`);
+    rIds.add(p.id);
+    if (p.text.trim().length < 15) errors.push(`rubric: point "${p.id}" is too vague`);
+    if (p.hint.trim().length < 15) errors.push(`rubric: point "${p.id}" needs a hint the learner can act on`);
+  }
+  const count = (dim: string) => out.rubric.filter((p) => p.dimension === dim).length;
+  if (count('reasoning') < 3) errors.push('rubric: at least three reasoning points');
+  if (count('architecture') < 2) errors.push('rubric: at least two architecture points');
+  if (count('risk') < 1) errors.push('rubric: at least one risk point');
+  if (out.rubric.length < limits.rubricMin) errors.push(`rubric: ${level} questions need at least ${limits.rubricMin} points (got ${out.rubric.length})`);
+  if (out.rubric.length > 12) errors.push('rubric: at most twelve points');
+  const mIds = new Set<string>();
+  for (const m of out.must_not_credit) {
+    if (mIds.has(m.id)) errors.push(`must_not_credit: duplicate id "${m.id}"`);
+    mIds.add(m.id);
+    for (const inv of m.invalidates) if (!rIds.has(inv)) errors.push(`must_not_credit: "${m.id}" invalidates unknown rubric point "${inv}"`);
+  }
+  if (out.must_not_credit.length < limits.mncMin || out.must_not_credit.length > limits.mncMax) errors.push(`must_not_credit: ${limits.mncMin} to ${limits.mncMax} claims (got ${out.must_not_credit.length})`);
+  if (out.reference_answer.trim().length < 150) errors.push('reference_answer: too short for an expert explanation');
+  if (out.architecture_analysis.trim().length < 150) errors.push('architecture_analysis: too short (the components, boundaries, trust relationships and controls on the path)');
+
+  // 8. Techniques.
+  const fw = domain.framework ?? ATTACK_ENTERPRISE;
+  if (!out.techniques.length) errors.push(`techniques: name at least one ${fw.name} technique`);
+  for (const t of out.techniques) if (!fw.idPattern.test(t.id)) errors.push(`techniques: "${t.id}" is not a ${fw.name} technique id`);
+  if (!out.techniques.some((t) => t.id === seed.technique)) errors.push(`techniques: the assigned technique ${seed.technique} must be among the techniques in play`);
+  if (out.techniques.length > 6) errors.push('techniques: at most six');
+
+  // 10. Content quality (quality.ts, 29 Oct 2026): the answer given away in the visible text or the step
+  // labels, a timeline that runs backwards, a misstated regulation figure, a distractor not shown to fail
+  // or restating the best option. Errors fail the gate like the rules above, and their messages are fed
+  // back to the rewrite; run last so the rewrite gets every reason at once (the feedback keeps twelve).
+  const quality = qualityChecks(libraryQualityView(out, arch, domain, seed, overlay));
+  for (const f of quality) (f.severity === 'error' ? errors : warnings).push(f.message);
+
+  // Warnings: logged with a metric, never a rejection.
+  if (out.difficulty !== level) warnings.push(`difficulty: the writer wrote ${out.difficulty}, the seed asked for ${level}`);
+  if (level === 'advanced') {
+    const subtle = arch.trustRelationships.filter((t) => t.subtle).flatMap((t) => [t.from, t.to]);
+    const labels = subtle.map((id) => nodeById.get(id)?.label).filter((l): l is string => Boolean(l));
+    if (labels.length && !labels.some((l) => mentionsLabel(out.reference_answer, l))) warnings.push('advanced: the reference answer names no component of a trust relationship marked easy to overlook');
+  }
+  return { ok: errors.length === 0, errors, warnings, diagram, quality };
+}
+
+/** Splits a library question into the stored public and private halves; the diagram and scenario come from the architecture. */
+export function toLibraryItem(out: LibraryGeneratorOutput, arch: ArchitectureDef, domain: ReasoningDomain, seed: VariationSeed, weights: Weights, overlay: AttackOverlay = overlayOf(out)): GeneratedItem {
+  const known = new Map(domain.techniques.map((t) => [t.id, t]));
+  const stored: VariationSeed = {
+    ...seed,
+    topology: arch.id,
+    architecture: { id: arch.id, version: arch.version, surface: seed.entryPoint, pathKey: pathKey(arch, overlay) },
+  };
+  return {
+    public: {
+      domain: domain.key,
+      difficulty: seed.difficulty,
+      title: out.title,
+      // Two paragraphs: the architecture's organisation summary, then what is happening today (rendered with pre-line).
+      scenario: `${arch.organisation.summary}\n\n${out.situation}`,
+      attackNarrative: out.attack_narrative,
+      objective: out.objective,
+      question: out.question,
+      options: OPTION_IDS.map((id) => out.options.find((o) => o.id === id)!),
+      diagram: composeDiagram(arch, overlay),
+      techniques: out.techniques.map((t) => known.get(t.id) ?? t),
+      concepts: out.concepts,
+    },
+    private: {
+      correctOption: out.correct_option,
+      optionAnalysis: OPTION_IDS.map((id) => out.option_analysis.find((a) => a.id === id)!),
+      rubric: out.rubric.map((p) => ({ id: p.id, dimension: p.dimension, text: p.text, weight: Number(p.weight), hint: p.hint, explanation: p.explanation })),
+      mustNotCredit: out.must_not_credit,
+      referenceAnswer: out.reference_answer,
+      architectureAnalysis: out.architecture_analysis,
+    },
+    weights,
+    seed: stored,
+    fingerprint: fingerprintOf(stored),
+    architectureId: arch.id,
   };
 }

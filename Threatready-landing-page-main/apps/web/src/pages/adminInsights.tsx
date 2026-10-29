@@ -1,4 +1,5 @@
 import type { ActivityApp, AppKey } from "@threatready/contracts";
+import type { ReactNode } from "react";
 import { fmtInt } from "../lib/format";
 
 /* Labels and small charts shared by the admin overview and the user page. */
@@ -81,6 +82,18 @@ export function fmtDuration(seconds: number): string {
   return rest ? `${fmtInt(h)} h ${rest} min` : `${fmtInt(h)} h`;
 }
 export const fmtHours = (seconds: number) => (seconds >= 36 ? `${(seconds / 3600).toFixed(seconds >= 36_000 ? 0 : 1)} h` : fmtDuration(seconds));
+
+/** A headline number with its label (admin overview, admin user and organisation pages). Lives here, not in
+ *  AdminPage, so the organisation console and the profile page's OrgCard never pull the admin console's chunk. */
+export function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
+  return (
+    <div className="tile">
+      <span className="tile-label">{label}</span>
+      <span className="tile-value">{value}</span>
+      {sub ? <span className="tile-sub">{sub}</span> : null}
+    </div>
+  );
+}
 
 /** A proportion bar beside a number (never colour alone: the value is always printed too). */
 export function ShareBar({ value, max, label }: { value: number; max: number; label: string }) {

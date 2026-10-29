@@ -31,7 +31,7 @@ export const LAUNCHER_ONLY = new Set([
 export const TUNABLES = {
   onboard: {
     // Threatready-landing-page-main/apps/api/src/config.ts
-    prefixes: ['TRIAL_', 'AUTH_', 'SIGNIN_', 'OTP_', 'ACTIVITY_', 'RETENTION_', 'TURNSTILE_', 'SENTRY_', 'RATE_LIMIT_'],
+    prefixes: ['TRIAL_', 'AUTH_', 'SIGNIN_', 'OTP_', 'ACTIVITY_', 'RETENTION_', 'TURNSTILE_', 'SENTRY_', 'RATE_LIMIT_', 'ORG_'],
     keys: ['RESEND_API_KEY', 'EMAIL_FROM', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET',
       'ADMIN_EMAILS', 'COOKIE_DOMAIN', 'GEO_COUNTRY_MMDB', 'AWS_REGION', 'INTERVIEW_STATUS', 'LABS_STATUS', 'LOG_LEVEL', 'RELEASE'],
   },

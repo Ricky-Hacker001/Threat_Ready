@@ -177,3 +177,10 @@ test('InterviewPrep gets LLM_MODEL_SMALL and REASONING_ITEM_MAX_SERVES (patch 2)
   for (const k of ['LLM_MODEL_SMALL', 'REASONING_ITEM_MAX_SERVES', 'INTERVIEW_RATE_TURNS_PER_MIN', 'INTERVIEW_UPLOAD_MAX_MB', 'INTERVIEW_DATA_STORAGE_LOCATION', 'IDENTITY_MAX_IN_FLIGHT_PER_CLIENT', 'RATE_LIMIT_SCALE']) assert.equal(env[k], service[k], k);
   assert.equal(childEnv(labsChildEnv(CTX, service), service).LLM_MODEL_SMALL, undefined, 'the labs child gets no InterviewPrep setting');
 });
+
+test('InterviewPrep gets Attack Reasoning\'s own SMALL model and effort settings (REASONING_MODEL_SMALL, 27 Oct 2026) by the REASONING_ prefix, next to an unchanged LLM_MODEL_SMALL', () => {
+  const service = { ...SERVICE, LLM_MODEL_SMALL: 'claude-haiku-4-5', REASONING_MODEL_SMALL: 'claude-haiku-5-5', REASONING_SMALL_EFFORT_GENERATION: 'medium', REASONING_SMALL_EFFORT_EVALUATION: 'low' };
+  const env = childEnv(interviewChildEnv(CTX, service), service);
+  for (const k of ['LLM_MODEL_SMALL', 'REASONING_MODEL_SMALL', 'REASONING_SMALL_EFFORT_GENERATION', 'REASONING_SMALL_EFFORT_EVALUATION']) assert.equal(env[k], service[k], k);
+  assert.equal(childEnv(labsChildEnv(CTX, service), service).REASONING_MODEL_SMALL, undefined, 'the labs child gets no InterviewPrep setting');
+});

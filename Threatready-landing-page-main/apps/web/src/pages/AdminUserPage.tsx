@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { AppCards } from "../components/Overview";
 import { Avatar, displayName } from "../components/ProfileMenu";
 import { useMe } from "../components/AppShell";
-import { Button, Field, Notice } from "../components/ui";
+import { Button, Field, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { messageFor } from "../lib/errors";
 import type { AdminRoleChangeResult } from "@threatready/contracts";
@@ -14,6 +14,8 @@ import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, fe
 
 /** One user across every app: identity, sessions, each app's own summary, and AI usage. */
 export function AdminUserPage() {
+  // No name or email in the tab title: browser history and tab sync are not the place for them.
+  usePageTitle("User details · Admin");
   const { id = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);
@@ -285,6 +287,19 @@ export function AdminUserPage() {
           <div>
             <dt>Sign-in methods</dt>
             <dd>{data.signInMethods.length ? data.signInMethods.join(", ") : <span className="profile-empty">None</span>}</dd>
+          </div>
+          <div>
+            <dt>Account</dt>
+            <dd>
+              {u.account.org ? (
+                <>
+                  <Link to={`/app/admin/orgs/${encodeURIComponent(u.account.org.id)}`}>{u.account.org.name}</Link> · {u.account.org.role === "org_admin" ? "organisation admin" : u.account.org.role}
+                  {u.account.org.status === "suspended" ? " · membership suspended" : ""}
+                </>
+              ) : (
+                <>Individual{u.isTrial ? " (guest)" : ", free plan"}</>
+              )}
+            </dd>
           </div>
         </dl>
       </section>

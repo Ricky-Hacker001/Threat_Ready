@@ -1,0 +1,388 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "b3-mobile-backend",
+  "version": 1,
+  "level": "beginner",
+  "title": "Fitness app backend on a small Kubernetes cluster",
+  "organisation": {
+    "name": "Pocketfit",
+    "industry": "Consumer health and fitness app",
+    "size": "25 staff; four backend engineers",
+    "summary": "Pocketfit makes a workout and step-tracking app with 400,000 users. The mobile app calls an API gateway that checks OAuth tokens issued by the auth service and routes requests to API pods on a small managed Kubernetes cluster. Profiles, health metrics and location history live in a NoSQL table; progress photos go straight from the phone to a storage bucket through signed upload URLs. A push notification service reminds users to train. One build pipeline builds the app and the backend images and deploys to the cluster with a stored cluster credential."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "cluster", "label": "Kubernetes cluster", "kind": "cluster" },
+      { "id": "cloud", "label": "Cloud data services", "kind": "data" },
+      { "id": "cicd", "label": "CI/CD", "kind": "cicd" }
+    ],
+    "nodes": [
+      { "id": "mobile-app", "label": "mobile app", "type": "client", "boundary": "internet", "detail": "iOS and Android app used by members", "controls": [] },
+      { "id": "push-saas", "label": "push notification service", "type": "saas", "boundary": "internet", "detail": "Sends reminders through the phone platforms", "controls": [] },
+      { "id": "api-gw", "label": "API gateway", "type": "gateway", "boundary": "cluster", "detail": "Checks tokens, sets the user id header, routes requests", "controls": ["rate limits"] },
+      { "id": "auth-svc", "label": "OAuth service", "type": "identity", "boundary": "cluster", "detail": "Sign-in, token issue and refresh", "controls": ["PKCE"] },
+      { "id": "api-pods", "label": "API pods", "type": "container", "boundary": "cluster", "detail": "Profiles, workouts, photo upload URLs and reminders", "controls": [] },
+      { "id": "k8s-api", "label": "cluster API server", "type": "control", "boundary": "cluster", "detail": "Kubernetes control plane endpoint", "controls": ["RBAC"] },
+      { "id": "nosql", "label": "user data table", "type": "database", "boundary": "cloud", "detail": "Profiles, health metrics and location history", "controls": ["encryption at rest"] },
+      { "id": "photos", "label": "progress photos bucket", "type": "storage", "boundary": "cloud", "detail": "Users' progress photos", "controls": ["signed URLs"] },
+      { "id": "pipeline", "label": "build pipeline", "type": "pipeline", "boundary": "cicd", "detail": "Builds the app and backend images, deploys to the cluster", "controls": [] },
+      { "id": "ci-secrets", "label": "CI secrets", "type": "secret", "boundary": "cicd", "detail": "App signing key, push API key and the cluster credential", "controls": [] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "mobile-app", "to": "api-gw", "label": "HTTPS API calls", "kind": "data" },
+      { "id": "e2", "from": "api-gw", "to": "auth-svc", "label": "token checks", "kind": "auth" },
+      { "id": "e3", "from": "api-gw", "to": "api-pods", "label": "routes requests", "kind": "data" },
+      { "id": "e4", "from": "api-pods", "to": "nosql", "label": "reads and writes profiles", "kind": "data" },
+      { "id": "e5", "from": "api-pods", "to": "photos", "label": "signs upload URLs", "kind": "auth" },
+      { "id": "e6", "from": "mobile-app", "to": "photos", "label": "uploads photos", "kind": "data" },
+      { "id": "e7", "from": "api-pods", "to": "push-saas", "label": "sends reminders", "kind": "data" },
+      { "id": "e8", "from": "pipeline", "to": "ci-secrets", "label": "reads secrets", "kind": "auth" },
+      { "id": "e9", "from": "pipeline", "to": "k8s-api", "label": "deploys with kubectl", "kind": "control" },
+      { "id": "e10", "from": "k8s-api", "to": "api-pods", "label": "schedules pods", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    { "id": "app-user", "label": "malicious app user", "boundary": "internet", "detail": "A signed-in member with a valid token" }
+  ],
+  "identities": [
+    {
+      "id": "members",
+      "label": "app users",
+      "kind": "human",
+      "nodeIds": ["auth-svc", "mobile-app"],
+      "privileges": ["read and write their own profile, workouts and photos"],
+      "notes": null
+    },
+    {
+      "id": "api-sa",
+      "label": "API pods service account",
+      "kind": "workload",
+      "nodeIds": ["api-pods", "nosql", "photos"],
+      "privileges": ["read and write the whole user data table", "sign upload and download URLs for the photos bucket"],
+      "notes": "Its token is mounted in every API pod"
+    },
+    {
+      "id": "ci-kubeconfig",
+      "label": "CI cluster credential",
+      "kind": "machine",
+      "nodeIds": ["pipeline", "k8s-api"],
+      "privileges": ["cluster-admin on the cluster"],
+      "notes": "A static kubeconfig stored as a CI secret"
+    },
+    {
+      "id": "push-key",
+      "label": "push service API key",
+      "kind": "service",
+      "nodeIds": ["api-pods", "push-saas"],
+      "privileges": ["send notifications to every user"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "nosql", "data": "profiles, emails, health metrics and location history", "classification": "regulated", "regulations": ["GDPR"] },
+    { "nodeId": "photos", "data": "users' progress photos", "classification": "confidential", "regulations": ["GDPR"] }
+  ],
+  "controls": [
+    {
+      "id": "rate-limits",
+      "label": "rate limits",
+      "nodeIds": ["api-gw"],
+      "status": "present",
+      "covers": "Request rates per client address",
+      "limits": "Keyed on IP address, not on the user"
+    },
+    {
+      "id": "pkce",
+      "label": "PKCE",
+      "nodeIds": ["auth-svc"],
+      "status": "present",
+      "covers": "Interception of the sign-in code on the phone",
+      "limits": "Access tokens never expire once issued"
+    },
+    {
+      "id": "rbac",
+      "label": "RBAC",
+      "nodeIds": ["k8s-api"],
+      "status": "partial",
+      "covers": "Who can change workloads in the cluster",
+      "limits": "The CI credential is cluster-admin"
+    },
+    {
+      "id": "encryption",
+      "label": "encryption at rest",
+      "nodeIds": ["nosql"],
+      "status": "present",
+      "covers": "Theft of the underlying storage",
+      "limits": "Transparent to the API pods' role"
+    },
+    {
+      "id": "signed-urls",
+      "label": "signed URLs",
+      "nodeIds": ["photos"],
+      "status": "present",
+      "covers": "Uploads and downloads only through signed URLs",
+      "limits": "Download URLs last 7 days and are built from a sequential photo id"
+    },
+    {
+      "id": "ownership",
+      "label": "object ownership checks",
+      "nodeIds": ["api-pods"],
+      "status": "missing",
+      "covers": "Checking that a requested profile or photo belongs to the caller",
+      "limits": null
+    },
+    {
+      "id": "api-allowlist",
+      "label": "API server allow-list",
+      "nodeIds": ["k8s-api"],
+      "status": "missing",
+      "covers": "Restricting the cluster API endpoint to known addresses",
+      "limits": null
+    },
+    {
+      "id": "secret-scan",
+      "label": "secret scanning",
+      "nodeIds": ["pipeline"],
+      "status": "missing",
+      "covers": "Catching secrets printed in build logs or committed to code",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    { "id": "ci-cluster-admin", "from": "pipeline", "to": "k8s-api", "via": "static cluster-admin kubeconfig", "subtle": false, "notes": null },
+    {
+      "id": "header-trust",
+      "from": "api-gw",
+      "to": "api-pods",
+      "via": "the pods trust the user id header the gateway sets",
+      "subtle": false,
+      "notes": "The pods are also reachable inside the cluster without the gateway"
+    }
+  ],
+  "logSources": [
+    {
+      "id": "gw-log",
+      "label": "API gateway access log",
+      "nodeIds": ["api-gw"],
+      "records": "requests with user id, path, status and client address",
+      "gaps": "no response sizes, so bulk reads look like normal calls"
+    },
+    {
+      "id": "k8s-audit",
+      "label": "cluster audit log",
+      "nodeIds": ["k8s-api"],
+      "records": "deployments, exec and secret reads on the API server",
+      "gaps": "kept one day"
+    },
+    {
+      "id": "bucket-log",
+      "label": "bucket access log",
+      "nodeIds": ["photos"],
+      "records": "uploads and downloads with the signed URL used",
+      "gaps": null
+    }
+  ],
+  "attackSurfaces": {
+    "api_security": [
+      {
+        "id": "profile-idor",
+        "summary": "The profile endpoint returns any user's profile when the id in the path changes",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1213", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "token-replay",
+        "summary": "Access tokens never expire, so a token copied from a phone works for months",
+        "entryNodeIds": ["api-gw"],
+        "targetNodeIds": ["api-pods"],
+        "viaNodeIds": [],
+        "techniques": ["T1528", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "photo-url-guessing",
+        "summary": "Photo download URLs last a week and are built from sequential ids",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["photos"],
+        "viaNodeIds": [],
+        "techniques": ["T1213", "T1190", "T1083"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "import-url-ssrf",
+        "summary": "The \"import photo from a link\" feature fetches any address, including the metadata service",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1552.005", "T1083"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "ci-cluster-admin",
+        "summary": "The pipeline's stored cluster-admin credential can run anything in the cluster",
+        "entryNodeIds": ["pipeline"],
+        "targetNodeIds": ["api-pods"],
+        "viaNodeIds": ["k8s-api"],
+        "techniques": ["T1078.004", "T1610", "T1609"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "public-api-server",
+        "summary": "The cluster API endpoint is reachable from the internet",
+        "entryNodeIds": ["k8s-api"],
+        "targetNodeIds": ["api-pods"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1613", "T1552.007"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "pod-role-reach",
+        "summary": "The API pods' cloud role reads and writes the whole user table and the photos bucket",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql", "photos"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.005", "T1530", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "public-photos-bucket",
+        "summary": "A bucket policy change lets anyone list the photos bucket",
+        "entryNodeIds": ["photos"],
+        "targetNodeIds": ["photos"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1580", "T1526"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "non-expiring-tokens",
+        "summary": "Access tokens never expire and are not bound to a device",
+        "entryNodeIds": ["auth-svc"],
+        "targetNodeIds": ["api-pods"],
+        "viaNodeIds": ["api-gw"],
+        "techniques": ["T1528", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "credential-stuffing",
+        "summary": "Passwords reused from other breaches sign in to member accounts",
+        "entryNodeIds": ["api-gw"],
+        "targetNodeIds": ["auth-svc"],
+        "viaNodeIds": [],
+        "techniques": ["T1110.004", "T1078", "T1539"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "secrets-together",
+        "summary": "The CI secrets hold the app signing key, the push key and the cluster credential together",
+        "entryNodeIds": ["pipeline"],
+        "targetNodeIds": ["ci-secrets"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1552.004", "T1528"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "malicious-dependency",
+        "summary": "A malicious package runs during the backend build",
+        "entryNodeIds": ["pipeline"],
+        "targetNodeIds": ["k8s-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1195.001", "T1072", "T1552.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "health-data-pull",
+        "summary": "Health and location history can be pulled out through the API by any signed-in user",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql"],
+        "viaNodeIds": [],
+        "techniques": ["T1213", "T1119", "T1041"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "photo-exposure",
+        "summary": "Progress photos are reachable through week-long download links",
+        "entryNodeIds": ["photos"],
+        "targetNodeIds": ["photos"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1020", "T1074"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "gateway-header-trust",
+        "summary": "The API pods trust a user id header that only the gateway is supposed to set",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1199", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "flat-cluster",
+        "summary": "Inside the cluster every pod can reach the API server and every other pod",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["k8s-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1021.007", "T1528"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "exposed-api-server",
+        "summary": "The cluster API server listens on a public address",
+        "entryNodeIds": ["k8s-api"],
+        "targetNodeIds": ["api-pods"],
+        "viaNodeIds": [],
+        "techniques": ["T1595", "T1046", "T1190"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "gateway-bypass",
+        "summary": "The API pods' load balancer is reachable directly, skipping the gateway",
+        "entryNodeIds": ["api-pods"],
+        "targetNodeIds": ["nosql"],
+        "viaNodeIds": [],
+        "techniques": ["T1190", "T1599", "T1046"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Beginner: object-level authorisation missing in the API, non-expiring tokens, a public cluster endpoint and a cluster-admin CI credential."
+}

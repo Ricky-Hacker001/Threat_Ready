@@ -1,4 +1,4 @@
-import { OTP_TTL_SECONDS } from "@threatready/contracts";
+import { OTP_TTL_SECONDS, looksLikeLink } from "@threatready/contracts";
 import type { EmailMessage } from "./email.port.js";
 
 const minutes = Math.round(OTP_TTL_SECONDS / 60);
@@ -95,4 +95,37 @@ export function signInLockedEmail(to: string, minutes: number, loginUrl: string)
 <p style="margin:0"><a href="${escape(loginUrl)}" style="color:#0e7490">Go to sign in</a></p>`,
   );
   return { to, subject: "Sign-in to your ThreatReady account was paused", text, html, kind: "signin-locked" };
+}
+
+/**
+ * An organisation admin invited this address to join their ThreatReady business account. The
+ * organisation's name and the inviter are chosen by users: anything a mail client would turn into a
+ * link (looksLikeLink) is left out, though orgNameSchema already refuses such names.
+ */
+export function orgInviteEmail(to: string, name: string, inviter: string | null, role: "member" | "manager", acceptUrl: string, days: number): EmailMessage {
+  const orgName = looksLikeLink(name) ? "an organisation" : name;
+  const invitedBy = inviter && !looksLikeLink(inviter) ? inviter : null;
+  const who = invitedBy ? `${invitedBy} has invited you` : "You've been invited";
+  const what = role === "manager" ? "as a manager (you'll be able to invite people and see the team's progress)" : "as a member";
+  const lead = `${who} to join ${orgName} on ThreatReady ${what}.`;
+  const how = "Open the link with this email address. If you don't have a ThreatReady account yet, you'll create one with it first.";
+  const text = `${lead}\n\n${how}\n\nJoin: ${acceptUrl}\n\nThe link works for ${days} days and once only.\n\nIf you weren't expecting this, you can ignore it. Nothing happens until you accept.`;
+  const html = layout(
+    `Join ${orgName} on ThreatReady`,
+    `<p style="margin:0 0 16px">${escape(lead)}</p>
+<p style="margin:0 0 16px">${escape(how)}</p>
+<p style="margin:0 0 16px"><a href="${escape(acceptUrl)}" style="display:inline-block;background:#6D5DFC;color:#ffffff;text-decoration:none;font-weight:600;padding:10px 18px;border-radius:8px">Join ${escape(orgName)}</a></p>
+<p style="margin:0 0 16px;color:#64748b;font-size:13px">Or paste this into your browser: ${escape(acceptUrl)}</p>
+<p style="margin:0 0 16px">The link works for ${days} days and once only.</p>
+<p style="margin:0;color:#64748b;font-size:13px">If you weren't expecting this, you can ignore it. Nothing happens until you accept.</p>`,
+  );
+  return { to, subject: `You're invited to join ${orgName} on ThreatReady`, text, html, kind: "org-invite" };
+}
+
+/** Told once: a platform admin approved (or suspended) the organisation. */
+export function orgStatusEmail(to: string, orgName: string, status: "active" | "suspended", consoleUrl: string): EmailMessage {
+  const lead = status === "active" ? `${orgName} is approved on ThreatReady. Your team can start using it on your plan.` : `${orgName} is suspended on ThreatReady. Members keep their accounts and fall back to the free plan until it is reinstated.`;
+  const text = `${lead}\n\nOrganisation console: ${consoleUrl}`;
+  const html = layout(status === "active" ? "Your organisation is approved" : "Your organisation is suspended", `<p style="margin:0 0 16px">${escape(lead)}</p><p style="margin:0"><a href="${escape(consoleUrl)}" style="color:#0e7490">Open the organisation console</a></p>`);
+  return { to, subject: status === "active" ? `${orgName} is approved on ThreatReady` : `${orgName} is suspended on ThreatReady`, text, html, kind: `org-status-${status}` };
 }

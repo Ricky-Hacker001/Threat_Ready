@@ -50,6 +50,7 @@ export const ERROR_CATALOGUE = {
   REASONING_GENERATION_FAILED: { http: 502, retryable: true, message: 'We could not generate a valid scenario this time; retry to generate another' },
   REASONING_EVALUATION_FAILED: { http: 502, retryable: true, message: 'Your answer is saved but could not be evaluated yet; retry the evaluation' },
   REASONING_DAILY_LIMIT_REACHED: { http: 429, retryable: false, message: 'You have used today’s evaluations; your answer is kept, submit it after the daily reset' },
+  REASONING_DAILY_QUESTIONS_REACHED: { http: 429, retryable: false, message: 'You have opened today’s questions; new ones are available after the daily reset' },
   REASONING_RETRY_LIMIT_REACHED: { http: 409, retryable: false, message: 'This step has already been retried the maximum number of times; start a new question' },
   REASONING_SKIP_CONFIRMATION_REQUIRED: { http: 409, retryable: false, message: 'Starting another question skips your oldest unanswered one, which counts as 0; confirm to continue' },
 

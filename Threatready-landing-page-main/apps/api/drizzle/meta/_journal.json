@@ -85,6 +85,27 @@
       "when": 1792900005000,
       "tag": "0011_rls_backstop_shared_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793171438085,
+      "tag": "0012_business_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793259627051,
+      "tag": "0013_admin_audit_org_changes",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793260830025,
+      "tag": "0014_org_audit_action_at_idx",
+      "breakpoints": true
     }
   ]
 }

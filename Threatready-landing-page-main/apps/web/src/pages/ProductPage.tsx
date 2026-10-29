@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL, fmtScore } from "../components/Overview";
+import { usePageTitle } from "../components/ui";
 import { FEATURES, featureUrl } from "../content/features";
 import { api } from "../lib/api";
 import { useSession } from "../lib/auth-client";
@@ -104,6 +105,7 @@ export function ProductPage() {
   const { data: session } = useSession();
   const isTrial = me.user.isTrial;
   const first = session?.user.name?.trim().split(/\s+/)[0] || me.user.username;
+  usePageTitle("Home");
 
   return (
     <>

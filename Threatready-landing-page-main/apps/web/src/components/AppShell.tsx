@@ -1,10 +1,10 @@
 import type { AppInfo, Me } from "@threatready/contracts";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
-import { clearNext, pendingNext, rememberNext, takeNext } from "../lib/platform";
+import { clearNext, pendingNext, rememberNext, takeNext, takePendingOrg } from "../lib/platform";
 import { appAt, AppSwitcher, BrandLink, nextPrefixes, PlatformFooter, PlatformHeader, PlatformLoading, rememberApps, ThemeToggle, type ShellLocation } from "./Platform";
 import { ProfileMenu } from "./ProfileMenu";
 import { Button, Notice } from "./ui";
@@ -27,13 +27,57 @@ export function useMe(): MeContext {
 /** Set when a 401 sent the browser to sign in; a second one moments later means the local session is stuck. */
 const EXPIRED_KEY = "tr_session_expired_at";
 
+/** Set when a page chunk failed to load and the tab reloaded for it; a second failure moments later shows the notice. */
+const CHUNK_RELOAD_KEY = "tr_chunk_reload_at";
+const CHUNK_ERROR = /dynamically imported module|module script failed|MIME type|Loading chunk|ChunkLoadError/i;
+
+/**
+ * The signed-in pages are lazy chunks (main.tsx). After a deploy an open tab still asks for the old hashed
+ * files, which are gone (the server answers with index.html), and a failed import would unmount the whole app.
+ * A chunk failure reloads the tab once to pick up the new build; anything else, or a second failure within
+ * 10 s, shows a notice with a reload button. The boundary clears when the path changes.
+ */
+class PageBoundary extends Component<{ path: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    if (!CHUNK_ERROR.test(error instanceof Error ? `${error.name} ${error.message}` : String(error))) return;
+    let last = 0;
+    try {
+      last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY)) || 0;
+      sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+    } catch {
+      return; // no storage: no loop guard, so no automatic reload
+    }
+    if (Date.now() - last > 10_000) window.location.reload();
+  }
+  componentDidUpdate(prev: { path: string }) {
+    if (prev.path !== this.props.path && this.state.failed) this.setState({ failed: false });
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="page-loading" role="alert">
+        <Notice tone="error">This page didn't load, usually because ThreatReady was just updated. Reload to continue.</Notice>
+        <div>
+          <Button type="button" variant="secondary" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </div>
+    );
+  }
+}
+
 /** Protected layout: no session → back to the auth page. */
 export function AppShell() {
   const { data: session, refetch: refetchSession } = useSession();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   // Header "current" follows the route; only /app itself is Home.
-  const here: ShellLocation = pathname.startsWith("/app/admin") ? "admin" : pathname.startsWith("/app/profile") ? "profile" : "home";
+  const here: ShellLocation = pathname.startsWith("/app/admin") ? "admin" : pathname.startsWith("/app/org") ? "org" : pathname.startsWith("/app/profile") ? "profile" : "home";
   const [me, setMe] = useState<Me | null>(null);
   const [config, setConfig] = useState<PublicConfig | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +126,24 @@ export function AppShell() {
     void refresh();
   }, [sessionUserId, refresh]);
 
+  // A business sign-up: the account is in, now the organisation it asked for (once; see AuthPage).
+  const creatingOrg = useRef(false);
+  useEffect(() => {
+    if (!me || me.user.isTrial || me.org || creatingOrg.current) return;
+    const pending = takePendingOrg();
+    if (!pending) return;
+    creatingOrg.current = true;
+    api.org
+      .create(pending)
+      .then(async (org) => {
+        await refresh();
+        navigate("/app/org", { replace: true, state: { created: org.name } });
+      })
+      .catch((err: unknown) => {
+        setFlash(err instanceof ApiError && err.code === "ORG_ALREADY_MEMBER" ? err.message : `We couldn't set up ${pending.name} yet. You can do it from your profile.`);
+      });
+  }, [me, navigate, refresh]);
+
   // Signed in and came from another app: send them back there (once).
   useEffect(() => {
     if (!me || !config || !pendingNext()) return;
@@ -94,7 +156,7 @@ export function AppShell() {
     const { url, bounced } = takeNext(config.appOrigins, nextPrefixes(config.apps));
     if (url) {
       const target = new URL(url);
-      if (target.origin === window.location.origin && /^\/app(\/|$)/.test(target.pathname)) {
+      if (target.origin === window.location.origin && /^\/(app|invite)(\/|$)/.test(target.pathname)) {
         // One of onboard's own pages (a session that expired here): no reload needed.
         navigate(`${target.pathname}${target.search}${target.hash}`, { replace: true });
         return;
@@ -140,6 +202,7 @@ export function AppShell() {
       <ProfileMenu
         user={user}
         isAdmin={me.user.isAdmin}
+        org={me.org && me.org.role !== "member" && me.org.memberStatus === "active" && me.org.status !== "suspended" ? { name: me.org.name } : null}
         apps={config?.apps ?? []}
         current={here}
         signingOut={signingOut}
@@ -186,7 +249,18 @@ export function AppShell() {
                 <Notice tone="info">{flash}</Notice>
               </div>
             ) : null}
-            <Outlet />
+            {/* The pages are separate chunks (main.tsx): a short line, not the full loading screen, while one arrives. */}
+            <PageBoundary path={pathname}>
+              <Suspense
+                fallback={
+                  <p className="page-loading" role="status">
+                    Loading…
+                  </p>
+                }
+              >
+                <Outlet />
+              </Suspense>
+            </PageBoundary>
           </Ctx.Provider>
         ) : null}
       </main>

@@ -63,9 +63,11 @@ export async function transition(tx: Tx, a: AttemptRow, from: readonly Reasoning
  * of one attempt. The private column (answer key, rubric, option analysis, reference answer) is never
  * read here. A pool question is shared by many learners, so its stable id and exact creation time are
  * never sent: the id is the attempt's and the date is the day only, so a cohort cannot match questions
- * (and swap answer keys) by a machine key (audit TR-42).
+ * (and swap answer keys) by a machine key (audit TR-42). The concepts are model-written and can echo
+ * the answer ("data partitioning by user"), so they are sent only once the attempt is evaluated (review
+ * AR-SEC-3); the result carries them too.
  */
-export function publicOf(item: ItemRow, attempt: Pick<AttemptRow, 'id'>): ReasoningItemPublic {
+export function publicOf(item: ItemRow, attempt: Pick<AttemptRow, 'id' | 'state'>): ReasoningItemPublic {
   const p = item.public as GeneratedItem['public'];
   const day = new Date(item.createdAt);
   day.setUTCHours(0, 0, 0, 0);
@@ -81,7 +83,7 @@ export function publicOf(item: ItemRow, attempt: Pick<AttemptRow, 'id'>): Reason
     options: p.options.map((o) => ({ id: o.id, text: o.text })),
     diagram: p.diagram,
     techniques: p.techniques,
-    concepts: p.concepts,
+    concepts: attempt.state === 'evaluated' ? p.concepts : [],
     weights: item.weights as Weights,
     generatorVersion: item.generatorVersion,
     createdAt: day.toISOString(),

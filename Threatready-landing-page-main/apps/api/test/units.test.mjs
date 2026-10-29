@@ -16,6 +16,8 @@ import { DEVICE_TOKEN_MAX_AGE_S, deviceIdFor, deviceSignInKey, issueDeviceToken,
 import { ErrorReporter, initErrorReports, parseDsn, reportError } from "../dist/common/error-report.js";
 import { CLIENT_IP, WindowLimiter, clientIp, stampClientIp } from "../dist/common/throttle.js";
 import { loadConfig } from "../dist/config.js";
+import { orgInviteEmail } from "../dist/email/templates.js";
+import { orgNameSchema } from "@threatready/contracts";
 import { relayedCookies } from "../dist/platform/platform.controller.js";
 
 test("CSV: formula starts are neutralised, including after whitespace and in full-width forms", () => {
@@ -187,4 +189,20 @@ test("config: 0 turns limits off; the retention timer cannot overflow", () => {
   assert.equal(c.AUTH_GET_SESSION_PER_IP_PER_MINUTE, 0, "the session read is exempt from the per-IP limiter by default");
   assert.equal(loadConfig({ ...base, RETENTION_INTERVAL_HOURS: "576" }).RETENTION_INTERVAL_HOURS, 576);
   assert.throws(() => loadConfig({ ...base, RETENTION_INTERVAL_HOURS: "720" }), /RETENTION_INTERVAL_HOURS/);
+});
+
+test("invitation emails: no organisation name or inviter a mail client would turn into a link", () => {
+  for (const bad of ["paypal.com/verify", "Acme secure-login.example.com", "login.example.co", "Visit 10.0.0.1 now", "Node.js Guild"]) {
+    assert.equal(orgNameSchema.safeParse(bad).success, false, bad);
+  }
+  for (const ok of ["Northwind Logistics", "St. Mary's College", "Acme Inc.", "R&D / Security", "A.B. Consulting (Pune)", "Café Olé", "Team 4.0"]) {
+    assert.equal(orgNameSchema.safeParse(ok).success, true, ok);
+  }
+  // Defence in depth: a name stored before the rule, and a username with dots, stay out of the email.
+  const mail = orgInviteEmail("a@x.io", "paypal.com/verify", "login.example.com", "member", "https://threatready.example/invite/t", 7);
+  for (const part of [mail.subject, mail.text, mail.html]) assert.ok(!part.includes("paypal.com") && !part.includes("example.com"), part);
+  assert.match(mail.text, /^You've been invited to join an organisation on ThreatReady as a member\./);
+  const fine = orgInviteEmail("a@x.io", "Northwind", "priya_k", "manager", "https://threatready.example/invite/t", 7);
+  assert.match(fine.text, /^priya_k has invited you to join Northwind on ThreatReady as a manager/);
+  assert.equal(fine.subject, "You're invited to join Northwind on ThreatReady");
 });

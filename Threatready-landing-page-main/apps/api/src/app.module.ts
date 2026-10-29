@@ -4,6 +4,7 @@ import { ThrottlerModule } from "@nestjs/throttler";
 import { AccountController } from "./account/account.controller.js";
 import { ActivityController } from "./activity/activity.controller.js";
 import { AdminController } from "./admin/admin.controller.js";
+import { AdminOrgsService } from "./admin/admin-orgs.service.js";
 import { AdminService } from "./admin/admin.service.js";
 import { CaptchaService } from "./account/captcha.service.js";
 import { AUTH, createAuth } from "./auth/auth.js";
@@ -15,6 +16,8 @@ import { DevController } from "./dev/dev.controller.js";
 import { EMAIL_PORT, LogEmailAdapter, ResendEmailAdapter, SesEmailAdapter, type EmailPort } from "./email/email.port.js";
 import { FeaturesController } from "./features/features.controller.js";
 import { FeaturesService } from "./features/features.service.js";
+import { OrgController } from "./org/org.controller.js";
+import { OrgService } from "./org/org.service.js";
 import { AppsClient } from "./platform/apps.client.js";
 import { PlatformController } from "./platform/platform.controller.js";
 import { PublicController } from "./public/public.controller.js";
@@ -45,6 +48,7 @@ export class AppModule {
         PlatformController,
         AdminController,
         ActivityController,
+        OrgController,
         ...devControllers,
       ],
       providers: [
@@ -59,6 +63,8 @@ export class AppModule {
         CaptchaService,
         AppsClient,
         AdminService,
+        AdminOrgsService,
+        OrgService,
         RetentionService,
       ],
     };

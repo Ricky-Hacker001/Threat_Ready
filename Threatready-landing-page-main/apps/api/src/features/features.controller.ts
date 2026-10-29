@@ -23,6 +23,8 @@ export class FeaturesController {
       orgId: p.orgId,
       role: p.role,
       plan: p.plan,
+      personal: p.personal,
+      org: p.org,
       features: await this.features.states(p),
     };
   }

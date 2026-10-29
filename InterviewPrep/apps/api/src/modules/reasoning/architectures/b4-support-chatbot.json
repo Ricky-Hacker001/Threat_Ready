@@ -1,0 +1,410 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "b4-support-chatbot",
+  "version": 1,
+  "level": "beginner",
+  "title": "Customer-support chatbot with account tools",
+  "organisation": {
+    "name": "Kestrel Broadband",
+    "industry": "Regional broadband and phone provider",
+    "size": "600 staff; a support team of 80 agents",
+    "summary": "Kestrel Broadband answers customer questions with a chatbot on its website. The chatbot service runs in containers, sends each conversation to a third-party LLM provider together with help articles retrieved from a knowledge-base vector store, and can call two tools: a customer accounts API to look up and update contact details, and a ticketing service to open tickets for human agents. Support agents work tickets from their laptops and edit the bot's prompts and knowledge-base articles in an admin console."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "cloud", "label": "Support platform", "kind": "vpc" },
+      { "id": "vendor", "label": "Third-party services", "kind": "vendor" },
+      { "id": "office", "label": "Support office", "kind": "corporate" }
+    ],
+    "nodes": [
+      { "id": "customers", "label": "broadband customers", "type": "user", "boundary": "internet", "detail": "Chat on the website about bills, faults and moves", "controls": [] },
+      { "id": "widget", "label": "chat widget", "type": "web", "boundary": "cloud", "detail": "Website chat window that relays messages to the bot", "controls": [] },
+      { "id": "bot", "label": "chatbot service", "type": "container", "boundary": "cloud", "detail": "Builds prompts, calls the LLM and runs its tools", "controls": ["input filter"] },
+      { "id": "vector-store", "label": "knowledge-base vector store", "type": "database", "boundary": "cloud", "detail": "Help articles and some internal runbooks", "controls": [] },
+      { "id": "accounts-api", "label": "customer accounts API", "type": "api", "boundary": "cloud", "detail": "Looks up and updates customer contact details", "controls": ["API key auth"] },
+      { "id": "customer-db", "label": "customer database", "type": "database", "boundary": "cloud", "detail": "Names, addresses, phone numbers and billing", "controls": [] },
+      { "id": "llm", "label": "LLM provider API", "type": "model", "boundary": "vendor", "detail": "Third-party model that writes the bot's replies", "controls": [] },
+      { "id": "ticketing", "label": "ticketing service", "type": "saas", "boundary": "vendor", "detail": "Tickets for human agents, created by the bot or by agents", "controls": [] },
+      { "id": "agent-laptops", "label": "support agents' laptops", "type": "endpoint", "boundary": "office", "detail": "Used to work tickets and edit the bot", "controls": ["EDR"] },
+      { "id": "admin-console", "label": "bot admin console", "type": "web", "boundary": "cloud", "detail": "Edit prompts and knowledge-base articles", "controls": ["SSO"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "customers", "to": "widget", "label": "chats in the browser", "kind": "data" },
+      { "id": "e2", "from": "widget", "to": "bot", "label": "chat messages", "kind": "data" },
+      { "id": "e3", "from": "bot", "to": "llm", "label": "prompts and context", "kind": "data" },
+      { "id": "e4", "from": "bot", "to": "vector-store", "label": "retrieves articles", "kind": "data" },
+      { "id": "e5", "from": "bot", "to": "accounts-api", "label": "account lookup tool", "kind": "auth" },
+      { "id": "e6", "from": "accounts-api", "to": "customer-db", "label": "SQL queries", "kind": "data" },
+      { "id": "e7", "from": "bot", "to": "ticketing", "label": "creates tickets", "kind": "data" },
+      { "id": "e8", "from": "agent-laptops", "to": "ticketing", "label": "works tickets", "kind": "data" },
+      { "id": "e9", "from": "agent-laptops", "to": "admin-console", "label": "edits prompts", "kind": "auth" },
+      { "id": "e10", "from": "admin-console", "to": "vector-store", "label": "uploads articles", "kind": "data" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Anyone who can open the chat on the website" },
+    { "id": "rogue-agent", "label": "malicious support agent", "boundary": "office", "detail": "An agent with ordinary console access" }
+  ],
+  "identities": [
+    {
+      "id": "bot-api-key",
+      "label": "accounts API key",
+      "kind": "service",
+      "nodeIds": ["bot", "accounts-api"],
+      "privileges": ["look up any customer by phone or email", "change contact details"],
+      "notes": "One key shared by every conversation"
+    },
+    {
+      "id": "llm-key",
+      "label": "LLM provider API key",
+      "kind": "service",
+      "nodeIds": ["bot", "llm"],
+      "privileges": ["send prompts billed to the company"],
+      "notes": null
+    },
+    {
+      "id": "ticket-token",
+      "label": "ticketing integration token",
+      "kind": "service",
+      "nodeIds": ["bot", "ticketing"],
+      "privileges": ["create and read any ticket"],
+      "notes": "Never expires"
+    },
+    {
+      "id": "agents",
+      "label": "support agents",
+      "kind": "human",
+      "nodeIds": ["agent-laptops", "ticketing", "admin-console"],
+      "privileges": ["work tickets", "edit bot prompts and knowledge-base articles"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "customer-db",
+      "data": "names, addresses, phone numbers, account and billing details",
+      "classification": "regulated",
+      "regulations": ["GDPR"]
+    },
+    { "nodeId": "ticketing", "data": "ticket history with customer details", "classification": "confidential", "regulations": ["GDPR"] },
+    { "nodeId": "vector-store", "data": "help articles and internal runbooks", "classification": "internal", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "input-filter",
+      "label": "input filter",
+      "nodeIds": ["bot"],
+      "status": "partial",
+      "covers": "Blocks known jailbreak phrases in customer messages",
+      "limits": "Does not look at retrieved articles or tool results"
+    },
+    {
+      "id": "api-key",
+      "label": "API key auth",
+      "nodeIds": ["accounts-api"],
+      "status": "present",
+      "covers": "Only the chatbot can call the accounts API",
+      "limits": "Any conversation can make the bot look up or change any customer"
+    },
+    { "id": "edr", "label": "EDR", "nodeIds": ["agent-laptops"], "status": "present", "covers": "Malware on agents' laptops", "limits": null },
+    {
+      "id": "sso",
+      "label": "SSO",
+      "nodeIds": ["admin-console"],
+      "status": "present",
+      "covers": "Agent sign-in to the admin console",
+      "limits": "Every agent can edit prompts and articles"
+    },
+    {
+      "id": "verify-customer",
+      "label": "identity check before lookups",
+      "nodeIds": ["bot"],
+      "status": "missing",
+      "covers": "Verifying a customer before the bot reads or changes their account",
+      "limits": null
+    },
+    {
+      "id": "output-filter",
+      "label": "output filtering",
+      "nodeIds": ["bot"],
+      "status": "missing",
+      "covers": "Stopping personal data or internal text in replies",
+      "limits": null
+    },
+    {
+      "id": "kb-review",
+      "label": "KB change review",
+      "nodeIds": ["admin-console"],
+      "status": "missing",
+      "covers": "A second person checks prompt and article changes",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "bot-accounts",
+      "from": "bot",
+      "to": "accounts-api",
+      "via": "one API key with lookup and update rights for every chat",
+      "subtle": false,
+      "notes": null
+    },
+    { "id": "bot-tickets", "from": "bot", "to": "ticketing", "via": "integration token that can read every ticket", "subtle": false, "notes": null },
+    {
+      "id": "kb-trusted",
+      "from": "admin-console",
+      "to": "vector-store",
+      "via": "uploaded articles are retrieved into prompts as trusted text",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    {
+      "id": "transcripts",
+      "label": "chat transcripts",
+      "nodeIds": ["bot"],
+      "records": "every customer message and the bot's reply",
+      "gaps": "tool calls and retrieved articles are not logged"
+    },
+    {
+      "id": "accounts-log",
+      "label": "accounts API log",
+      "nodeIds": ["accounts-api"],
+      "records": "every lookup and update with the API key used",
+      "gaps": "no conversation id, so lookups cannot be tied to a chat"
+    },
+    {
+      "id": "console-audit",
+      "label": "admin console audit log",
+      "nodeIds": ["admin-console"],
+      "records": "prompt and article edits with the agent's name",
+      "gaps": null
+    },
+    { "id": "edr-alerts", "label": "EDR alerts", "nodeIds": ["agent-laptops"], "records": "malware and suspicious process alerts", "gaps": null }
+  ],
+  "attackSurfaces": {
+    "ai_llm_security": [
+      {
+        "id": "chat-injection-lookup",
+        "summary": "A chat message talks the bot into looking up another customer's account",
+        "entryNodeIds": ["widget"],
+        "targetNodeIds": ["accounts-api"],
+        "viaNodeIds": ["bot"],
+        "techniques": ["AML.T0051.000", "AML.T0053", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "poisoned-article",
+        "summary": "An edited knowledge-base article carries instructions the bot follows",
+        "entryNodeIds": ["admin-console"],
+        "targetNodeIds": ["bot"],
+        "viaNodeIds": ["vector-store"],
+        "techniques": ["AML.T0051.001", "AML.T0020", "AML.T0057"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "lookup-without-verification",
+        "summary": "The accounts API trusts the bot's key, so any chat can read any customer",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["customer-db"],
+        "viaNodeIds": ["accounts-api"],
+        "techniques": ["T1078", "T1213", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "leaked-bot-key",
+        "summary": "The accounts API key appears in the bot's error messages",
+        "entryNodeIds": ["accounts-api"],
+        "targetNodeIds": ["customer-db"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1078", "T1213"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "ticket-xss",
+        "summary": "Script in a ticket the bot created runs in an agent's browser",
+        "entryNodeIds": ["ticketing"],
+        "targetNodeIds": ["agent-laptops"],
+        "viaNodeIds": [],
+        "techniques": ["T1189", "T1185", "T1539"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "error-leak",
+        "summary": "Bot error messages include stack traces with the accounts API key",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["accounts-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1552.001", "T1083", "T1190"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "pii-in-replies",
+        "summary": "Replies and transcripts carry personal data the bot fetched for someone else",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["customer-db"],
+        "viaNodeIds": ["accounts-api"],
+        "techniques": ["T1213", "T1119", "T1041"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "runbooks-in-kb",
+        "summary": "Internal runbooks were indexed into the public bot's knowledge base",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["vector-store"],
+        "viaNodeIds": [],
+        "techniques": ["T1213", "T1005", "T1074"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "agent-phished",
+        "summary": "A phished agent account edits the bot's prompts",
+        "entryNodeIds": ["agent-laptops"],
+        "targetNodeIds": ["admin-console"],
+        "viaNodeIds": [],
+        "techniques": ["T1566.002", "T1078", "T1539"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "shared-integration-token",
+        "summary": "One never-expiring ticketing token serves every chat",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["ticketing"],
+        "viaNodeIds": [],
+        "techniques": ["T1528", "T1550.001", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "ticket-attachment",
+        "summary": "A malicious attachment on a ticket runs on an agent's laptop",
+        "entryNodeIds": ["ticketing"],
+        "targetNodeIds": ["agent-laptops"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.002", "T1059.001", "T1555.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "console-session-theft",
+        "summary": "Malware takes the admin console session from an agent's browser",
+        "entryNodeIds": ["agent-laptops"],
+        "targetNodeIds": ["admin-console"],
+        "viaNodeIds": [],
+        "techniques": ["T1555.003", "T1105", "T1113"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "unverified-account-changes",
+        "summary": "The chatbot reads and changes customer accounts with no verification policy",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["customer-db"],
+        "viaNodeIds": ["accounts-api"],
+        "techniques": ["T1078", "T1213", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "llm-vendor-data",
+        "summary": "Customer details go to the LLM provider without a data processing review",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["llm"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1213", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "mass-lookup",
+        "summary": "The accounts API log shows hundreds of lookups in an hour, all through the bot",
+        "entryNodeIds": ["widget"],
+        "targetNodeIds": ["accounts-api"],
+        "viaNodeIds": ["bot"],
+        "techniques": ["T1078", "T1567", "T1070"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "prompt-tampering",
+        "summary": "Someone changed the bot's instructions overnight through a knowledge-base article",
+        "entryNodeIds": ["admin-console"],
+        "targetNodeIds": ["bot"],
+        "viaNodeIds": ["vector-store"],
+        "techniques": ["T1078", "T1098", "T1070"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "chatbot-harvesting",
+        "summary": "A report describes campaigns that use support chatbots to harvest customer data",
+        "entryNodeIds": ["widget"],
+        "targetNodeIds": ["accounts-api"],
+        "viaNodeIds": ["bot"],
+        "techniques": ["T1071.001", "T1078", "T1590"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "sim-swap-crews",
+        "summary": "Intelligence on SIM-swap crews who change contact details through support channels",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["customer-db"],
+        "viaNodeIds": ["accounts-api"],
+        "techniques": ["T1078", "T1036", "T1590"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "root-container",
+        "summary": "The chatbot container runs as root with the host's container socket mounted",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["accounts-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1611", "T1552.007", "T1609"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "mutable-image-tag",
+        "summary": "The chatbot image is pulled from a public registry tag that its owner can change",
+        "entryNodeIds": ["bot"],
+        "targetNodeIds": ["vector-store"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.003", "T1525", "T1610"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Beginner: the bot's tools run with one shared key and no customer verification; retrieved articles and tool results are trusted text; every agent can edit the bot."
+}

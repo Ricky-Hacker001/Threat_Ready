@@ -213,7 +213,9 @@ describe('security patch 2: InterviewPrep', () => {
 
     it('result() still returns the verdict and the correct option, read with the owner role after the attempt is evaluated', async () => {
       const role = item.item!.diagram.nodes.find((n) => n.entryPoint)!.label;
-      const bucket = item.item!.diagram.nodes.find((n) => n.type === 'storage')!.label;
+      // Library architectures (26 Oct 2026) do not all draw a storage node: any data component will do for the wording.
+      const nodes = item.item!.diagram.nodes;
+      const bucket = (nodes.find((n) => n.type === 'storage') ?? nodes.find((n) => n.type === 'database') ?? nodes.find((n) => !n.entryPoint && n.type !== 'attacker')!).label;
       expect((await learner.get(`/v1/reasoning/attempts/${item.id}/result`)).status).toBe(409);
       const sub = await learner.post(`/v1/reasoning/attempts/${item.id}/submit`).set('Origin', ORIGIN).send({ selectedOption: 'B', justification: STRONG(role, bucket), clientSubmissionId: randomUUID() });
       expect(sub.status, JSON.stringify(sub.body)).toBe(202);

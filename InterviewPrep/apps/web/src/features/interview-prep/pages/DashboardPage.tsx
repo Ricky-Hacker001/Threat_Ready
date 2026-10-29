@@ -60,7 +60,7 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <section className="grid cols-4 stagger" style={{ marginTop: 22 }} aria-label="Summary">
+      <section className="grid cols-4 kpi-grid stagger" style={{ marginTop: 22 }} aria-label="Summary">
         {q.isPending
           ? Array.from({ length: 4 }, (_, i) => (
               <div className="card" key={i}>

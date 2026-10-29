@@ -5,10 +5,13 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { drainJobs, ORIGIN, resetDatabase, signUp, startApp, type Agent, type TestApp } from './harness.js';
 
 /**
- * Real-model check of the Attack Reasoning pipeline (generation prompt, validators, three-stage
- * evaluation) against Anthropic. Opt in with REAL_LLM=1; it reads ANTHROPIC_API_KEY from the
- * environment or ../../.env and costs roughly US$0.20-0.40 per run. Everything else in the suite
- * uses the deterministic fake driver.
+ * Real-model check of the Attack Reasoning pipeline (a question written on the architecture library:
+ * Haiku first, one Sonnet rewrite when the quality gate rejects it; the tiered evaluation: one Haiku
+ * pass, the Sonnet challenger and reconciler only when escalated) against Anthropic. Opt in with
+ * REAL_LLM=1; it reads ANTHROPIC_API_KEY from the environment or ../../.env. Measured 27 Oct 2026: a
+ * Haiku try about US$0.02-0.026, a Sonnet rewrite about US$0.046-0.054, a single-pass evaluation about
+ * US$0.013 (an escalated one about US$0.09), so a run costs up to about US$0.17. Everything else in
+ * the suite uses the deterministic fake driver.
  */
 const enabled = process.env.REAL_LLM === '1';
 
@@ -47,7 +50,8 @@ describe.skipIf(!enabled)('attack reasoning against the real model (REAL_LLM=1)'
     expect(item.options).toHaveLength(4);
     expect(item.diagram.attackPath.length).toBeGreaterThan(0);
 
-    const { rows: priv } = await t.pool.query('SELECT private FROM reasoning_items WHERE id = $1', [item.id]);
+    // Since TR-42 the public item id is the attempt's; the shared question is reached through the attempt.
+    const { rows: priv } = await t.pool.query('SELECT i.private FROM reasoning_attempts a JOIN reasoning_items i ON i.id = a.item_id WHERE a.id = $1', [a.id]);
     const correct = priv[0].private.correctOption as 'A' | 'B' | 'C' | 'D';
     const entry = item.diagram.nodes.find((n) => n.entryPoint)?.label ?? 'the entry point';
     const pathNodes = item.diagram.attackPath.map((id) => item.diagram.edges.find((e) => e.id === id)!).map((e) => `${item.diagram.nodes.find((n) => n.id === e.from)?.label} to ${item.diagram.nodes.find((n) => n.id === e.to)?.label}`);

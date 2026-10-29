@@ -1,15 +1,29 @@
 import { DiagramBoundaryKind, DiagramEdgeKind, DiagramNodeType, OptionId, OptionVerdict, ReasoningDifficulty } from '@threatready/contracts';
 import { z } from 'zod';
-import type { LlmRequest, StructuredSchema } from '../../../platform/ports/llm.port.js';
+import type { LlmRequest, LlmTier, StructuredSchema } from '../../../platform/ports/llm.port.js';
 import { toOutputSchema } from '../../ai/json-schema.js';
-import { arr, str } from '../../ai/prompts/common.js';
+import { arr, enumOf, prose, str } from '../../ai/prompts/common.js';
+import { architectureText, ATTACK_STEPS, levelOf, type ArchitectureDef, type AttackSurface } from '../architectures/index.js';
 import { ATTACK_ENTERPRISE, type ReasoningDomain, type VariationSeed } from '../domain.types.js';
-import type { GeneratorOutput } from '../item.types.js';
+import type { GeneratorOutput, LibraryGeneratorOutput } from '../item.types.js';
 import { describeSeed } from '../seed.js';
+import type { SmallTierParams } from '../small-tier.js';
 
-/** Bump when the prompt or the item shape changes; stored on every item. */
-export const GENERATOR_VERSION = 'gen.v2.2026-10-21';
-export const GENERATION_PROMPT_VERSION = 'reasoning-generate.v2';
+/**
+ * Bump when the prompt or the item shape changes; stored on every item. v3 (26 Oct 2026): questions
+ * are written on the architecture library (questionSchema/questionRequest); the v2 builders below
+ * (generationSchema/generationRequest, a model-drawn diagram) are kept for the items generated before it
+ * and for tests that need a legacy item. Prompt v4 (review 27 Oct 2026): options back to 15-45 words,
+ * learner-facing fields with room for the lengths asked for and clipped at a sentence or word (AR-BIZ-4),
+ * a surface with several targets is one chain ending at one of them (AR-BIZ-9). The item shape is unchanged.
+ * Prompt v5 (merge 29 Oct 2026): the legacy builder gains the content-quality rules of the business-accounts
+ * branch's v3 (no remedy or option wording in the visible text, ordered timeline, exact regulation figures,
+ * every distractor shown to fail); one version covers both builders. Prompt v6 (29 Oct 2026): the library
+ * writer's rules state the same content rules, which the library gate now checks (validateLibraryItem rule
+ * 10, quality.ts). The item shape is unchanged.
+ */
+export const GENERATOR_VERSION = 'gen.v3.2026-10-26';
+export const GENERATION_PROMPT_VERSION = 'reasoning-generate.v6';
 
 const DIFFICULTY_GUIDE: Record<ReasoningDifficulty, string> = {
   beginner: 'Architecture: 5 to 7 components in 2 or 3 trust boundaries, one obvious entry point. Attack: 1 or 2 steps that the narrative states plainly, with the evidence named (which log, which call). Question: one direct decision; the best option follows from one fact in the scenario; the three distractors are real controls that clearly address something else. Rubric: 6 points, each satisfiable in one sentence.',
@@ -75,6 +89,7 @@ export function generationRequest(ctx: GenerationContext): LlmRequest {
   const framing = domain.framing ?? 'an architecture diagram, an active attack';
   return {
     tier: 'LARGE',
+    modelProfile: 'reasoning',
     promptVersion: GENERATION_PROMPT_VERSION,
     // The item is a large JSON object (diagram, four options, rubric, reference answer): give it room,
     // at medium effort so generation stays within about a minute.
@@ -93,8 +108,11 @@ Diagram rules (the diagram is data, rendered by the application; the learner rea
 Question rules:
 - The scenario describes the business, the environment, the sensitive data and the controls in place (180-320 words). The attack narrative describes what happened, step by step, with the evidence an engineer would have (log lines, alerts, timestamps) (100-200 words). Neither may hint at the answer. Keep every text field tight; the whole item should stay compact.
 - One assessment objective. The question asks exactly what the objective says; one decision, not several.
-- Four options A-D of similar length and form (each 15-45 words). Exactly one best answer. The other three must be plausible to a competent engineer: real controls or actions that are wrong for this scenario because they address a later step, do not break the path shown, violate the constraint, or destroy evidence. No "all of the above", no joke options, no option that restates the question.
-- option_analysis: for every option, a verdict (best, plausible = defensible runner-up, weak = helps little here, wrong = harmful or does not apply) and why, written to the learner in the second person.
+- Four options A-D of similar length and form (each 15-45 words). Exactly one best answer. The other three must be plausible to a competent engineer: real controls or actions that are wrong for this scenario because they address a later step, do not break the path shown, violate the constraint, or destroy evidence. No "all of the above", no joke options, no option that restates the question, no option that restates the best option in other words.
+- option_analysis: for every option, a verdict (best, plausible = defensible runner-up, weak = helps little here, wrong = harmful or does not apply) and why, written to the learner in the second person. For every non-best option, "why" must state the reason it fails in this scenario (which step it does not touch, which constraint it breaks, what evidence it destroys, what it costs); never "also works", "equally valid" or "not wrong". If two options are both defensible, change the scenario or the constraint until only one is.
+- The scenario, attack narrative, objective, question and title state facts and evidence only. They never recommend an action, quote a runbook step, say what the team plans or should do, repeat the wording of any option, or refer to an option by letter. A reader must not be able to pick the answer from the text without reasoning about the diagram.
+- Times in the attack narrative appear in the order the events happened and increase; "N minutes later at HH:MM" must add up. Refer to anything earlier only with explicit words (earlier, had been, created on).
+- Quote a regulation's figure only when certain, and use the real one: GDPR Art. 33 notification to the supervisory authority within 72 hours; GDPR fines up to 4% of global annual turnover or EUR 20 million (lower tier 2% / EUR 10 million); GDPR data subject requests answered within one month; HIPAA breach notice no later than 60 days; SEC Form 8-K Item 1.05 within four business days; NIS2 early warning 24 hours and notification 72 hours; India DPDP detailed report to the Board within 72 hours; PCI DSS audit logs retained 12 months with 3 months immediately available. Otherwise name the obligation without a number.
 
 Rubric rules (server-only, never shown before grading):
 - 6 to 10 points. dimension reasoning (at least 3): what a sound justification states, uses as evidence, or rules out. dimension architecture (at least 2): the components, trust relationships, path steps and controls the learner must show they understood. dimension risk (at least 1): the trade-off, residual risk, evidence-preservation or business constraint a strong answer recognises.
@@ -120,5 +138,183 @@ Output only the JSON object described by the schema. Write in plain English; no 
 ${ctx.avoid.length ? `\nThe learner has already seen these; make this one different in company, data, components and attack steps:\n${ctx.avoid.map((a) => `- ${a.title}: ${a.question}`).join('\n')}` : ''}${ctx.previousFailure.length ? `\n\nTry ${ctx.tryNumber}: the previous item was rejected. Fix every point:\n${ctx.previousFailure.map((e) => `- ${e}`).join('\n')}` : ''}`,
       },
     ],
+  };
+}
+
+/* ---------------- gen.v3: questions on the architecture library (design §3) ---------------- */
+
+/** Rubric points, must-not-credit claims and step range per level (the quality gate checks the same numbers). */
+export const LIBRARY_LEVEL_LIMITS: Record<'beginner' | 'intermediate' | 'advanced', { rubricMin: number; rubricMax: number; mncMin: number; mncMax: number }> = {
+  beginner: { rubricMin: 6, rubricMax: 8, mncMin: 2, mncMax: 5 },
+  intermediate: { rubricMin: 7, rubricMax: 9, mncMin: 2, mncMax: 5 },
+  advanced: { rubricMin: 9, rubricMax: 10, mncMin: 2, mncMax: 5 },
+};
+
+const LIBRARY_LEVEL_GUIDE: Record<'beginner' | 'intermediate' | 'advanced', string> = {
+  beginner:
+    'Level beginner. Attack: 1 or 2 steps that the narrative states plainly, with the evidence named (which log, which call). Question: one direct decision; the best option follows from one fact in the situation or the narrative; the three distractors are real controls or actions that clearly address something else. Rubric: 6 to 8 points, each satisfiable in one sentence.',
+  intermediate:
+    'Level intermediate. Attack: 2 or 3 steps crossing at least one trust boundary, past one control that matters on the path (say why it did not stop the step). Question: the best option needs the reader to trace the path and respect the constraint; distractors are sound controls that address the wrong step or break the constraint. Rubric: 7 to 9 points.',
+  advanced:
+    'Level advanced. Attack: 3 to 5 steps crossing two trust boundaries. Build the path on the trust relationship marked "easy to overlook", or on a present control whose limits make it not apply to this path, and make the best option depend on it or on a second-order effect. Two distractors must be defensible to a mid-level engineer and wrong only for a reason an expert would give. Rubric: 9 or 10 points, several requiring that trust relationship, the non-applicable control or the second-order effect to be named. The reference answer must name the trust relationship or the control and be precise about why each distractor fails.',
+};
+
+const WRITER_RULES = `You write one Attack Reasoning assessment item for ThreatReady on a fixed, reviewed reference architecture: an attack in progress on that architecture, one multiple-choice decision with four options, and a server-side rubric for grading a written justification. Experienced security engineers take it. The item must be technically correct in every detail, answerable from the architecture, the situation and the narrative alone, and not guessable from option wording.
+
+The application draws the diagram from the architecture and your "attack" field, and shows the organisation summary as the first paragraph of the scenario. You do not draw anything.
+
+Fields:
+- title: a short, specific title (at most 12 words); never names the answer.
+- situation: 80-150 words on what is happening at the organisation today and the operational constraint. Do not restate the organisation summary; add what is new (a project, a change, an alert, a deadline).
+- attack: the path the attacker takes on this architecture: one chain, never a branch. steps: ordered {from, to, label}; each step starts where the previous one ended; the first step may start at an attacker origin; labels are short (at most 70 characters, for example "uses the leaked key to list the bucket"). entry_node: the first component (not an origin) on the path. compromised_nodes: the components the attacker controls or has read, all on the path. Use only the component and origin ids listed in the architecture.
+- attack_narrative: 100-170 words, what happened step by step, naming every component on the path by its label and the evidence an engineer would have (which log source shows which call, with times). It must not hint at the answer.
+- objective and question: the assessment objective, and the one decision the question asks for.
+- options A-D: four options of similar length and form (each 15-45 words). Exactly one best answer. Each option names at least one component or control of the architecture by its label, and at least two options name components on the attack path, so naming the path is never a tell. The best option must not be the longest. The other three are plausible to a competent engineer: real controls or actions that are wrong here because they address a later step, do not break the path shown, violate the constraint, or destroy evidence. No "all of the above", no joke options, no option that restates the question, no option that restates the best option in other words, no reference to an option by its letter anywhere else.
+- correct_option and option_analysis: for every option a verdict (best; plausible = a defensible runner-up; weak = helps little here; wrong = harmful or does not apply) and why, written to the learner in the second person. Exactly one best, and at least one distractor is plausible or weak. For every other option, why states the reason it fails here (the step it does not touch, the constraint it breaks, the evidence it destroys, what it costs); never "also works", "equally valid", "not wrong" or "can run alongside". If two options could both be defended as best, or both come first, change the situation or the constraint until only one can.
+- rubric (server-only): points with dimension reasoning (at least 3: what a sound justification states, uses as evidence, or rules out), architecture (at least 2: the components, trust relationships, path steps and controls the learner must show they understood) and risk (at least 1: the trade-off, residual risk, evidence preservation or constraint a strong answer recognises). Each point: a specific statement (not "mentions security"), a weight 1-5 by importance, a hint written to the learner for when they miss it (actionable, scenario-specific), and an explanation for the expert answer. Point ids are short and unique.
+- must_not_credit: 2 to 5 claims that sound right but are wrong for this architecture and attack (for example a control that would not block this step), why, and which rubric point ids they invalidate when asserted.
+- reference_answer: the expert justification for the best option, 120-220 words, second person, citing components by label.
+- architecture_analysis: 80-140 words, second person: the components, trust boundaries and trust relationships the path crosses, which controls apply to it and which do not, and why.
+- techniques: the techniques in play, by id from the domain's list (include the assigned one). concepts: 4-8 short concept names.
+- difficulty: the level you were given.
+
+Content rules (code checks every item against them and rejects one that breaks them):
+- The title, situation, attack narrative, step labels, objective and question state facts and evidence only. They never recommend an action, quote a runbook step, say what the team plans or should do, repeat the wording of any option, or refer to an option by its letter. A reader must not be able to pick the answer from them without reasoning about the architecture.
+- Times in the situation and the attack narrative agree and appear in the order the events happened; "N minutes later at HH:MM" must add up. Refer to anything earlier only with explicit words (earlier, had been, created on).
+- Quote a regulation's figure only when certain, and use the real one: GDPR Art. 33 notification to the supervisory authority within 72 hours of becoming aware (not from the end of scoping); GDPR fines up to 4% of global annual turnover or EUR 20 million (lower tier 2% / EUR 10 million); GDPR data subject requests answered within one month; HIPAA breach notice no later than 60 days; SEC Form 8-K Item 1.05 within four business days; NIS2 early warning 24 hours and notification 72 hours; India DPDP detailed report to the Board within 72 hours; PCI DSS audit logs retained 12 months with 3 months immediately available. Otherwise name the obligation without a number.
+
+Never copy a sentence of the reference answer, the option analysis or the architecture analysis into the title, situation, narrative, objective or question. Keep every text field tight. Output only the JSON object described by the schema, in plain English, no markdown.`;
+
+/**
+ * The output schema of a library question (`reasoning_question`): the item without the diagram and
+ * the scenario, plus the situation, the attack overlay and the architecture analysis. Component ids,
+ * origin ids and technique ids are schema enums, so the model cannot reference a component that does
+ * not exist or invent a technique id.
+ */
+export function questionSchema(arch: ArchitectureDef, domain: ReasoningDomain): StructuredSchema<LibraryGeneratorOutput> {
+  const nodeIds = arch.diagram.nodes.map((n) => n.id);
+  const fromIds = [...nodeIds, ...arch.attackerOrigins.map((o) => o.id)];
+  const techniqueIds = domain.techniques.map((t) => t.id);
+  const schema = z.object({
+    title: str(90),
+    situation: str(1100),
+    attack_narrative: str(1400),
+    objective: str(240),
+    question: str(500),
+    // Caps sized above what the prompt asks for (review AR-BIZ-4): an over-long option reaches the gate
+    // (more than 360 characters is rejected, not cut on the question screen); a step label is clipped
+    // at a word to 70 characters by normaliseOverlay; the analyses end at a sentence or a word.
+    options: arr(z.object({ id: OptionId, text: str(480) }), 4),
+    correct_option: OptionId,
+    option_analysis: arr(z.object({ id: OptionId, verdict: OptionVerdict, why: prose(600) }), 4),
+    attack: z.object({
+      entry_node: enumOf(nodeIds),
+      compromised_nodes: arr(enumOf(nodeIds), 6),
+      steps: arr(z.object({ from: enumOf(fromIds), to: enumOf(nodeIds), label: str(140) }), 6),
+    }),
+    rubric: arr(z.object({ id, dimension: z.enum(['reasoning', 'architecture', 'risk']), text: str(260), weight: z.enum(['1', '2', '3', '4', '5']), hint: str(280), explanation: str(360) }), 12),
+    must_not_credit: arr(z.object({ id, claim: str(220), why: str(260), invalidates: arr(id, 6) }), 6),
+    reference_answer: prose(1800),
+    architecture_analysis: prose(1200),
+    techniques: arr(z.object({ id: enumOf(techniqueIds), name: str(80) }), 6),
+    concepts: arr(str(60), 10),
+    difficulty: ReasoningDifficulty,
+  });
+  return { name: 'reasoning_question', jsonSchema: toOutputSchema(schema), zod: schema as unknown as z.ZodType<LibraryGeneratorOutput> };
+}
+
+export interface QuestionContext {
+  arch: ArchitectureDef;
+  domain: ReasoningDomain;
+  seed: VariationSeed;
+  surface: AttackSurface;
+  tier: LlmTier;
+  /** How the SMALL tier is asked on the model it resolves to (smallTierParams); absent: as on Haiku 4.5. */
+  small?: SmallTierParams;
+  /** Questions already written on this architecture for this domain: steer away from their path, objective and wording. */
+  avoid: { title: string; question: string; path: string; objective: string }[];
+  /** The quality gate's findings on the previous try, fed back for the retry. */
+  previousFailure: string[];
+  tryNumber: number;
+}
+
+/** Request parameters per tier: Haiku writes first (no effort parameter, a longer timeout than the SMALL default), Sonnet retries. */
+const TIER_PARAMS: Record<LlmTier, Pick<LlmRequest, 'maxOutputTokens' | 'effort' | 'timeoutMs'>> = {
+  SMALL: { maxOutputTokens: 8000, timeoutMs: 90_000 },
+  LARGE: { maxOutputTokens: 12_000, effort: 'medium' },
+};
+
+/**
+ * A SMALL model that thinks adaptively (Haiku 5.5): its thinking counts toward max_tokens, so twice
+ * Haiku 4.5's room (which wrote 2.6-3.6k visible tokens in 41-54 s), and a timeout for about 11k tokens
+ * at that rate. Measured on Haiku 5.5 (H55, 27 Oct 2026): at low effort at most 11.8k tokens and 57 s
+ * a try; at medium 4 of 12 tries used all 16,000, so raise this before writing at medium.
+ */
+const SMALL_THINKING_PARAMS: Pick<LlmRequest, 'maxOutputTokens' | 'timeoutMs'> = { maxOutputTokens: 16_000, timeoutMs: 180_000 };
+
+function tierParams(tier: LlmTier, small: SmallTierParams | undefined): Pick<LlmRequest, 'maxOutputTokens' | 'effort' | 'timeoutMs'> {
+  if (tier === 'LARGE') return TIER_PARAMS.LARGE;
+  return { ...(small?.thinking ? SMALL_THINKING_PARAMS : TIER_PARAMS.SMALL), ...(small?.effort ? { effort: small.effort } : {}) };
+}
+
+/** The stable, cacheable first system block: the writer's rules and the architecture. Byte-identical for every question on one architecture. */
+export function questionPrefix(arch: ArchitectureDef): string {
+  return `${WRITER_RULES}\n\nThe architecture (fixed; never add, remove or rename components; refer to components by their labels; use component and origin ids only in the attack fields):\n${architectureText(arch)}`;
+}
+
+/**
+ * The request for one library question, in three layers from most to least stable (design §3.2):
+ * the writer rules and the architecture (`systemPrefix`, cached per architecture), the domain and the
+ * level (`system`), and the variation with the avoid list and any gate findings (the user message).
+ * Nothing time- or request-specific goes into the two system blocks.
+ */
+export function questionRequest(ctx: QuestionContext): LlmRequest {
+  const { arch, domain, seed, surface } = ctx;
+  const level = levelOf(seed.difficulty);
+  const fw = domain.framework ?? ATTACK_ENTERPRISE;
+  const framing = domain.framing ?? 'an architecture diagram and an active attack';
+  const objective = domain.variation.objectives.find((o) => o.id === seed.objective) ?? domain.variation.objectives[0]!;
+  const technique = domain.techniques.find((t) => t.id === seed.technique) ?? domain.techniques[0]!;
+  const constraint = domain.variation.constraints.find((c) => c.id === seed.constraint) ?? domain.variation.constraints[0]!;
+  const label = (id: string) => arch.diagram.nodes.find((n) => n.id === id)?.label ?? arch.attackerOrigins.find((o) => o.id === id)?.label ?? id;
+  const named = (ids: string[]) => (ids.length ? ids.map((id) => `${label(id)} (${id})`).join(', ') : 'none');
+  // A surface with several targets is still one chain (review AR-BIZ-9): it ends at one of them.
+  const targets =
+    surface.targetNodeIds.length > 1
+      ? `one of ${named(surface.targetNodeIds)}. The path is a single chain that ends at ONE of these targets; you may say in the narrative that the others are reachable too, but do not add a branch to them or mark them compromised`
+      : named(surface.targetNodeIds);
+  const steps = ATTACK_STEPS[level];
+  const limits = LIBRARY_LEVEL_LIMITS[level];
+  const objectiveWeights = objective.weights ? Object.entries(objective.weights).map(([k, v]) => `${k} ${v}`).join(', ') : 'default';
+  const system = `Domain: ${domain.title}. The question depicts ${framing}, on the fixed architecture.
+
+${domain.guidance}
+Where these rules talk about the diagram or its components, they mean the fixed architecture: never add or rename a component.
+Techniques: ${fw.citeRule} Use ids from this domain's list: ${domain.techniques.map((t) => `${t.id} ${t.name}`).join('; ')}.
+
+${LIBRARY_LEVEL_GUIDE[level]}`;
+  const user = `Write one ${domain.title} question (domain ${domain.key}) on this variation; every element must appear in the item:
+- Architecture: ${arch.id}
+- Attack surface (${surface.id}): ${surface.summary} Entry: ${named(surface.entryNodeIds)}. Via: ${named(surface.viaNodeIds)}. Target: ${targets}.${surface.notes ? ` ${surface.notes}` : ''}
+- Assessment objective (${objective.id}): ${objective.label}. ${objective.guide} The question must be: "${objective.question}" adapted to the situation.
+- Primary ${fw.name} technique: ${technique.id} ${technique.name}.
+- Operational constraint (${constraint.id}): ${constraint.label}. ${constraint.guide}
+- Level ${level}, hard limits: attack.steps ${steps.min} to ${steps.max} (count them), chained end to end; the path uses at least one of the surface's entry or target components; rubric ${limits.rubricMin} to ${limits.rubricMax} points; must_not_credit ${limits.mncMin} to ${limits.mncMax} claims; difficulty "${level}".
+- Scoring weights for this objective (for your information only; never mention scoring in the item): ${objectiveWeights}.${
+    ctx.avoid.length
+      ? `\n\nQuestions already written on this architecture for this domain; make this one different in attack path, objective and wording:\n${ctx.avoid
+          .slice(0, 8)
+          .map((a) => `- ${a.title}: ${a.question} [path: ${a.path}; objective: ${a.objective}]`)
+          .join('\n')}`
+      : ''
+  }${ctx.previousFailure.length ? `\n\nTry ${ctx.tryNumber}: the previous item was rejected by the quality check. Fix every point:\n${ctx.previousFailure.map((e) => `- ${e}`).join('\n')}` : ''}`;
+  return {
+    tier: ctx.tier,
+    modelProfile: 'reasoning',
+    promptVersion: GENERATION_PROMPT_VERSION,
+    ...tierParams(ctx.tier, ctx.small),
+    systemPrefix: questionPrefix(arch),
+    system,
+    messages: [{ role: 'user', content: user }],
   };
 }

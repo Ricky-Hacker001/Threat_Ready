@@ -140,9 +140,10 @@ export const rateLimits = pgTable("rate_limits", {
 /* Every user gets a personal organisation at creation (L7 step 2).    */
 /* ------------------------------------------------------------------ */
 
-export const orgKind = pgEnum("org_kind", ["personal", "institute"]);
-export const memberRole = pgEnum("member_role", ["learner", "trial", "student", "instructor", "org_admin"]);
-export const planKind = pgEnum("plan_kind", ["trial", "free"]);
+export const orgKind = pgEnum("org_kind", ["personal", "institute", "business"]);
+/** learner/trial: the personal workspace. org_admin/manager/member: an organisation (migration 0012). student/instructor: reserved. */
+export const memberRole = pgEnum("member_role", ["learner", "trial", "student", "instructor", "org_admin", "manager", "member"]);
+export const planKind = pgEnum("plan_kind", ["trial", "free", "business_trial", "business"]);
 export const featureKey = pgEnum("feature_key", ["interview", "simulations", "reasoning"]);
 
 /** With a request user set: only organisations that user is a member of. */
@@ -153,9 +154,20 @@ export const organizations = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     kind: orgKind("kind").notNull().default("personal"),
+    /** Organisations only (migration 0012): pending = waiting for platform approval; suspended = members fall back to their personal plan. */
+    status: text("status").notNull().default("active"),
+    /** Organisations only: who it is for. Drives console copy, never permissions. */
+    segment: text("segment"),
+    /** The user who created the organisation (its first org admin). */
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
     ...timestamps,
   },
-  () => [pgPolicy("organizations_member_or_no_context", { for: "all", to: appRole, using: orgMemberOrNoContext, withCheck: orgMemberOrNoContext })],
+  () => [
+    check("organizations_status_check", sql`"status" IN ('pending', 'active', 'suspended')`),
+    check("organizations_segment_check", sql`"segment" IS NULL OR "segment" IN ('business', 'institute')`),
+    pgPolicy("organizations_member_or_no_context", { for: "all", to: appRole, using: orgMemberOrNoContext, withCheck: orgMemberOrNoContext }),
+  ],
 ).enableRLS();
 
 export const memberships = pgTable(
@@ -169,24 +181,104 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: memberRole("role").notNull(),
+    /** Organisation memberships only: a suspended member keeps the account and falls back to the personal plan. */
+    status: text("status").notNull().default("active"),
+    /** Who invited them (organisation memberships). */
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [
     uniqueIndex("memberships_org_user_uidx").on(t.orgId, t.userId),
     index("memberships_user_id_idx").on(t.userId),
+    index("memberships_org_id_idx").on(t.orgId),
     // One personal workspace per user (migration 0008); institute roles may repeat.
     uniqueIndex("memberships_personal_user_uidx").on(t.userId).where(sql`${t.role} in ('learner', 'trial')`),
+    // One organisation per user for now (business-accounts plan, phase 1): a member of two would need a workspace switcher.
+    // Spelled as "not a personal or reserved role": an enum cast in an index predicate is not immutable, and the new
+    // values (org_admin was there, manager and member are new) cannot be named in the migration that adds them.
+    uniqueIndex("memberships_org_member_user_uidx").on(t.userId).where(sql`${t.role} not in ('learner', 'trial', 'student', 'instructor')`),
+    check("memberships_status_check", sql`"status" IN ('active', 'suspended')`),
     pgPolicy("memberships_own_or_no_context", { for: "all", to: appRole, using: sql`${noUserContext} OR user_id = ${currentUser}`, withCheck: sql`${noUserContext} OR user_id = ${currentUser}` }),
   ],
 ).enableRLS();
 
-export const entitlements = pgTable("entitlements", {
-  orgId: uuid("org_id")
-    .primaryKey()
-    .references(() => organizations.id, { onDelete: "cascade" }),
-  plan: planKind("plan").notNull(),
-  ...timestamps,
-});
+export const entitlements = pgTable(
+  "entitlements",
+  {
+    orgId: uuid("org_id")
+      .primaryKey()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    plan: planKind("plan").notNull(),
+    /** Organisations: purchased seats (active members plus pending invitations may not exceed it). Personal workspaces: 1. */
+    seats: integer("seats").notNull().default(1),
+    /** Organisations: trialing | active | past_due | suspended | cancelled. Personal workspaces stay active. */
+    status: text("status").notNull().default("active"),
+    /** Trial end or renewal; null = open-ended. Launches on an organisation plan stop after it. */
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    /** Monthly AI budget (USD) the platform admin set; null = the plan's default. Recorded for the apps; informational until they enforce it. */
+    aiCapUsd: integer("ai_cap_usd"),
+    /** Free text from the platform admin: who agreed what (invoice number, PO, pilot terms). */
+    notes: text("notes"),
+    ...timestamps,
+  },
+  () => [
+    check("entitlements_seats_check", sql`"seats" >= 0`),
+    check("entitlements_status_check", sql`"status" IN ('trialing', 'active', 'past_due', 'suspended', 'cancelled')`),
+  ],
+);
+
+/**
+ * Invitations into an organisation (migration 0012). The token the email carries is never stored:
+ * only its SHA-256. One open invitation per address per organisation; accepted, expired and revoked
+ * rows are kept for the audit trail. No RLS: every query names the organisation it works for, and
+ * the organisation is taken from the caller's verified membership, never from the request.
+ */
+export const orgInvitations = pgTable(
+  "org_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /** Lower-cased */
+    email: text("email").notNull(),
+    role: text("role").notNull().default("member"),
+    tokenHash: text("token_hash").notNull().unique(),
+    invitedBy: text("invited_by").references(() => users.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedBy: text("accepted_by").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("org_invitations_org_idx").on(t.orgId),
+    index("org_invitations_email_idx").on(t.email),
+    uniqueIndex("org_invitations_open_uidx").on(t.orgId, t.email).where(sql`${t.acceptedAt} IS NULL AND ${t.revokedAt} IS NULL`),
+    check("org_invitations_role_check", sql`"role" IN ('member', 'manager')`),
+  ],
+);
+
+/** What organisation admins did (invites, removals, role changes) and what platform admins did to the organisation. Append-only. */
+export const orgAuditLog = pgTable(
+  "org_audit_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    action: text("action").notNull(),
+    actorId: text("actor_id").references(() => users.id, { onDelete: "set null" }),
+    actorEmail: text("actor_email"),
+    targetId: text("target_id").references(() => users.id, { onDelete: "set null" }),
+    targetEmail: text("target_email"),
+    detail: jsonb("detail").notNull().default({}),
+    ip: text("ip"),
+  },
+  // action+at: the platform-wide invitation email counts (migration 0014).
+  (t) => [index("org_audit_log_org_at_idx").on(t.orgId, t.at), index("org_audit_log_action_at_idx").on(t.action, t.at)],
+);
 
 /* ------------------------------------------------------------------ */
 /* User-owned data: RLS backstop (L7). The API sets app.user_id per    */
@@ -212,6 +304,8 @@ export const featureLaunches = pgTable(
     index("feature_launches_user_feature_created_idx").on(t.userId, t.feature, t.createdAt),
     pgPolicy("feature_launches_owner_select", { for: "select", to: appRole, using: ownRows }),
     pgPolicy("feature_launches_owner_insert", { for: "insert", to: appRole, withCheck: ownRows }),
+    // The organisation and admin consoles count launches per organisation with no request user set (migration 0012).
+    pgPolicy("feature_launches_no_context_select", { for: "select", to: appRole, using: noUserContext }),
   ],
 ).enableRLS();
 
@@ -323,6 +417,7 @@ export const adminAuditLog = pgTable(
     foreignKey({ name: "admin_audit_log_target_id_fkey", columns: [t.targetId], foreignColumns: [users.id] }).onDelete("set null"),
     index("admin_audit_log_at_idx").on(t.at),
     index("admin_audit_log_target_idx").on(t.targetId),
-    check("admin_audit_log_action_check", sql`"action" IN ('role.promote', 'role.demote', 'users.export', 'user.view')`),
+    // org.plan / org.status: a platform admin's changes to an organisation (migration 0013).
+    check("admin_audit_log_action_check", sql`"action" IN ('role.promote', 'role.demote', 'users.export', 'user.view', 'org.view', 'org.plan', 'org.status')`),
   ],
 );

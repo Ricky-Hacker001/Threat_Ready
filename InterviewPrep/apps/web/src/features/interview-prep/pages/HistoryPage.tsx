@@ -54,6 +54,7 @@ export default function HistoryPage() {
       ) : q.error && all.length === 0 ? null : items.length === 0 ? (
         <Empty
           icon={Sparkles}
+          level={2}
           title={all.length === 0 ? 'No interviews yet' : 'Nothing here'}
           action={all.length === 0 ? <Link to="/interview-prep/new" className="btn primary">Start your first interview</Link> : q.hasNextPage ? <LoadMore q={q} /> : undefined}
         >

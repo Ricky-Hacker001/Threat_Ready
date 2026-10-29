@@ -94,3 +94,39 @@ export function cameFromPlatform(
   if (from.origin !== new URL(here).origin) return appOrigins.includes(from.origin);
   return safeNext(referrer, [from.origin], homes) !== null;
 }
+
+/**
+ * Business sign-up: the account is created first (the same sign-up as everyone), and the organisation
+ * right after the first sign-in, from what the "For your team" tab remembered here. One use.
+ */
+const PENDING_ORG_KEY = "tr_pending_org";
+export interface PendingOrg {
+  name: string;
+  segment: "business" | "institute";
+}
+export function rememberPendingOrg(org: PendingOrg): void {
+  storage()?.setItem(PENDING_ORG_KEY, JSON.stringify(org));
+}
+export function takePendingOrg(): PendingOrg | null {
+  const s = storage();
+  const raw = s?.getItem(PENDING_ORG_KEY);
+  if (!raw) return null;
+  s?.removeItem(PENDING_ORG_KEY);
+  try {
+    const v = JSON.parse(raw) as Partial<PendingOrg>;
+    if (typeof v.name === "string" && (v.segment === "business" || v.segment === "institute")) return { name: v.name, segment: v.segment };
+  } catch {
+    /* malformed */
+  }
+  return null;
+}
+export function peekPendingOrg(): PendingOrg | null {
+  const raw = storage()?.getItem(PENDING_ORG_KEY);
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw) as Partial<PendingOrg>;
+    return typeof v.name === "string" && (v.segment === "business" || v.segment === "institute") ? { name: v.name, segment: v.segment } : null;
+  } catch {
+    return null;
+  }
+}
