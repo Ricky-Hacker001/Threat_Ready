@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "../db/db.js";
 import { entitlements, memberships, organizations } from "../db/schema.js";
 
@@ -17,7 +17,8 @@ export async function ensurePersonalWorkspace(db: Db, userId: string, role: Pers
     const existing = await tx
       .select({ id: memberships.id })
       .from(memberships)
-      .where(eq(memberships.userId, userId))
+      // Personal memberships only: from onboard migration 0012 a user may also hold an organisation membership.
+      .where(and(eq(memberships.userId, userId), sql`${memberships.role} in ('learner', 'trial')`))
       .limit(1);
     if (existing.length > 0) return;
 
@@ -45,7 +46,9 @@ export async function findPersonalMembership(db: Db, userId: string): Promise<Me
     .from(memberships)
     .innerJoin(organizations, eq(organizations.id, memberships.orgId))
     .innerJoin(entitlements, eq(entitlements.orgId, memberships.orgId))
-    .where(eq(memberships.userId, userId))
+    // Personal memberships only: from onboard migration 0012 a user may also hold an organisation
+    // membership, and without this filter limit(1) could return it first (403 NO_MEMBERSHIP).
+    .where(and(eq(memberships.userId, userId), sql`${memberships.role} in ('learner', 'trial')`))
     .limit(1);
   const row = rows[0];
   if (!row) return null;
