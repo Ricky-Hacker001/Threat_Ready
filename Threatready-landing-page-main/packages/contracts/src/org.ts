@@ -164,7 +164,8 @@ export interface OrgMemberList {
 /** `POST /api/org/invitations` result: what was sent and what was skipped, per address. */
 export interface OrgInviteResult {
   sent: { email: string; id: string; expiresAt: string }[];
-  skipped: { email: string; reason: "already_member" | "already_invited" | "no_seats" | "invalid" | "self" }[];
+  /** too_many_emails: the address has had its invitation emails for today, from every organisation together. */
+  skipped: { email: string; reason: "already_member" | "already_invited" | "no_seats" | "invalid" | "self" | "too_many_emails" }[];
   seats: OrgSummary["seats"];
 }
 

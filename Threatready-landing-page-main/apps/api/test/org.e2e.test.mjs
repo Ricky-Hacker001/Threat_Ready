@@ -386,6 +386,24 @@ describe("business accounts: invitations and seats", () => {
     assert.equal(after.used, 2, "still the admin and the reinstated member");
   });
 
+  test("one address gets at most three invitation emails a day, from every organisation together", async () => {
+    const first = await orgWithAdmin();
+    const target = `cap_${uid()}@example.test`;
+    const sent = await first.c.post("/api/org/invitations", { emails: [target], role: "member" });
+    assert.equal(sent.json.sent.length, 1, sent.text);
+    const resend = () => first.c.post(`/api/org/invitations/${sent.json.sent[0].id}/resend`);
+    assert.equal((await resend()).status, 200);
+    assert.equal((await resend()).status, 200);
+    const fourth = await resend();
+    assert.equal(fourth.status, 429, fourth.text);
+    assert.equal(fourth.json.code, "ORG_INVITE_ADDRESS_LIMIT");
+    const second = await orgWithAdmin();
+    const elsewhere = await second.c.post("/api/org/invitations", { emails: [target], role: "member" });
+    assert.equal(elsewhere.status, 201, elsewhere.text);
+    assert.equal(elsewhere.json.sent.length, 0);
+    assert.deepEqual(elsewhere.json.skipped, [{ email: target, reason: "too_many_emails" }]);
+  });
+
   test("an expired invitation cannot be accepted and is reported as expired", async () => {
     const admin = await orgWithAdmin();
     const invitee = `exp_${uid()}@example.test`;

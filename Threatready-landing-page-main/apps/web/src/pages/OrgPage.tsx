@@ -404,6 +404,7 @@ export function OrgInvitePage() {
     no_seats: "no seat free",
     invalid: "not a valid email address",
     self: "that's you",
+    too_many_emails: "had enough invitation emails today",
   };
 
   return (

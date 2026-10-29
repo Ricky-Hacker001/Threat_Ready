@@ -76,7 +76,9 @@ services:
         sync: false
       # --- Business accounts: "true" queues every new organisation for approval in the admin console
       #     (default self-serve). Trial size and invitation settings: ORG_TRIAL_SEATS, ORG_TRIAL_DAYS,
-      #     ORG_INVITE_TTL_DAYS, ORG_INVITES_PER_DAY (docs/BUSINESS_ACCOUNTS.md). ---
+      #     ORG_INVITE_TTL_DAYS, ORG_INVITES_PER_DAY (20 per organisation) and ORG_INVITES_PLATFORM_PER_DAY
+      #     (50 for all organisations: invitations share the Resend account with sign-up and sign-in codes,
+      #     so keep it under the plan's daily quota; raise both on a paid plan) (docs/BUSINESS_ACCOUNTS.md). ---
       - key: ORG_APPROVAL_REQUIRED
         sync: false
       # --- Optional: error tracking (Sentry project DSN). Forwarded to the APIs; without it the

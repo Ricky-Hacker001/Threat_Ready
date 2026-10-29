@@ -25,6 +25,10 @@ const LIMIT_MESSAGES: Record<string, (retryAfter: number | undefined) => string>
   ACCOUNT_LOCKED: (s) =>
     `Too many wrong passwords for this username, so sign-in is paused. ${retryPhrase(s, "You can try again")} To get in now, reset your password.`,
   OTP_EMAIL_LIMIT: (s) => `Several codes were already sent to this email. Use the most recent one. ${retryPhrase(s, "You can ask for a new code")}`,
+  // Invitation emails (business accounts): per organisation, across ThreatReady, per address; each a rolling day.
+  ORG_INVITE_LIMIT: () => "Your organisation has sent its invitations for today. Try again tomorrow.",
+  ORG_INVITES_PAUSED: () => "Invitation emails are paused for today. Try again tomorrow.",
+  ORG_INVITE_ADDRESS_LIMIT: () => "This address has had enough invitation emails today. Resend it tomorrow.",
 };
 
 /** OAuth errors come back on the URL as ?error=... */

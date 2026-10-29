@@ -5,10 +5,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  INVITE_EMAILS_PER_ADDRESS_PER_DAY,
   INVITE_TOKEN_SHAPE,
   freeSeats,
   hashInviteToken,
   invitationState,
+  inviteAllowance,
   maskEmail,
   newInviteToken,
   planAccept,
@@ -207,4 +209,16 @@ test("the organisation's audit log read as plan history", () => {
   assert.deepEqual(ev({ action: "org.update", detail: { from: "active", to: "pending", by: "platform_admin" } }).map((e) => e.event), [{ at, orgStatus: "pending" }]);
   assert.deepEqual(ev({ action: "plan.set", detail: { to: { status: "bogus", periodEnd: null } } }), [], "unreadable rows are left out");
   assert.deepEqual(ev({ action: "invite.send", detail: { email: "a@x.io" } }), []);
+});
+
+test("invitation emails: the organisation's daily limit, the platform's (under the email quota), and each address's", () => {
+  assert.deepEqual(inviteAllowance({ orgSent: 5, orgCap: 20, platformSent: 10, platformCap: 50 }), { left: 15, code: null });
+  assert.deepEqual(inviteAllowance({ orgSent: 5, orgCap: 20, platformSent: 45, platformCap: 50 }), { left: 5, code: null }, "the platform's budget is shared by every organisation");
+  assert.equal(inviteAllowance({ orgSent: 20, orgCap: 20, platformSent: 0, platformCap: 50 }).code, "ORG_INVITE_LIMIT");
+  assert.equal(inviteAllowance({ orgSent: 0, orgCap: 20, platformSent: 50, platformCap: 50 }).code, "ORG_INVITES_PAUSED");
+  assert.equal(inviteAllowance({ orgSent: 500, orgCap: 0, platformSent: 500, platformCap: 0 }).left, Number.POSITIVE_INFINITY, "0 = no limit");
+  const r = planInvites(["a@x.io", "b@x.io"], { selfEmail: null, memberEmails: new Set(), openInviteEmails: new Set(), overEmailed: new Set(["a@x.io"]), seatsAvailable: 5, valid: () => true });
+  assert.deepEqual(r.send, ["b@x.io"]);
+  assert.deepEqual(r.skipped, [{ email: "a@x.io", reason: "too_many_emails" }]);
+  assert.equal(INVITE_EMAILS_PER_ADDRESS_PER_DAY, 3);
 });

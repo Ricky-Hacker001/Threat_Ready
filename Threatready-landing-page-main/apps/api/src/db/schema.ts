@@ -276,7 +276,8 @@ export const orgAuditLog = pgTable(
     detail: jsonb("detail").notNull().default({}),
     ip: text("ip"),
   },
-  (t) => [index("org_audit_log_org_at_idx").on(t.orgId, t.at)],
+  // action+at: the platform-wide invitation email counts (migration 0014).
+  (t) => [index("org_audit_log_org_at_idx").on(t.orgId, t.at), index("org_audit_log_action_at_idx").on(t.action, t.at)],
 );
 
 /* ------------------------------------------------------------------ */

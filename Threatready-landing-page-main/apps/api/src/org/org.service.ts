@@ -30,11 +30,13 @@ import { orgInviteEmail } from "../email/templates.js";
 import { AppsClient } from "../platform/apps.client.js";
 import { inPlanWindows, isOrgRole, planWindows, spanInPlanWindow, type PlanHistoryEvent, type PlanWindow } from "../tenancy/tenancy.js";
 import {
+  INVITE_EMAILS_PER_ADDRESS_PER_DAY,
   INVITE_TOKEN_SHAPE,
   PLAN_HISTORY_ACTIONS,
   freeSeats,
   hashInviteToken,
   invitationState,
+  inviteAllowance,
   maskEmail,
   newInviteToken,
   planAccept,
@@ -432,14 +434,37 @@ export class OrgService {
     };
   }
 
+  /**
+   * Invitation emails that may go out now (org-rules.ts inviteAllowance): this organisation's daily
+   * limit and the platform's, counted from the audit log's invite.send/invite.resend rows of the last
+   * 24 hours. Refused with 429 when either is used up.
+   */
   private async inviteLimitLeft(orgId: string, now = new Date()): Promise<number> {
-    const cap = this.config.ORG_INVITES_PER_DAY;
-    if (cap <= 0) return Number.POSITIVE_INFINITY;
-    const [r] = await this.db
-      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+    const sent = (scope?: string) =>
+      this.db
+        .select({ n: sql<number>`count(*)`.mapWith(Number) })
+        .from(orgAuditLog)
+        .where(and(inArray(orgAuditLog.action, ["invite.send", "invite.resend"]), gte(orgAuditLog.at, new Date(now.getTime() - DAY)), scope ? eq(orgAuditLog.orgId, scope) : undefined))
+        .then(([r]) => r?.n ?? 0);
+    const platformCap = Math.ceil(this.config.ORG_INVITES_PLATFORM_PER_DAY * this.config.RATE_LIMIT_MULTIPLIER);
+    const [orgSent, platformSent] = await Promise.all([sent(orgId), platformCap > 0 ? sent() : Promise.resolve(0)]);
+    const allowance = inviteAllowance({ orgSent, orgCap: this.config.ORG_INVITES_PER_DAY, platformSent, platformCap });
+    if (allowance.code) throw new HttpException({ code: allowance.code, message: allowance.message }, 429);
+    return allowance.left;
+  }
+
+  /** Invitation emails each address had in the last 24 hours, from every organisation (INVITE_EMAILS_PER_ADDRESS_PER_DAY). */
+  private async emailsToday(addresses: string[], now = new Date()): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (!addresses.length) return out;
+    const email = sql<string>`${orgAuditLog.detail}->>'email'`;
+    const rows = await this.db
+      .select({ email, n: sql<number>`count(*)`.mapWith(Number) })
       .from(orgAuditLog)
-      .where(and(eq(orgAuditLog.orgId, orgId), inArray(orgAuditLog.action, ["invite.send", "invite.resend"]), gte(orgAuditLog.at, new Date(now.getTime() - DAY))));
-    return Math.max(0, cap - (r?.n ?? 0));
+      .where(and(inArray(orgAuditLog.action, ["invite.send", "invite.resend"]), gte(orgAuditLog.at, new Date(now.getTime() - DAY)), inArray(email, addresses)))
+      .groupBy(email);
+    for (const r of rows) out.set(r.email, r.n);
+    return out;
   }
 
   private acceptUrl(token: string): string {
@@ -450,7 +475,8 @@ export class OrgService {
     const orgId = this.orgOf(p);
     if (p.org!.status === "suspended") throw new ForbiddenException({ code: "ORG_SUSPENDED", message: "The organisation is suspended; invitations are paused." });
     const left = await this.inviteLimitLeft(orgId);
-    if (left <= 0) throw new HttpException({ code: "ORG_INVITE_LIMIT", message: "This organisation has sent its daily limit of invitations. Try again tomorrow." }, 429);
+    const today = await this.emailsToday([...new Set(body.emails.map((e) => e.trim().toLowerCase()))]);
+    const overEmailed = new Set([...today].filter(([, n]) => n >= INVITE_EMAILS_PER_ADDRESS_PER_DAY).map(([e]) => e));
     const now = new Date();
     const ttl = this.config.ORG_INVITE_TTL_DAYS;
     const toSend: { email: string; token: string }[] = [];
@@ -479,6 +505,7 @@ export class OrgService {
         selfEmail: p.email?.toLowerCase() ?? null,
         memberEmails,
         openInviteEmails: open,
+        overEmailed,
         seatsAvailable: Math.min(org.seats.available, left),
         valid: (e) => emailSchema.safeParse(e).success,
       });
@@ -516,8 +543,11 @@ export class OrgService {
   async resend(p: Principal, id: string, ip: string | null): Promise<OrgInvitationRow> {
     const orgId = this.orgOf(p);
     if (p.org!.status === "suspended") throw new ForbiddenException({ code: "ORG_SUSPENDED", message: "The organisation is suspended; invitations are paused." });
-    if ((await this.inviteLimitLeft(orgId)) <= 0) throw new HttpException({ code: "ORG_INVITE_LIMIT", message: "This organisation has sent its daily limit of invitations. Try again tomorrow." }, 429);
+    await this.inviteLimitLeft(orgId);
     const inv = await this.openInvitation(orgId, id);
+    if (((await this.emailsToday([inv.email])).get(inv.email) ?? 0) >= INVITE_EMAILS_PER_ADDRESS_PER_DAY) {
+      throw new HttpException({ code: "ORG_INVITE_ADDRESS_LIMIT", message: `This address has had ${INVITE_EMAILS_PER_ADDRESS_PER_DAY} invitation emails today. Resend it tomorrow.` }, 429);
+    }
     const { token, hash } = newInviteToken();
     const ttl = this.config.ORG_INVITE_TTL_DAYS;
     const expiresAt = new Date(Date.now() + ttl * DAY);

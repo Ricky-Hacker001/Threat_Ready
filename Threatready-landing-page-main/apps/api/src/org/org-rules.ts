@@ -223,6 +223,24 @@ export function planHistoryEvents(row: { at: Date; action: string; targetId: str
 
 /* ---------------- Inviting ---------------- */
 
+/** Invitation emails one address may receive per rolling 24 hours, from every organisation together (new and resent). */
+export const INVITE_EMAILS_PER_ADDRESS_PER_DAY = 3;
+
+export type InviteAllowance = { left: number; code: null } | { left: 0; code: "ORG_INVITE_LIMIT" | "ORG_INVITES_PAUSED"; message: string };
+
+/**
+ * How many invitation emails may go out now: the organisation's own daily limit and the platform's
+ * (ORG_INVITES_PLATFORM_PER_DAY, kept under the email provider's daily quota, which sign-up and
+ * sign-in codes share). A cap of 0 means no limit.
+ */
+export function inviteAllowance(f: { orgSent: number; orgCap: number; platformSent: number; platformCap: number }): InviteAllowance {
+  const orgLeft = f.orgCap <= 0 ? Number.POSITIVE_INFINITY : f.orgCap - f.orgSent;
+  const platformLeft = f.platformCap <= 0 ? Number.POSITIVE_INFINITY : f.platformCap - f.platformSent;
+  if (platformLeft <= 0) return { left: 0, code: "ORG_INVITES_PAUSED", message: "Invitation emails are paused for today across ThreatReady. Try again tomorrow." };
+  if (orgLeft <= 0) return { left: 0, code: "ORG_INVITE_LIMIT", message: "This organisation has sent its daily limit of invitations. Try again tomorrow." };
+  return { left: Math.min(orgLeft, platformLeft), code: null };
+}
+
 /** Resending: an expired invitation holds no seat, so renewing it needs a free one (a live invitation already holds its seat). */
 export function planResend(f: { state: InvitationState; seatsFree: number }): ChangePlan {
   if (f.state === "accepted" || f.state === "revoked") return no(409, "INVITE_CLOSED", "This invitation is no longer open.");
@@ -232,15 +250,16 @@ export function planResend(f: { state: InvitationState; seatsFree: number }): Ch
   return { ok: true };
 }
 
-export type SkipReason = "already_member" | "already_invited" | "no_seats" | "invalid" | "self";
+export type SkipReason = "already_member" | "already_invited" | "no_seats" | "invalid" | "self" | "too_many_emails";
 
 /**
  * Which addresses of a batch get an invitation. Duplicates in the batch count once; seats are taken
- * in the order given; the caller's own address is skipped (they are already in).
+ * in the order given; the caller's own address is skipped (they are already in), and so is an
+ * address that has had INVITE_EMAILS_PER_ADDRESS_PER_DAY invitation emails today (overEmailed).
  */
 export function planInvites(
   emails: string[],
-  facts: { selfEmail: string | null; memberEmails: ReadonlySet<string>; openInviteEmails: ReadonlySet<string>; seatsAvailable: number; valid: (email: string) => boolean },
+  facts: { selfEmail: string | null; memberEmails: ReadonlySet<string>; openInviteEmails: ReadonlySet<string>; overEmailed?: ReadonlySet<string>; seatsAvailable: number; valid: (email: string) => boolean },
 ): { send: string[]; skipped: { email: string; reason: SkipReason }[] } {
   const send: string[] = [];
   const skipped: { email: string; reason: SkipReason }[] = [];
@@ -254,6 +273,7 @@ export function planInvites(
     else if (facts.selfEmail && email === facts.selfEmail) skipped.push({ email, reason: "self" });
     else if (facts.memberEmails.has(email)) skipped.push({ email, reason: "already_member" });
     else if (facts.openInviteEmails.has(email)) skipped.push({ email, reason: "already_invited" });
+    else if (facts.overEmailed?.has(email)) skipped.push({ email, reason: "too_many_emails" });
     else if (seats <= 0) skipped.push({ email, reason: "no_seats" });
     else {
       seats -= 1;

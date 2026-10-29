@@ -115,7 +115,14 @@ const envSchema = z
     /** An invitation link works this long; after that the admin resends it. */
     ORG_INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
     /** Invitations one organisation may send per rolling 24 hours (new and resent). 0 = no limit. */
-    ORG_INVITES_PER_DAY: z.coerce.number().int().min(0).default(200),
+    ORG_INVITES_PER_DAY: z.coerce.number().int().min(0).default(20),
+    /**
+     * Invitation emails all organisations together may send per rolling 24 hours (new and resent).
+     * They go through the same email account as sign-up, sign-in and reset codes: keep this under
+     * the provider's daily quota (Resend's free plan: 100 a day). 0 = no limit. Scaled by
+     * RATE_LIMIT_MULTIPLIER, which is 1 in production.
+     */
+    ORG_INVITES_PLATFORM_PER_DAY: z.coerce.number().int().min(0).default(50),
     /** Members' per-app summaries the organisation console fetches at once (reports). */
     ORG_REPORT_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
     /** Public origins the browser is sent to. */

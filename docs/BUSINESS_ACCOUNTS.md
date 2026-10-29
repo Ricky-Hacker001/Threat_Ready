@@ -39,7 +39,8 @@ An organisation (a company, team or institute) owns seats, a plan and the people
 | `ORG_APPROVAL_REQUIRED` | `false` | `true` creates organisations as `pending`: invitations work, launches stay on personal plans until a platform admin approves (admin console → Organisations). Approving starts the trial's `ORG_TRIAL_DAYS` from then (a later period end set by hand is kept). |
 | `ORG_TRIAL_SEATS` / `ORG_TRIAL_DAYS` | 5 / 14 | The trial every new organisation starts on. |
 | `ORG_INVITE_TTL_DAYS` | 7 | How long an invitation link works. |
-| `ORG_INVITES_PER_DAY` | 200 | Invitations (new + resent) one organisation may send per rolling day; 0 = no limit. |
+| `ORG_INVITES_PER_DAY` | 20 | Invitation emails (new + resent) one organisation may send per rolling day; 0 = no limit. |
+| `ORG_INVITES_PLATFORM_PER_DAY` | 50 | Invitation emails all organisations together may send per rolling day (scaled by `RATE_LIMIT_MULTIPLIER`, 1 in production); 0 = no limit. Invitations go through the same email account as sign-up, sign-in and reset codes: keep this under the provider's daily quota (Resend free: 100 a day), and raise both caps on a paid plan. One address gets at most 3 invitation emails a day from every organisation together (`INVITE_EMAILS_PER_ADDRESS_PER_DAY`); further ones are skipped (`too_many_emails`) or refused (`ORG_INVITE_ADDRESS_LIMIT`). |
 | `ORG_REPORT_CONCURRENCY` | 4 | Reserved for batched member reports. |
 
 Plans and per-seat limits are placeholders in `packages/contracts/src/index.ts` (`PLAN_LIMITS`, `PLAN_INFO`): business trial 5 interviews / unlimited labs / 20 reasoning per seat per month; business 20 / unlimited / 100. Change the figures there; the SPA reads the same table.
