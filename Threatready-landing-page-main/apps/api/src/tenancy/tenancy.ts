@@ -127,6 +127,68 @@ export function orgPlanApplies(m: Pick<OrgMembership, "orgStatus" | "memberStatu
   return true;
 }
 
+/** A change, from the organisation's audit log, to one of the facts orgPlanApplies reads. */
+export type PlanHistoryEvent = { at: Date } & ({ orgStatus: OrgStatus } | { memberStatus: MemberStatus } | { planStatus: PlanStatus; periodEnd: Date | null });
+
+export interface PlanWindow {
+  from: Date;
+  to: Date;
+}
+
+/** The end of a window still open: the plan applies and nothing has changed since. */
+const OPEN_END = new Date(8.64e15);
+
+/**
+ * When the organisation's plan applied to one member: orgPlanApplies over time, from the moment they
+ * joined, rebuilt from the organisation's history (org-rules.ts planHistoryEvents). Before joining,
+ * while suspended, while the organisation waited for approval or was suspended, and once the plan
+ * lapsed, the member was in their personal workspace, which the organisation console never shows.
+ * Events before joining set the organisation's and the plan's state; the member's own events before
+ * joining belong to an earlier membership and are ignored. No history: an active, open-ended plan.
+ */
+export function planWindows(joinedAt: Date, history: readonly PlanHistoryEvent[]): PlanWindow[] {
+  const events = [...history].sort((a, b) => a.at.getTime() - b.at.getTime());
+  const state: Pick<OrgMembership, "orgStatus" | "memberStatus" | "planStatus" | "periodEnd"> = { orgStatus: "active", memberStatus: "active", planStatus: "active", periodEnd: null };
+  const apply = (e: PlanHistoryEvent) => {
+    if ("orgStatus" in e) state.orgStatus = e.orgStatus;
+    else if ("memberStatus" in e) state.memberStatus = e.memberStatus;
+    else {
+      state.planStatus = e.planStatus;
+      state.periodEnd = e.periodEnd;
+    }
+  };
+  const out: PlanWindow[] = [];
+  const segment = (from: Date, to: Date) => {
+    if (!orgPlanApplies(state, from)) return;
+    const end = state.periodEnd && state.periodEnd.getTime() < to.getTime() ? state.periodEnd : to;
+    if (end.getTime() <= from.getTime()) return;
+    const last = out[out.length - 1];
+    if (last && last.to.getTime() >= from.getTime()) last.to = end.getTime() > last.to.getTime() ? end : last.to;
+    else out.push({ from, to: end });
+  };
+  for (const e of events) if (e.at.getTime() <= joinedAt.getTime() && !("memberStatus" in e)) apply(e);
+  let cursor = joinedAt;
+  for (const e of events) {
+    if (e.at.getTime() <= joinedAt.getTime()) continue;
+    segment(cursor, e.at);
+    apply(e);
+    cursor = e.at;
+  }
+  segment(cursor, OPEN_END);
+  return out;
+}
+
+/** Whether a moment falls inside one of the windows. An unparseable date never does. */
+export function inPlanWindows(at: Date, windows: readonly PlanWindow[]): boolean {
+  const t = at.getTime();
+  return windows.some((w) => t >= w.from.getTime() && t < w.to.getTime());
+}
+
+/** Whether a whole span (a day's activity in one area: first to last ping) falls inside one window. */
+export function spanInPlanWindow(from: Date, to: Date, windows: readonly PlanWindow[]): boolean {
+  return windows.some((w) => from.getTime() >= w.from.getTime() && to.getTime() < w.to.getTime());
+}
+
 export function toOrgContext(m: OrgMembership, now = new Date()): OrgContext {
   return {
     id: m.orgId,

@@ -1,5 +1,6 @@
-import type { MemberStatus, OrgRole, OrgSummary } from "@threatready/contracts";
+import { orgStatusSchema, planStatusSchema, type MemberStatus, type OrgRole, type OrgSummary } from "@threatready/contracts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import type { PlanHistoryEvent } from "../tenancy/tenancy.js";
 
 /**
  * The rules of a business account as pure decisions (no database), so they can be unit-tested the
@@ -166,6 +167,58 @@ export function planLeave(self: { role: OrgRole; status: MemberStatus }, activeA
     return no(400, "ORG_LAST_ADMIN", "You're the organisation's last admin. Make someone else an admin before leaving.");
   }
   return { ok: true };
+}
+
+/* ---------------- What the console may show of a member ---------------- */
+
+/** The audit log actions that change whether the organisation's plan applies to a member. */
+export const PLAN_HISTORY_ACTIONS = ["org.create", "org.approve", "org.reinstate", "org.suspend", "org.update", "plan.set", "member.suspend", "member.reinstate"] as const;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * One org_audit_log row as history for planWindows (tenancy.ts): org.create carries the starting
+ * status and the trial's length, approval may restart the trial, plan.set carries the plan's new
+ * status and period end, member.suspend/member.reinstate name the member (memberId; null = the
+ * whole organisation). Anything unreadable is left out.
+ */
+export function planHistoryEvents(row: { at: Date; action: string; targetId: string | null; detail: unknown }): { memberId: string | null; event: PlanHistoryEvent }[] {
+  const d = (row.detail && typeof row.detail === "object" ? row.detail : {}) as Record<string, unknown>;
+  const at = row.at;
+  const orgEvent = (status: unknown) => {
+    const s = orgStatusSchema.safeParse(status);
+    return s.success ? [{ memberId: null, event: { at, orgStatus: s.data } }] : [];
+  };
+  const planEvent = (status: unknown, periodEnd: unknown) => {
+    const s = planStatusSchema.safeParse(status);
+    const end = typeof periodEnd === "string" ? new Date(periodEnd) : null;
+    if (!s.success || (end && Number.isNaN(end.getTime())) || (periodEnd !== null && typeof periodEnd !== "string")) return [];
+    return [{ memberId: null, event: { at, planStatus: s.data, periodEnd: end } }];
+  };
+  switch (row.action) {
+    case "org.create":
+      return [...orgEvent(d.status), ...(typeof d.trialDays === "number" ? planEvent("trialing", new Date(at.getTime() + d.trialDays * DAY_MS).toISOString()) : [])];
+    case "org.approve": {
+      const trial = d.trial as Record<string, unknown> | undefined;
+      return [...orgEvent("active"), ...(trial && typeof trial.to === "string" ? planEvent("trialing", trial.to) : [])];
+    }
+    case "org.reinstate":
+      return orgEvent("active");
+    case "org.suspend":
+      return orgEvent("suspended");
+    case "org.update":
+      // A platform admin may set any status (logged as org.update when it is none of the above); an org admin's rename carries none.
+      return d.by === "platform_admin" ? orgEvent(d.to) : [];
+    case "plan.set": {
+      const to = d.to as Record<string, unknown> | undefined;
+      return to ? planEvent(to.status, to.periodEnd ?? null) : [];
+    }
+    case "member.suspend":
+    case "member.reinstate":
+      return row.targetId ? [{ memberId: row.targetId, event: { at, memberStatus: row.action === "member.suspend" ? "suspended" : "active" } }] : [];
+    default:
+      return [];
+  }
 }
 
 /* ---------------- Inviting ---------------- */

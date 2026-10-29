@@ -27,17 +27,18 @@ import { DB, type Db, type Tx } from "../db/db.js";
 import { activityDays, entitlements, featureLaunches, memberships, orgAuditLog, orgInvitations, organizations, sessions, users } from "../db/schema.js";
 import { EMAIL_PORT, dispatch, type EmailPort } from "../email/email.port.js";
 import { orgInviteEmail } from "../email/templates.js";
-import { lastApps, secondsByUser, userActivity } from "../admin/activity.queries.js";
 import { AppsClient } from "../platform/apps.client.js";
-import { isOrgRole } from "../tenancy/tenancy.js";
+import { inPlanWindows, isOrgRole, planWindows, spanInPlanWindow, type PlanHistoryEvent, type PlanWindow } from "../tenancy/tenancy.js";
 import {
   INVITE_TOKEN_SHAPE,
+  PLAN_HISTORY_ACTIONS,
   freeSeats,
   hashInviteToken,
   invitationState,
   maskEmail,
   newInviteToken,
   planAccept,
+  planHistoryEvents,
   planInvites,
   planLeave,
   planRemoval,
@@ -223,16 +224,19 @@ export class OrgService {
       .from(sessions)
       .innerJoin(memberships, and(eq(memberships.userId, sessions.userId), eq(memberships.orgId, orgId)))
       .where(gte(sessions.updatedAt, new Date(now.getTime() - 7 * DAY)));
-    const [time] = await this.db
-      .select({ seconds: sql<number>`coalesce(sum(${activityDays.seconds}), 0)`.mapWith(Number) })
-      .from(activityDays)
-      .innerJoin(memberships, and(eq(memberships.userId, activityDays.userId), eq(memberships.orgId, orgId)))
-      .where(gte(activityDays.day, since.toISOString().slice(0, 10)));
+    // Time on the organisation's plan only (planWindows), like a member's own page.
+    const people = await this.db
+      .select({ userId: memberships.userId, joinedAt: memberships.createdAt })
+      .from(memberships)
+      .where(and(eq(memberships.orgId, orgId), sql`${memberships.role} in ('org_admin', 'manager', 'member')`))
+      .limit(MAX_MEMBERS_LISTED);
+    const windows = await this.planWindowsOf(orgId, people);
+    const time = await this.activityOnPlan(windows, since);
     return {
       since: since.toISOString(),
       launches: FEATURE_KEYS.map((feature) => ({ feature, count: launches.find((l) => l.feature === feature)?.count ?? 0 })),
       activeMembers7d: active?.n ?? 0,
-      seconds: time?.seconds ?? 0,
+      seconds: time.reduce((n, r) => n + r.seconds, 0),
     };
   }
 
@@ -278,7 +282,69 @@ export class OrgService {
     }));
   }
 
+  /**
+   * When the organisation's plan applied to each member (tenancy.ts planWindows), from the
+   * organisation's audit log: the console shows a member's activity from inside these windows only.
+   * The apps do not record the organisation on their rows yet (phase 2), so the windows are how
+   * onboard tells organisation time from personal-workspace time.
+   */
+  private async planWindowsOf(orgId: string, members: { userId: string; joinedAt: Date }[]): Promise<Map<string, PlanWindow[]>> {
+    const out = new Map<string, PlanWindow[]>();
+    if (!members.length) return out;
+    const rows = await this.db
+      .select({ at: orgAuditLog.at, action: orgAuditLog.action, targetId: orgAuditLog.targetId, detail: orgAuditLog.detail })
+      .from(orgAuditLog)
+      .where(and(eq(orgAuditLog.orgId, orgId), inArray(orgAuditLog.action, [...PLAN_HISTORY_ACTIONS])))
+      .orderBy(orgAuditLog.at, orgAuditLog.id);
+    const orgWide: PlanHistoryEvent[] = [];
+    const own = new Map<string, PlanHistoryEvent[]>();
+    for (const r of rows) {
+      for (const { memberId, event } of planHistoryEvents(r)) {
+        if (!memberId) orgWide.push(event);
+        else own.set(memberId, [...(own.get(memberId) ?? []), event]);
+      }
+    }
+    for (const m of members) out.set(m.userId, planWindows(m.joinedAt, [...orgWide, ...(own.get(m.userId) ?? [])]));
+    return out;
+  }
+
+  /** Members' time rows (per UTC day, app and area) since `since`, kept only when the whole row (first to last ping) fell while on the plan. */
+  private async activityOnPlan(windows: Map<string, PlanWindow[]>, since: Date) {
+    const ids = [...windows.keys()];
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({ userId: activityDays.userId, app: activityDays.app, area: activityDays.area, seconds: activityDays.seconds, firstAt: activityDays.firstAt, lastAt: activityDays.lastAt })
+      .from(activityDays)
+      .where(and(inArray(activityDays.userId, ids), gte(activityDays.day, since.toISOString().slice(0, 10))));
+    return rows.filter((r) => spanInPlanWindow(r.firstAt, r.lastAt, windows.get(r.userId) ?? []));
+  }
+
+  /** Where each member was last active while on the plan: their 20 latest rows since joining, the first inside a window. */
+  private async lastAppsOnPlan(orgId: string, windows: Map<string, PlanWindow[]>): Promise<Map<string, OrgMemberRow["lastApp"]>> {
+    const out = new Map<string, OrgMemberRow["lastApp"]>();
+    const ids = [...windows.keys()];
+    if (!ids.length) return out;
+    const res = await this.db.execute(sql`
+      select user_id, app, area, last_at from (
+        select a.user_id, a.app, a.area, a.last_at, row_number() over (partition by a.user_id order by a.last_at desc) as rn
+        from ${activityDays} a
+        join ${memberships} m on m.user_id = a.user_id and m.org_id = ${orgId} and m.role in ('org_admin', 'manager', 'member')
+        where a.user_id in (${sql.join(ids.map((id) => sql`${id}`), sql`, `)}) and a.last_at >= m.created_at
+      ) t where rn <= 20 order by user_id, last_at desc`);
+    for (const r of res.rows as { user_id: string; app: string; area: string; last_at: Date | string }[]) {
+      const at = new Date(r.last_at);
+      if (out.has(r.user_id) || !inPlanWindows(at, windows.get(r.user_id) ?? [])) continue;
+      out.set(r.user_id, { app: r.app as NonNullable<OrgMemberRow["lastApp"]>["app"], area: r.area, at: at.toISOString() });
+    }
+    return out;
+  }
+
   private async memberRows(orgId: string, userId?: string): Promise<OrgMemberRow[]> {
+    return (await this.memberRowsOnPlan(orgId, userId)).rows;
+  }
+
+  /** The People rows: launches on the organisation (feature_launches.org_id), time and last app on its plan only. */
+  private async memberRowsOnPlan(orgId: string, userId?: string): Promise<{ rows: OrgMemberRow[]; windows: Map<string, PlanWindow[]> }> {
     const since = monthStart();
     const ss = this.db
       .select({ userId: sessions.userId, lastSeenAt: sql<Date | null>`max(${sessions.updatedAt})`.as("last_seen_at") })
@@ -293,15 +359,18 @@ export class OrgService {
       .where(and(eq(memberships.orgId, orgId), sql`${memberships.role} in ('org_admin', 'manager', 'member')`, userId ? eq(memberships.userId, userId) : undefined))
       .orderBy(memberships.createdAt)
       .limit(MAX_MEMBERS_LISTED);
-    if (!rows.length) return [];
+    if (!rows.length) return { rows: [], windows: new Map() };
     const ids = rows.map((r) => r.u.id);
     const launches = await this.db
       .select({ userId: featureLaunches.userId, feature: featureLaunches.feature, count: sql<number>`count(*)`.mapWith(Number) })
       .from(featureLaunches)
       .where(and(eq(featureLaunches.orgId, orgId), gte(featureLaunches.createdAt, since), inArray(featureLaunches.userId, ids)))
       .groupBy(featureLaunches.userId, featureLaunches.feature);
-    const [secs, recent] = await Promise.all([secondsByUser(this.db, { from: since, to: new Date() }), lastApps(this.db, userId)]);
-    return rows.map(({ m, u, lastSeenAt }) => {
+    const windows = await this.planWindowsOf(orgId, rows.map(({ m }) => ({ userId: m.userId, joinedAt: m.createdAt })));
+    const [time, recent] = await Promise.all([this.activityOnPlan(windows, since), this.lastAppsOnPlan(orgId, windows)]);
+    const secs = new Map<string, number>();
+    for (const r of time) secs.set(r.userId, (secs.get(r.userId) ?? 0) + r.seconds);
+    const out = rows.map(({ m, u, lastSeenAt }): OrgMemberRow => {
       const l: Partial<Record<FeatureKey, number>> = {};
       for (const row of launches) if (row.userId === u.id) l[row.feature] = row.count;
       return {
@@ -319,6 +388,7 @@ export class OrgService {
         lastApp: recent.get(u.id) ?? null,
       };
     });
+    return { rows: out, windows };
   }
 
   async membersOf(orgId: string): Promise<OrgMemberList> {
@@ -330,16 +400,36 @@ export class OrgService {
     return this.membersOf(this.orgOf(p));
   }
 
-  /** One member's progress as every app reports it (the same summaries the profile page shows them). Audited: a read of someone else's data. */
+  /**
+   * One member's progress in each app while the organisation's plan applied to them (planWindows):
+   * nothing from before they joined, while suspended, or while they were on their personal plan. The
+   * apps report per user, not per organisation (phase 2), so their items are filtered by date here and
+   * their lifetime figures (stats, AI usage) are left out. Audited: a read of someone else's data.
+   */
   async memberDetail(p: Principal, userId: string, ip: string | null): Promise<OrgMemberDetail> {
     const orgId = this.orgOf(p);
     if (userId.length > 100) throw notFound();
-    const [member] = await this.memberRows(orgId, userId);
+    const { rows, windows } = await this.memberRowsOnPlan(orgId, userId);
+    const member = rows[0];
     if (!member) throw notFound();
-    const since = monthStart();
-    const [apps, activity] = await Promise.all([this.apps.overviewApps(userId), userActivity(this.db, { from: since, to: new Date() }, userId)]);
+    const onPlan = windows.get(userId) ?? [];
+    const [apps, time] = await Promise.all([this.apps.overviewApps(userId), this.activityOnPlan(new Map([[userId, onPlan]]), monthStart())]);
     if (userId !== p.userId) await this.audit(this.db, orgId, "member.view", { userId: p.userId, email: p.email }, { id: member.userId, email: member.email }, {}, ip);
-    return { member, apps, time: activity.byArea };
+    const byArea = new Map<string, OrgMemberDetail["time"][number]>();
+    for (const r of time) {
+      const key = `${r.app}\u0000${r.area}`;
+      const cur = byArea.get(key);
+      if (!cur) byArea.set(key, { app: r.app, area: r.area, seconds: r.seconds, lastAt: r.lastAt.toISOString() });
+      else {
+        cur.seconds += r.seconds;
+        if (r.lastAt.toISOString() > cur.lastAt) cur.lastAt = r.lastAt.toISOString();
+      }
+    }
+    return {
+      member,
+      apps: apps.map((a) => (a.summary ? { ...a, summary: { ...a.summary, stats: [], aiUsage: null, items: a.summary.items.filter((it) => inPlanWindows(new Date(it.at), onPlan)) } } : a)),
+      time: [...byArea.values()].sort((a, b) => b.seconds - a.seconds),
+    };
   }
 
   private async inviteLimitLeft(orgId: string, now = new Date()): Promise<number> {

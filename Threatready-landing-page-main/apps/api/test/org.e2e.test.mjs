@@ -11,6 +11,7 @@
  */
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 import { describe, test } from "node:test";
 import pg from "pg";
 
@@ -101,6 +102,47 @@ async function inviteAndToken(adminClient, email, role = "member") {
   const mail = await mailbox(email, "org-invite");
   assert.ok(mail, "invitation email");
   return { token: inviteTokenOf(mail), id: r.json.sent[0].id };
+}
+
+/**
+ * The apps' per-user summary endpoint, stubbed where the API under test looks for InterviewPrep
+ * (INTERVIEW_INTERNAL_URL, when it is on this host; Labs and Attack Reasoning under /labs and /ar of
+ * the same origin, as the suite's runner sets them). Each app reports, like the real ones, the user's
+ * lifetime stats, AI usage and latest items: one from long before joining, one dated now.
+ * Null when the port is not local or is taken.
+ */
+async function appsStub() {
+  const base = process.env.INTERVIEW_INTERNAL_URL;
+  if (!base) return null;
+  const u = new URL(base);
+  if (!["127.0.0.1", "localhost"].includes(u.hostname) || !u.port) return null;
+  const server = createServer((req, res) => {
+    const m = /^(\/labs|\/ar)?\/internal\/v1\/users\/[^/]+\/summary$/.exec(req.url ?? "");
+    res.setHeader("content-type", "application/json");
+    if (!m) {
+      res.statusCode = 404;
+      return res.end("{}");
+    }
+    const app = m[1] === "/labs" ? "labs" : m[1] === "/ar" ? "reasoning" : "interview";
+    const item = (id, title, at) => ({ id: `${app}-${id}`, title, status: "Report ready", score: 70, at, url: `http://127.0.0.1/${app}/${id}` });
+    res.end(
+      JSON.stringify({
+        app,
+        stats: [{ label: "Interviews completed", value: 12 }],
+        items: [item("now", "Mock interview: on the team", new Date().toISOString()), item("before", "Mock interview: a job elsewhere", "2020-01-02T03:04:05.000Z")],
+        aiUsage: { calls: 40, inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 1.5 },
+      }),
+    );
+  });
+  try {
+    await new Promise((ok, fail) => {
+      server.once("error", fail);
+      server.listen(Number(u.port), "127.0.0.1", ok);
+    });
+  } catch {
+    return null;
+  }
+  return server;
 }
 
 async function appDb(fn) {
@@ -440,6 +482,53 @@ describe("business accounts: roles, suspension, removal, leaving", () => {
     const audit = await admin.c.get("/api/org/audit");
     assert.ok(audit.json.some((a) => a.action === "member.view" && a.target.id === other.userId), "reading a member's detail is audited");
     assert.ok(audit.json.some((a) => a.action === "members.export"), "the export is audited");
+  });
+
+  test("the console shows a member's activity only while the organisation's plan applied to them", async (t) => {
+    const stub = await appsStub();
+    if (!stub) return t.skip("no local app stub port");
+    try {
+      const { admin, member } = await orgWithMember("member");
+      const overview0 = await admin.c.get("/api/org");
+      if (overview0.json.org.status !== "active") return t.skip("approval queue on");
+      const id = (await member.c.get("/api/me")).json.user.id;
+      const joinedAt = new Date((await admin.c.get("/api/org/members")).json.members.find((m) => m.userId === id).joinedAt);
+      // Time: one area used only before joining today, one after (activity rows are per UTC day and area).
+      await appDb((db) =>
+        db.query(
+          `insert into activity_days (user_id, day, app, area, seconds, first_at, last_at) values
+             ($1, (now() at time zone 'utc')::date, 'labs', 'before-joining', 600, $2, $3),
+             ($1, (now() at time zone 'utc')::date, 'labs', 'on-the-plan', 300, now(), now())`,
+          [id, new Date(joinedAt.getTime() - 2 * 3_600_000), new Date(joinedAt.getTime() - 3_600_000)],
+        ),
+      );
+      const detailUrl = `/api/org/members/${encodeURIComponent(id)}/summary`;
+      const detail = await admin.c.get(detailUrl);
+      assert.equal(detail.status, 200, detail.text);
+      const interview = detail.json.apps.find((a) => a.key === "interview");
+      if (!interview?.summary) return t.skip(`InterviewPrep not live in this API's config (${interview?.error ?? interview?.status})`);
+      assert.deepEqual(interview.summary.items.map((i) => i.title), ["Mock interview: on the team"], "nothing from before joining");
+      assert.deepEqual(interview.summary.stats, [], "no lifetime figures");
+      assert.equal(interview.summary.aiUsage, null, "no lifetime AI usage");
+      assert.ok(!detail.text.includes("a job elsewhere"));
+      assert.deepEqual(detail.json.time.map((r) => [r.area, r.seconds]), [["on-the-plan", 300]]);
+      assert.equal(detail.json.member.seconds, 300);
+      assert.equal(detail.json.member.lastApp?.area, "on-the-plan");
+      const people = await admin.c.get("/api/org/members");
+      assert.equal(people.json.members.find((m) => m.userId === id).seconds, 300);
+      assert.equal((await admin.c.get("/api/org")).json.usage.seconds, 300, "the organisation's total counts plan time only");
+
+      // While suspended the member is on their personal plan: nothing new shows.
+      const statusUrl = `/api/org/members/${encodeURIComponent(id)}/status`;
+      assert.equal((await admin.c.post(statusUrl, { status: "suspended" })).status, 200);
+      const suspended = await admin.c.get(detailUrl);
+      assert.deepEqual(suspended.json.apps.find((a) => a.key === "interview").summary.items, [], "an item dated while suspended is hidden");
+      assert.equal((await admin.c.post(statusUrl, { status: "active" })).status, 200);
+      const back = await admin.c.get(detailUrl);
+      assert.deepEqual(back.json.apps.find((a) => a.key === "interview").summary.items.map((i) => i.title), ["Mock interview: on the team"]);
+    } finally {
+      stub.close();
+    }
   });
 
   test("a launch while on the organisation's plan is recorded against the organisation", async () => {

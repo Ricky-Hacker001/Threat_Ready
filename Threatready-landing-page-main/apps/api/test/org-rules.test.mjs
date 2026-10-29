@@ -12,6 +12,7 @@ import {
   maskEmail,
   newInviteToken,
   planAccept,
+  planHistoryEvents,
   planInvites,
   planLeave,
   planRemoval,
@@ -20,7 +21,7 @@ import {
   planStatusChange,
   seatSummary,
 } from "../dist/org/org-rules.js";
-import { effectiveTenant, orgPlanApplies } from "../dist/tenancy/tenancy.js";
+import { effectiveTenant, inPlanWindows, orgPlanApplies, planWindows, spanInPlanWindow } from "../dist/tenancy/tenancy.js";
 
 const DAY = 86_400_000;
 
@@ -156,4 +157,54 @@ test("the organisation's plan applies only while the organisation, the member an
   assert.deepEqual(effectiveTenant(personal, { ...live, orgId: "o", plan: "business" }, now), { orgId: "o", plan: "business" });
   assert.deepEqual(effectiveTenant(personal, { ...live, orgId: "o", plan: "business", orgStatus: "pending" }, now), { orgId: "p", plan: "free" });
   assert.deepEqual(effectiveTenant(personal, null, now), { orgId: "p", plan: "free" });
+});
+
+test("what the console may show of a member: only what happened while the organisation's plan applied to them", () => {
+  const t = (h, m = 0) => new Date(Date.UTC(2026, 9, 1, h, m));
+  const OPEN = new Date(8.64e15);
+  // Joined an active organisation on an open plan: from joining on, nothing before.
+  assert.deepEqual(planWindows(t(10), [{ at: t(1), orgStatus: "active" }]), [{ from: t(10), to: OPEN }]);
+  // Suspended, then reinstated: a gap.
+  const w = planWindows(t(10), [{ at: t(1), orgStatus: "active" }, { at: t(12), memberStatus: "suspended" }, { at: t(15), memberStatus: "active" }]);
+  assert.deepEqual(w, [{ from: t(10), to: t(12) }, { from: t(15), to: OPEN }]);
+  assert.equal(inPlanWindows(t(9), w), false, "before joining");
+  assert.equal(inPlanWindows(t(11), w), true);
+  assert.equal(inPlanWindows(t(13), w), false, "while suspended");
+  assert.equal(inPlanWindows(t(16), w), true);
+  assert.equal(inPlanWindows(new Date("not a date"), w), false, "an unreadable date is never shown");
+  // A day's time in one area counts only when all of it fell inside one window.
+  assert.equal(spanInPlanWindow(t(11), t(11, 30), w), true);
+  assert.equal(spanInPlanWindow(t(9), t(11), w), false, "started before joining");
+  assert.equal(spanInPlanWindow(t(11), t(16), w), false, "spans the suspension");
+  // A member's own events from an earlier membership are ignored: joining makes them active.
+  assert.deepEqual(planWindows(t(10), [{ at: t(5), memberStatus: "suspended" }]), [{ from: t(10), to: OPEN }]);
+  // Created pending approval: nothing until approved; the trial then runs to its end.
+  assert.deepEqual(planWindows(t(2), [{ at: t(1), orgStatus: "pending" }, { at: t(1), planStatus: "trialing", periodEnd: t(30) }, { at: t(20), orgStatus: "active" }]), [{ from: t(20), to: t(30) }]);
+  // The plan lapses, then the platform admin renews it; past_due and a suspended organisation close it.
+  assert.deepEqual(planWindows(t(2), [{ at: t(1), orgStatus: "active" }, { at: t(1), planStatus: "trialing", periodEnd: t(5) }, { at: t(8), planStatus: "active", periodEnd: null }]), [{ from: t(2), to: t(5) }, { from: t(8), to: OPEN }]);
+  assert.deepEqual(planWindows(t(2), [{ at: t(1), orgStatus: "active" }, { at: t(3), planStatus: "past_due", periodEnd: null }]), [{ from: t(2), to: t(3) }]);
+  assert.deepEqual(planWindows(t(2), [{ at: t(4), orgStatus: "suspended" }, { at: t(6), orgStatus: "active" }]), [{ from: t(2), to: t(4) }, { from: t(6), to: OPEN }]);
+  // The creator joins in the same transaction that creates the organisation (same timestamp).
+  assert.deepEqual(planWindows(t(1), [{ at: t(1), orgStatus: "pending" }, { at: t(3), orgStatus: "active" }]), [{ from: t(3), to: OPEN }]);
+});
+
+test("the organisation's audit log read as plan history", () => {
+  const at = new Date("2026-10-01T00:00:00Z");
+  const ev = (row) => planHistoryEvents({ at, targetId: null, detail: {}, ...row });
+  assert.deepEqual(ev({ action: "org.create", detail: { name: "A", segment: "business", status: "pending", trialSeats: 5, trialDays: 14 } }), [
+    { memberId: null, event: { at, orgStatus: "pending" } },
+    { memberId: null, event: { at, planStatus: "trialing", periodEnd: new Date("2026-10-15T00:00:00Z") } },
+  ]);
+  assert.deepEqual(
+    ev({ action: "org.approve", detail: { from: "pending", to: "active", by: "platform_admin", trial: { from: "2026-10-15T00:00:00.000Z", to: "2026-11-01T00:00:00.000Z" } } }).map((e) => e.event),
+    [{ at, orgStatus: "active" }, { at, planStatus: "trialing", periodEnd: new Date("2026-11-01T00:00:00Z") }],
+  );
+  assert.deepEqual(ev({ action: "org.suspend" }).map((e) => e.event), [{ at, orgStatus: "suspended" }]);
+  assert.deepEqual(ev({ action: "plan.set", detail: { to: { plan: "business", status: "active", seats: 25, periodEnd: null, aiCapUsd: 50 }, by: "platform_admin" } }).map((e) => e.event), [{ at, planStatus: "active", periodEnd: null }]);
+  assert.deepEqual(ev({ action: "member.suspend", targetId: "u1" }), [{ memberId: "u1", event: { at, memberStatus: "suspended" } }]);
+  assert.deepEqual(ev({ action: "member.reinstate", targetId: "u1" }), [{ memberId: "u1", event: { at, memberStatus: "active" } }]);
+  assert.deepEqual(ev({ action: "org.update", detail: { name: "Renamed" } }), [], "a rename changes nothing");
+  assert.deepEqual(ev({ action: "org.update", detail: { from: "active", to: "pending", by: "platform_admin" } }).map((e) => e.event), [{ at, orgStatus: "pending" }]);
+  assert.deepEqual(ev({ action: "plan.set", detail: { to: { status: "bogus", periodEnd: null } } }), [], "unreadable rows are left out");
+  assert.deepEqual(ev({ action: "invite.send", detail: { email: "a@x.io" } }), []);
 });

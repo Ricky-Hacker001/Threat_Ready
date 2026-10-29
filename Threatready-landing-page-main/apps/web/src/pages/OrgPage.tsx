@@ -571,7 +571,7 @@ export function OrgMemberPage() {
           )}
         </section>
       ))}
-      <p className="hint">You see what this person did and scored, as each app reports it. Their password, sessions and personal workspace are theirs; opening this page is recorded in the activity log.</p>
+      <p className="hint">You see what this person did and scored in each app while they were on the organisation's plan, and their time on it this month. Nothing from before they joined, while suspended or on their personal plan, and no lifetime totals (the apps count those across the whole account). Their password and sign-in sessions are theirs; opening this page is recorded in the activity log.</p>
     </div>
   );
 }
@@ -640,7 +640,7 @@ export function OrgSettingsPage() {
           Data and people
         </h2>
         <p>
-          Members' activity on the organisation's plan is visible to its admins and managers: progress, scores and reports. Their passwords, sign-in sessions and anything they do in their personal workspace are not. Removing someone frees the seat and keeps their account; what they did while a member stays in your reports.
+          Members' activity while they are on the organisation's plan is visible to its admins and managers: progress, scores, reports and time. What they did before joining, while suspended or on their personal plan, their passwords and sign-in sessions are not. Removing someone frees the seat and keeps their account; what they did while a member stays in your reports.
         </p>
         <p className="hint">Plan changes, seats and invoices are handled with ThreatReady directly for now. Export of the organisation's data and deletion of the organisation are on request.</p>
       </section>
@@ -842,7 +842,7 @@ export function OrgCard() {
       <p>
         You're {ROLE_LABEL[org.role].toLowerCase()} at <strong>{org.name}</strong>
         {org.memberStatus === "suspended" ? " (your membership is suspended)" : org.status === "suspended" ? " (the organisation is suspended)" : org.status === "pending" ? " (waiting for ThreatReady's approval)" : null}.{" "}
-        {org.effective ? `Your sessions count on its ${PLAN_INFO[org.plan].label.toLowerCase()} plan; its admins see your progress and scores.` : "Right now your sessions count on your personal plan."}
+        {org.effective ? `Your sessions count on its ${PLAN_INFO[org.plan].label.toLowerCase()} plan; its admins see your progress and scores.` : "Right now your sessions count on your personal plan, and the organisation's admins don't see them."}
       </p>
       {console_ ? (
         <div>

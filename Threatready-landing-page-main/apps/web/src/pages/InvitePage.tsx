@@ -111,7 +111,7 @@ export function InvitePage() {
                   signedIn ? (
                     <div className="form">
                       <p>
-                        You're signed in as <strong>{user?.email ?? "your account"}</strong>. Joining counts your ThreatReady activity on the organisation's plan, and its admins see your progress and scores there. Your personal workspace stays yours.
+                        You're signed in as <strong>{user?.email ?? "your account"}</strong>. Joining counts your ThreatReady activity on the organisation's plan, and its admins see your progress and scores there from the day you join. What you did before, and anything on your personal plan, stays yours.
                       </p>
                       <Button type="button" block loading={busy} onClick={() => void accept()}>
                         Join {preview.org.name}
