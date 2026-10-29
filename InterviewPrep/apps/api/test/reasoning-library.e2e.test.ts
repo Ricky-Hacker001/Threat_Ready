@@ -75,7 +75,7 @@ describe('attack reasoning: questions on the architecture library', () => {
         const arch = getArchitecture(r.architecture_id)!;
         expect(bucket).toContain(arch.id);
         // Attack Reasoning's SMALL model (claude-haiku-5-5 by default since H55), not the interviews' LLM_MODEL_SMALL.
-        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.REASONING_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v5', serve_count: 0 });
+        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.REASONING_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v6', serve_count: 0 });
         expect(r.seed.topology).toBe(arch.id);
         expect(r.seed.architecture).toMatchObject({ id: arch.id, version: arch.version, surface: r.seed.entryPoint });
         expect(r.seed.architecture.pathKey.startsWith(`${arch.id}:`)).toBe(true);
@@ -138,6 +138,28 @@ describe('attack reasoning: questions on the architecture library', () => {
     const { rows: ledger } = await t.pool.query(`SELECT user_id, tier, status, cost_usd FROM llm_call_log WHERE feature = 'reasoning.generate' AND source_id = $1 ORDER BY id`, [created.body.id]);
     expect(ledger.map((r) => `${r.tier}:${r.status}`)).toEqual(['SMALL:settled', 'LARGE:settled']);
     expect(ledger.every((r) => r.user_id === lId && Number(r.cost_usd) > 0)).toBe(true);
+  });
+
+  it('a question the content-quality rules reject (a timeline that runs backwards, gate rule 10) is rewritten by the LARGE tier with that reason fed back', async () => {
+    const l = await signUp(t, 'Quality Ladder');
+    const reqs: LlmRequest[] = [];
+    t.llm.overrides.set('reasoning_question', (req) => {
+      reqs.push(req);
+      const out = fakeReasoningQuestion(req) as { attack_narrative: string };
+      if (reqs.length === 1) out.attack_narrative = `${out.attack_narrative} At 23:40 the audit trail shows a listing. At 23:02 the session was used again.`;
+      return out;
+    });
+    const created = await start(l, 'endpoint_security', 'intermediate');
+    await drainJobs(t, { only: ['reasoning.generate'] });
+    const got = (await l.get(`/v1/reasoning/attempts/${created.body.id}`)).body as ReasoningAttemptView;
+    expect(got.state).toBe('ready');
+    expect(reqs.map((r) => r.tier)).toEqual(['SMALL', 'LARGE']);
+    expect(reqs[1]!.messages[0]!.content).toMatch(/Try 2: the previous item was rejected by the quality check/);
+    expect(reqs[1]!.messages[0]!.content).toMatch(/attack_narrative: the timeline runs backwards \("23:40" then "23:02"\)/);
+    const { rows: [item] } = await t.pool.query(`SELECT i.tier, i.prompt_version, a.generation_tries FROM reasoning_attempts a JOIN reasoning_items i ON i.id = a.item_id WHERE a.id = $1`, [created.body.id]);
+    expect(item).toMatchObject({ tier: 'LARGE', prompt_version: 'reasoning-generate.v6', generation_tries: 2 });
+    const { rows: ledger } = await t.pool.query(`SELECT tier, status FROM llm_call_log WHERE feature = 'reasoning.generate' AND source_id = $1 ORDER BY id`, [created.body.id]);
+    expect(ledger.map((r) => `${r.tier}:${r.status}`)).toEqual(['SMALL:settled', 'LARGE:settled']);
   });
 
   it('two failures end the run with REASONING_GENERATION_FAILED after exactly two billed calls; a retry starts the ladder again', async () => {

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { fakeReasoningItem } from '../../src/platform/adapters/fake/reasoning.fake.js';
+import { fakeReasoningQuestion } from '../../src/platform/adapters/fake/reasoning-question.fake.js';
+import { architecturesFor, surfacesFor, type ArchitectureDef } from '../../src/modules/reasoning/architectures/index.js';
 import { CLOUD_SECURITY } from '../../src/modules/reasoning/domains/cloud-security.js';
 import type { VariationSeed } from '../../src/modules/reasoning/domain.types.js';
-import type { GeneratorOutput } from '../../src/modules/reasoning/item.types.js';
-import { generationRequest, generationSchema } from '../../src/modules/reasoning/prompts/generation.prompts.js';
-import { checkAnswerLeak, checkDistractors, checkRegulationFacts, checkTimeline, extractTimeline, qualityChecks } from '../../src/modules/reasoning/quality.js';
-import { validateGeneratedItem } from '../../src/modules/reasoning/validation.js';
+import type { GeneratorOutput, LibraryGeneratorOutput } from '../../src/modules/reasoning/item.types.js';
+import { generationRequest, generationSchema, questionRequest, questionSchema } from '../../src/modules/reasoning/prompts/generation.prompts.js';
+import { checkAnswerLeak, checkDistractors, checkRegulationFacts, checkTimeline, extractTimeline, legacyView, qualityChecks, type QualityFinding } from '../../src/modules/reasoning/quality.js';
+import { pickLibrarySeed } from '../../src/modules/reasoning/seed.js';
+import { libraryQualityView, normaliseLibraryOutput, validateGeneratedItem, validateLibraryItem } from '../../src/modules/reasoning/validation.js';
 
 /**
  * Content-quality rules added 28 Oct 2026 after a review of 20 small-tier questions that passed the
@@ -178,5 +181,164 @@ describe('attack reasoning: content quality — two defensible answers', () => {
     const best = out.options.find((o) => o.id === out.correct_option)!.text;
     out.options[3]!.text = best.replace(/^\w+/, 'Terminate').replace('scope its policy', 'restrict its policy').replace('can no longer', 'cannot');
     expect(errors(checkDistractors(out)).join(' ')).toMatch(/option D restates the best option/);
+  });
+});
+
+describe('attack reasoning: content quality — false positives fixed at the merge (29 Oct 2026)', () => {
+  it('reads "answer a page" and "no choice a week later" as the article, not an option letter', () => {
+    const out = fakeItem();
+    out.attack_narrative = `${out.attack_narrative} The on-call engineer did not answer a page until morning and had no choice a week later.`;
+    expect(errors(checkAnswerLeak(out))).toEqual([]);
+  });
+
+  it('reads a bracketed time-zone conversion as the same moment, and still catches a real step back', () => {
+    const out = fakeItem();
+    out.attack_narrative = 'At 09:00 IST (03:30 UTC) the audit log shows the first call. At 09:20 IST the bucket was listed.';
+    expect(errors(checkTimeline(out))).toEqual([]);
+    out.attack_narrative = 'At 09:00 IST (03:30 UTC) the audit log shows the first call. At 08:40 IST the bucket was listed.';
+    expect(errors(checkTimeline(out)).join(' ')).toMatch(/runs backwards \("09:00" then "08:40"\)/);
+  });
+
+  it('leaves a contractual deadline alone in a sentence that names a regulation', () => {
+    const out = fakeItem();
+    out.reference_answer = `${out.reference_answer} The processor contract requires the processor to notify the controller of a breach within 24 hours under GDPR. The BAA gives the vendor 10 days to report a HIPAA breach to the covered entity.`;
+    expect(errors(checkRegulationFacts(out))).toEqual([]);
+  });
+
+  it('does not read two different actions on one component as a restatement', () => {
+    const out = fakeItem();
+    const role = out.diagram.nodes.find((n) => n.id === 'role') ?? out.diagram.nodes[0]!;
+    const bucket = out.diagram.nodes.find((n) => n.id === 'bucket') ?? out.diagram.nodes[1]!;
+    out.options = out.options.map((o) =>
+      o.id === out.correct_option ? { ...o, text: `Revoke the ${role.label} session and remove its write permission on the ${bucket.label}.` } : o.id === 'D' ? { ...o, text: `Enable logging for the ${role.label} session and alert on writes to the ${bucket.label}.` } : o,
+    );
+    expect(errors(checkDistractors(out)).filter((m) => /restates/.test(m))).toEqual([]);
+  });
+});
+
+/* ---------------- The same rules on the architecture library (the default question path since 26 Oct) ---------------- */
+
+interface LibFixture {
+  arch: ArchitectureDef;
+  seed: VariationSeed;
+  out: LibraryGeneratorOutput;
+}
+
+/** A schema-valid library question from the fake writer (cloud security, the first beginner architecture and surface). */
+function libFixture(): LibFixture {
+  const arch = architecturesFor(CLOUD_SECURITY.key, 'beginner')[0]!;
+  const surface = surfacesFor(arch, CLOUD_SECURITY.key)[0]!;
+  const base = pickLibrarySeed(CLOUD_SECURITY, arch.level, [arch], [], () => 0);
+  const technique = surface.techniques.find((t) => CLOUD_SECURITY.techniques.some((x) => x.id === t)) ?? base.technique;
+  const seed: VariationSeed = { ...base, entryPoint: surface.id, objective: 'break_the_path', technique, architecture: { id: arch.id, version: arch.version, surface: surface.id } };
+  const req = questionRequest({ arch, domain: CLOUD_SECURITY, seed, surface, tier: 'SMALL', avoid: [], previousFailure: [], tryNumber: 1 });
+  return { arch, seed, out: questionSchema(arch, CLOUD_SECURITY).zod.parse(fakeReasoningQuestion(req)) };
+}
+
+/** The library gate as GenerationService runs it, after a mutation of the writer's output. */
+function libGate(mutate?: (o: LibraryGeneratorOutput) => void) {
+  const f = libFixture();
+  const out = structuredClone(f.out);
+  mutate?.(out);
+  const n = normaliseLibraryOutput(out, f.arch, CLOUD_SECURITY, f.seed);
+  return validateLibraryItem(n.out, f.arch, CLOUD_SECURITY, f.seed, n.overlay);
+}
+const qualityErrors = (fs: QualityFinding[]) => fs.filter((f) => f.severity === 'error');
+
+describe('attack reasoning: content quality — on the library gate (validateLibraryItem rule 10)', () => {
+  it('accepts a clean library question; its quality warnings stay warnings', () => {
+    const g = libGate();
+    expect(g.ok).toBe(true);
+    expect(qualityErrors(g.quality)).toEqual([]);
+    for (const f of g.quality) expect(g.warnings).toContain(f.message);
+  });
+
+  it('rejects a situation that recommends the best option, naming the situation (not "scenario") in the fed-back reason', () => {
+    const g = libGate((o) => {
+      o.situation = `${o.situation} The incident lead says the team should disable whatever the intruder holds and scope it tightly.`;
+    });
+    expect(g.ok).toBe(false);
+    expect(qualityErrors(g.quality)).toEqual([expect.objectContaining({ rule: 'answer_leak', field: 'situation', message: expect.stringMatching(/^situation: a sentence recommends the best option/) })]);
+    // Only the content rule failed it, and its message is what the rewrite is told.
+    expect(g.errors).toEqual(qualityErrors(g.quality).map((f) => f.message));
+  });
+
+  it('rejects an attack-step label (drawn on the diagram) that repeats the best option', () => {
+    const g = libGate((o) => {
+      o.options = o.options.map((x) => (x.id === o.correct_option ? { ...x, text: x.text.replace(/ and scope it so that /, ' and rotate the signing credential so that ') } : x));
+      o.attack.steps[0]!.label = 'uses the key; rotate the signing credential so';
+    });
+    expect(g.ok).toBe(false);
+    expect(qualityErrors(g.quality)).toEqual([expect.objectContaining({ rule: 'answer_leak', field: 'attack step 1 label', message: expect.stringMatching(/repeats the wording of the best option \("rotate the signing credential so/) })]);
+  });
+
+  it('rejects a narrative whose times run backwards', () => {
+    const g = libGate((o) => {
+      o.attack_narrative = `${o.attack_narrative} At 21:40 the shop application log shows the bucket listing. At 21:02 the key was used again.`;
+    });
+    expect(g.ok).toBe(false);
+    expect(g.errors).toEqual([expect.stringMatching(/^attack_narrative: the timeline runs backwards \("21:40" then "21:02"\)/)]);
+  });
+
+  it('rejects a misstated regulation figure in the private architecture analysis', () => {
+    const g = libGate((o) => {
+      o.architecture_analysis = `${o.architecture_analysis} Under GDPR the supervisory authority must be notified within 24 hours of the breach.`;
+    });
+    expect(g.ok).toBe(false);
+    expect(qualityErrors(g.quality)).toEqual([expect.objectContaining({ rule: 'regulation', field: 'architecture_analysis' })]);
+    expect(g.errors.join(' ')).toMatch(/architecture_analysis: "within 24 hours" misstates GDPR supervisory-authority breach notification/);
+  });
+
+  it('rejects a distractor called also valid with no reason it fails', () => {
+    const g = libGate((o) => {
+      o.option_analysis = o.option_analysis.map((a) => (a.id === 'A' ? { ...a, why: 'Rotating every secret also works and would equally stop the attacker reaching anything.' } : a));
+    });
+    expect(g.ok).toBe(false);
+    expect(g.errors).toEqual([expect.stringMatching(/^option_analysis\.A: option A is called "also works" with no reason it fails here/)]);
+  });
+
+  it('leaves option letters to the gate\'s own rule: one reason, not two', () => {
+    const g = libGate((o) => {
+      o.attack_narrative = `${o.attack_narrative} The on-call lead leaned towards option B.`;
+    });
+    expect(g.errors.filter((e) => /option B|by its letter|by letter/.test(e))).toEqual(['attack_narrative: must not refer to an option by its letter']);
+  });
+});
+
+describe('attack reasoning: content quality — tuned on the stored Haiku 5.5 questions (H55)', () => {
+  const view = (mutate?: (o: LibraryGeneratorOutput) => void) => {
+    const f = libFixture();
+    const out = structuredClone(f.out);
+    mutate?.(out);
+    return libraryQualityView(out, f.arch, CLOUD_SECURITY, f.seed);
+  };
+
+  it('a short field repeating the objective\'s own wording is no tell (53587579, e82ad7f9)', () => {
+    // The objective names two of the best option's distinctive terms that no distractor uses.
+    const v = view((o) => (o.objective = 'Disable what the attacker holds and scope it'));
+    expect(errors(checkAnswerLeak({ ...v, given: undefined })).join(' ')).toMatch(/^objective: names the best option's action/);
+    expect(errors(checkAnswerLeak({ ...v, given: 'Disable what the attacker holds and scope it' }))).toEqual([]);
+  });
+
+  it('a question or a judgement on the past is not a recommendation (e82ad7f9)', () => {
+    const v = view((o) => (o.situation = `${o.situation} The review asks which team should have disabled what the intruder holds and scoped it tightly.`));
+    expect(errors(checkAnswerLeak(v))).toEqual([]);
+  });
+
+  it('a distractor analysis that says never, neither ... nor, or overstating states a failure (977a2d9e, 3849b7dd, f9b9143e)', () => {
+    for (const reason of ['This never touches the deploy-prod access key, so the attacker keeps the foothold.', 'Neither the CDN events nor the WAF alerts record this call.', 'Overstating the reach of the key, this treats a read path as cluster-admin.']) {
+      const v = view((o) => (o.option_analysis = o.option_analysis.map((a) => (a.id === 'D' ? { ...a, why: reason } : a))));
+      expect(errors(checkDistractors(v)), reason).toEqual([]);
+    }
+  });
+
+  it('a "window" is not a look-back: a time before the previous one in its sentence is caught (1561ef78)', () => {
+    const v = view((o) => (o.attack_narrative = 'At 09:12 the attacker signed in from the external address. At 09:14 the deploy-prod access key listed the exports-prod bucket. The EDR agent on the build host was disabled at 09:10 during the blind window.'));
+    expect(errors(checkTimeline(v)).join(' ')).toMatch(/runs backwards \("09:14" then "09:10"\)/);
+  });
+
+  it('the legacy view reads the legacy item exactly as before', () => {
+    const out = fakeItem();
+    expect(qualityChecks(legacyView(out))).toEqual(qualityChecks(out));
   });
 });

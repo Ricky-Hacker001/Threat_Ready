@@ -15,13 +15,20 @@
  * `--file` accepts an array of either shape: rows as stored (`{ id, domain, difficulty, seed,
  * public, private }`) or raw generator outputs (`{ scenario, options, correct_option, ... }` with
  * `domain` and `difficulty` set; the seed is reconstructed from `seed` when present).
+ *
+ * Questions written on the architecture library (gen.v3: `seed.architecture` set) are read as the library
+ * gate reads them (`libraryQualityView`: the situation without the organisation summary, the attack-step
+ * labels, the objective's own wording): only the content-quality rules are run on them, since the
+ * library gate's structural rules already ran when they were written and the legacy validator does not
+ * apply to them.
  */
 import { readFileSync } from 'node:fs';
+import { getArchitecture, type ArchitectureDef } from '../src/modules/reasoning/architectures/index.js';
 import { getDomain } from '../src/modules/reasoning/domains/index.js';
 import type { VariationSeed } from '../src/modules/reasoning/domain.types.js';
-import type { GeneratedItem, GeneratorOutput } from '../src/modules/reasoning/item.types.js';
+import type { GeneratedItem, GeneratorOutput, LibraryGeneratorOutput } from '../src/modules/reasoning/item.types.js';
 import { qualityChecks, type QualityFinding } from '../src/modules/reasoning/quality.js';
-import { validateGeneratedItem } from '../src/modules/reasoning/validation.js';
+import { libraryQualityView, validateGeneratedItem } from '../src/modules/reasoning/validation.js';
 
 interface StoredRow {
   id: string;
@@ -66,6 +73,33 @@ export function toGeneratorOutput(row: StoredRow): GeneratorOutput {
     techniques: p.techniques,
     concepts: p.concepts,
     difficulty: p.difficulty,
+  };
+}
+
+/** A stored library question put back into the writer's shape: the situation without the organisation summary, the steps from the diagram's attack path. */
+export function toLibraryOutput(row: StoredRow, arch: ArchitectureDef): LibraryGeneratorOutput {
+  const p = row.public;
+  const q = row.private;
+  const out = toGeneratorOutput(row);
+  const prefix = `${arch.organisation.summary}\n\n`;
+  const edges = p.diagram.attackPath.map((id) => p.diagram.edges.find((e) => e.id === id)).filter((e): e is NonNullable<typeof e> => Boolean(e));
+  return {
+    title: out.title,
+    situation: p.scenario.startsWith(prefix) ? p.scenario.slice(prefix.length) : p.scenario,
+    attack_narrative: out.attack_narrative,
+    objective: out.objective,
+    question: out.question,
+    options: out.options,
+    correct_option: out.correct_option,
+    option_analysis: out.option_analysis,
+    attack: { entry_node: p.diagram.nodes.find((n) => n.entryPoint)?.id ?? '', compromised_nodes: p.diagram.nodes.filter((n) => n.compromised).map((n) => n.id), steps: edges.map((e) => ({ from: e.from, to: e.to, label: e.label ?? '' })) },
+    rubric: out.rubric,
+    must_not_credit: out.must_not_credit,
+    reference_answer: out.reference_answer,
+    architecture_analysis: q.architectureAnalysis ?? '',
+    techniques: out.techniques,
+    concepts: out.concepts,
+    difficulty: out.difficulty,
   };
 }
 
@@ -122,12 +156,19 @@ const main = async () => {
   const reports: Report[] = [];
   for (const { row, out } of rows) {
     const domain = getDomain(row.domain);
-    const quality = qualityChecks(out);
     if (!domain) {
-      reports.push({ id: row.id, domain: row.domain, difficulty: row.difficulty, model: row.model, title: out.title, errors: [`domain ${row.domain} is not registered`], warnings: [], quality });
+      reports.push({ id: row.id, domain: row.domain, difficulty: row.difficulty, model: row.model, title: out.title, errors: [`domain ${row.domain} is not registered`], warnings: [], quality: qualityChecks(out) });
       continue;
     }
     const seed: VariationSeed = { ...row.seed, difficulty: (row.seed?.difficulty ?? row.difficulty) as VariationSeed['difficulty'] };
+    const arch = row.public && row.seed?.architecture ? getArchitecture(row.seed.architecture.id) : undefined;
+    if (arch) {
+      const quality = qualityChecks(libraryQualityView(toLibraryOutput(row, arch), arch, domain, seed));
+      const messages = (severity: QualityFinding['severity']) => quality.filter((f) => f.severity === severity).map((f) => f.message);
+      reports.push({ id: row.id, domain: row.domain, difficulty: row.difficulty, model: row.model, title: out.title, errors: messages('error'), warnings: messages('warning'), quality });
+      continue;
+    }
+    const quality = qualityChecks(out);
     const v = validateGeneratedItem(out, domain, seed);
     reports.push({ id: row.id, domain: row.domain, difficulty: row.difficulty, model: row.model, title: out.title, errors: v.errors, warnings: v.warnings, quality });
   }

@@ -20,9 +20,70 @@ import type { GeneratorOutput } from './item.types.js';
  *
  * Limits: `regulation` only knows the figures listed in REGULATION_RULES; other factual errors
  * need a model cross-check. `timeline` reads explicit times; a narrative with no timestamps passes.
+ *
+ * Both generators are checked (29 Oct 2026): the legacy item through `legacyView`, and a question on the
+ * architecture library through `libraryQualityView` (validation.ts), called by the library gate
+ * `validateLibraryItem`. Tuned on the 20 stored Haiku 5.5 questions of the H55 measurement so that none
+ * of the good ones is rejected: the objective template the writer was given and vocabulary the long
+ * fields already carry are no tell in a short field; questions and judgements on the past ("which layer
+ * should have enforced") are not advice; a distractor analysis that says "never", "neither ... nor",
+ * "overstates", "bypasses" states a failure; "window" alone is not a look-back. Also not errors: a
+ * lower-case "a" after "answer"/"choice" (the article), a time-zone conversion in brackets
+ * ("09:00 IST (03:30 UTC)"), a contractual deadline in a sentence that names a regulation, and component
+ * names shared by two options (they name the same architecture, not the same action).
  */
 
 export type QualityRule = 'answer_leak' | 'timeline' | 'regulation' | 'distractor';
+
+/**
+ * What the rules read, from either generator: the legacy item (GeneratorOutput, via legacyView) or a
+ * library question (LibraryGeneratorOutput plus its architecture, via validation.ts libraryQualityView).
+ */
+export interface QualityView {
+  /** Learner-visible prose by the generator's field name, in reading order: title, the long description, attack_narrative, objective, question. */
+  visible: [string, string][];
+  /** The long description's field name ('scenario' or 'situation'); rule 3 reports on it. */
+  descriptionField: string;
+  /** Short public labels drawn with the question (library attack-step labels): checked for letters and echoes only. */
+  labels: [string, string][];
+  attack_narrative: string;
+  options: GeneratorOutput['options'];
+  correct_option: GeneratorOutput['correct_option'];
+  option_analysis: GeneratorOutput['option_analysis'];
+  /** Component, origin and boundary labels: named in any question on the diagram, never distinctive. */
+  names: string[];
+  /** Private prose by field name (rubric, must_not_credit, reference_answer, architecture_analysis): regulation figures. */
+  private: [string, string][];
+  /** The wording the writer was given for the objective (label, guide, question): echoing it in a short field is no tell. */
+  given?: string;
+  /** Rule 1 (an option named by its letter). Off for library questions: their gate checks the same fields with OPTION_REF. */
+  letters: boolean;
+}
+
+export const legacyView = (out: GeneratorOutput): QualityView => ({
+  visible: [
+    ['title', out.title],
+    ['scenario', out.scenario],
+    ['attack_narrative', out.attack_narrative],
+    ['objective', out.objective],
+    ['question', out.question],
+  ],
+  descriptionField: 'scenario',
+  labels: [],
+  letters: true,
+  attack_narrative: out.attack_narrative,
+  options: out.options,
+  correct_option: out.correct_option,
+  option_analysis: out.option_analysis,
+  names: [...out.diagram.nodes.map((n) => n.label), ...out.diagram.boundaries.map((b) => b.label)],
+  private: [
+    ...out.rubric.flatMap((p): [string, string][] => [[`rubric.${p.id}.text`, p.text], [`rubric.${p.id}.hint`, p.hint], [`rubric.${p.id}.explanation`, p.explanation]]),
+    ...out.must_not_credit.flatMap((m): [string, string][] => [[`must_not_credit.${m.id}.claim`, m.claim], [`must_not_credit.${m.id}.why`, m.why]]),
+    ['reference_answer', out.reference_answer],
+  ],
+});
+
+const viewOf = (x: GeneratorOutput | QualityView): QualityView => ('visible' in x ? x : legacyView(x));
 
 export interface QualityFinding {
   rule: QualityRule;
@@ -94,38 +155,35 @@ const sentences = (text: string): string[] =>
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-const visibleFields = (out: GeneratorOutput): [string, string][] => [
-  ['title', out.title],
-  ['scenario', out.scenario],
-  ['attack_narrative', out.attack_narrative],
-  ['objective', out.objective],
-  ['question', out.question],
-];
+const visibleFields = (v: QualityView): [string, string][] => v.visible;
+const isLong = (v: QualityView, field: string) => field === v.descriptionField || field === 'attack_narrative';
 
 // ---------------------------------------------------------------------------------------------
 // answer_leak
 
-const OPTION_REFERENCE = /\b(?:option|answer|choice)\s*\(?[A-D]\)?(?![A-Za-z0-9-])/i;
+/** Capital letters only, so the article ("did not answer a page", "no choice a week later") never matches. */
+const OPTION_REFERENCE = /\b(?:[Oo]ption|[Aa]nswer|[Cc]hoice)\s*\(?[A-D]\)?(?![A-Za-z0-9-])/;
 const RECOMMENDS =
   /\b(?:should|must|needs? to|ought to|has to|have to|recommend(?:s|ed|ation|ations)?|advis(?:e|es|ed)|the (?:fix|remediation|mitigation|solution|answer|root cause|correct (?:action|response|step)|right (?:move|call|action|response|step)|first (?:step|action|move)|priority) (?:is|was|here is|would be)|(?:decided|decides|plans?|planned|intends?|agreed) to|would (?:stop|block|prevent|break|close|contain|end|cut) (?:the|this|that|it)|(?:is|are) the (?:way|key) to)\b/i;
 
 const ECHO_N = 5;
+/** A question or a judgement on the past ("which layer should have enforced"), not advice. */
+const INTERROGATIVE = /\?\s*$|\b(?:which|what|where|whether|why|how)\b[^.!?]*\b(?:should|must|needs? to|ought to)\b|\b(?:should|must|ought to) have\b/i;
 
 /**
  * The visible text must not point at the best option: by letter, by echoing its wording, by using
  * its distinctive vocabulary far more than the distractors', or by recommending it in a sentence.
  */
-export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
+export function checkAnswerLeak(input: GeneratorOutput | QualityView): QualityFinding[] {
+  const out = viewOf(input);
   const findings: QualityFinding[] = [];
   const correct = out.options.find((o) => o.id === out.correct_option);
   if (!correct) return findings;
   const distractors = out.options.filter((o) => o.id !== out.correct_option);
-  const visibleText = visibleFields(out)
-    .map(([, t]) => t)
-    .join('\n');
+  const visibleText = [...visibleFields(out), ...out.labels].map(([, t]) => t).join('\n');
 
   // 1. Options referred to by letter.
-  for (const [field, text] of visibleFields(out)) {
+  for (const [field, text] of out.letters ? [...visibleFields(out), ...out.labels] : []) {
     const m = OPTION_REFERENCE.exec(text);
     if (m) findings.push({ rule: 'answer_leak', severity: 'error', field, message: `${field}: refers to an option by letter ("${m[0]}"); the learner-visible text must never mention the options` });
   }
@@ -134,7 +192,7 @@ export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
   //    are only a component's name plus filler ("read the exports-prod bucket") are how a scenario
   //    describes its environment, so a run counts only with two content words beyond the labels. The
   //    same run from a distractor means the text names shared actions, not the answer.
-  const labelTerms = contentTerms([...out.diagram.nodes.map((n) => n.label), ...out.diagram.boundaries.map((b) => b.label)].join(' '));
+  const labelTerms = contentTerms(out.names.join(' '));
   const substantive = (gram: string): boolean => [...contentTerms(gram)].filter((t) => !labelTerms.has(t)).length >= 2;
   const visibleGrams = ngrams(wordTokens(visibleText), ECHO_N);
   const echoOf = (text: string): string | undefined => {
@@ -144,7 +202,7 @@ export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
   const correctEcho = echoOf(correct.text);
   if (correctEcho) {
     const distractorEcho = distractors.some((o) => echoOf(o.text));
-    const where = visibleFields(out).find(([, t]) => ngrams(wordTokens(t), ECHO_N).has(correctEcho))?.[0] ?? 'scenario';
+    const where = [...visibleFields(out), ...out.labels].find(([, t]) => ngrams(wordTokens(t), ECHO_N).has(correctEcho))?.[0] ?? out.descriptionField;
     findings.push({
       rule: 'answer_leak',
       severity: distractorEcho ? 'warning' : 'error',
@@ -179,11 +237,11 @@ export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
       findings.push({
         rule: 'answer_leak',
         severity: 'error',
-        field: 'scenario',
-        message: `scenario/attack_narrative: ${pct(c.share)} of the best option's distinctive terms appear in the visible text against at most ${pct(worst)} for any distractor; the text is steering to option ${correct.id}. Describe the environment and the evidence, not the fix, or give the distractors' subjects the same presence`,
+        field: out.descriptionField,
+        message: `${out.descriptionField}/attack_narrative: ${pct(c.share)} of the best option's distinctive terms appear in the visible text against at most ${pct(worst)} for any distractor; the text is steering to option ${correct.id}. Describe the environment and the evidence, not the fix, or give the distractors' subjects the same presence`,
       });
     } else if (c.share >= 0.6 && c.share - worst >= 0.3) {
-      findings.push({ rule: 'answer_leak', severity: 'warning', field: 'scenario', message: `scenario: the best option's vocabulary is more present in the visible text (${pct(c.share)}) than any distractor's (${pct(worst)})` });
+      findings.push({ rule: 'answer_leak', severity: 'warning', field: out.descriptionField, message: `${out.descriptionField}: the best option's vocabulary is more present in the visible text (${pct(c.share)}) than any distractor's (${pct(worst)})` });
     }
   }
 
@@ -191,10 +249,12 @@ export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
   //    option's action vocabulary while carrying none of the distractors'.
   const correctTerms = distinctive(correct.id);
   const distractorTerms = distractors.map((o) => distinctive(o.id));
+  const given = contentTerms(out.given ?? '');
+  const longTerms = contentTerms(visibleFields(out).filter(([f]) => isLong(out, f)).map(([, t]) => t).join('\n'));
   for (const [field, text] of visibleFields(out)) {
-    if (field === 'scenario' || field === 'attack_narrative') continue;
+    if (isLong(out, field)) continue;
     const terms = contentTerms(text);
-    const mine = [...correctTerms].filter((t) => terms.has(t));
+    const mine = [...correctTerms].filter((t) => terms.has(t) && !given.has(t) && !longTerms.has(t));
     const theirs = Math.max(0, ...distractorTerms.map((d) => [...d].filter((t) => terms.has(t)).length));
     if (mine.length >= 2 && theirs === 0) {
       findings.push({ rule: 'answer_leak', severity: 'error', field, message: `${field}: names the best option's action (${mine.join(', ')}) and nothing from the other options; ask the question without describing the remedy` });
@@ -205,9 +265,9 @@ export function checkAnswerLeak(out: GeneratorOutput): QualityFinding[] {
   for (const [field, text] of visibleFields(out)) {
     if (field === 'title') continue;
     for (const s of sentences(text)) {
-      if (!RECOMMENDS.test(s)) continue;
+      if (!RECOMMENDS.test(s) || INTERROGATIVE.test(s)) continue;
       const terms = contentTerms(s);
-      const sharedCorrect = [...correctTerms].filter((t) => terms.has(t));
+      const sharedCorrect = [...correctTerms].filter((t) => terms.has(t) && !given.has(t));
       const sharedDistractor = Math.max(0, ...distractorTerms.map((d) => [...d].filter((t) => terms.has(t)).length));
       if (sharedCorrect.length >= 2 && sharedCorrect.length > sharedDistractor) {
         findings.push({
@@ -237,7 +297,10 @@ const ISO = /\b(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)
 const CLOCK = /(?<![\d:.])(\d{1,2}):([0-5]\d)(?::[0-5]\d)?\s*(am|pm|a\.m\.|p\.m\.)?(?![\d:.%])/gi;
 const DAY_N = /\b[Dd]ay\s+(\d{1,2})\b/g;
 const RELATIVE = /\b(\d{1,3})\s*(minutes?|mins?|hours?|hrs?)\s+later\b[^.;]*?\b(?:at\s+)?(\d{1,2}):([0-5]\d)\s*(am|pm)?/gi;
-const LOOKS_BACK = /\b(?:earlier|previously|before (?:that|this|the)|back in|originally|had been|has been|was (?:created|issued|rotated|provisioned|granted|added|set)|created (?:on|at|in)|issued (?:on|at|in)|since|ago|last (?:week|month|year|quarter)|the (?:day|week|month) before|prior|retention|retained|expires?|expiry|valid (?:for|until)|scheduled|maintenance window|window)\b/i;
+const LOOKS_BACK = /\b(?:earlier|previously|before (?:that|this|the)|back in|originally|had been|has been|was (?:created|issued|rotated|provisioned|granted|added|set)|created (?:on|at|in)|issued (?:on|at|in)|since|ago|last (?:week|month|year|quarter)|the (?:day|week|month) before|prior|retention|retained|expires?|expiry|valid (?:for|until)|scheduled|maintenance window)\b/i;
+
+/** A clock time in brackets with a zone after another time, "09:00 IST (03:30 UTC)": the same moment, not a later step. */
+const ZONE_CONVERSION = /\(\s*(?:\d{4}-\d{2}-\d{2}[T ])?\d{1,2}:[0-5]\d(?::[0-5]\d)?\s*(?:am|pm)?\s*(?:UTC|GMT|Z|[A-Z]{2,5}|local(?: time)?|[+-]\d{2}:?\d{2})\b[^)]{0,20}\)/g;
 
 const dayMinutes = (y: number, mo: number, d: number): number => Math.round(Date.UTC(y, mo - 1, d) / 60_000);
 
@@ -252,8 +315,10 @@ function toMinutes(h: number, m: number, ampm?: string): number {
 /** Explicit times in the order they are written, each anchored to the most recent date seen. */
 export function extractTimeline(text: string): TimePoint[] {
   const points: TimePoint[] = [];
-  for (const s of sentences(text)) {
-    if (LOOKS_BACK.test(s)) continue;
+  for (const sentence of sentences(text)) {
+    if (LOOKS_BACK.test(sentence)) continue;
+    // Blank out bracketed zone conversions, keeping offsets (the order within a sentence is by offset).
+    const s = sentence.replace(ZONE_CONVERSION, (m) => ' '.repeat(m.length));
     // Collect matches with their offsets so the order within a sentence is the written order.
     const found: { at: number; p: TimePoint; setsDay?: number }[] = [];
     for (const m of s.matchAll(ISO)) {
@@ -285,7 +350,8 @@ export function extractTimeline(text: string): TimePoint[] {
 }
 
 /** The attack narrative's explicit times must not run backwards, and relative statements must add up. */
-export function checkTimeline(out: GeneratorOutput): QualityFinding[] {
+export function checkTimeline(input: GeneratorOutput | QualityView): QualityFinding[] {
+  const out = viewOf(input);
   const findings: QualityFinding[] = [];
   const field = 'attack_narrative';
   const points = extractTimeline(out.attack_narrative);
@@ -380,6 +446,8 @@ const toDays = (n: number, unit: string): number | undefined => {
 };
 
 const BREACH = /\b(?:notif|report|inform|breach|incident|supervisory|authority|regulator|disclos|the board|data protection board|cert)/i;
+/** A deadline the parties agreed ("the processor contract requires notice within 24 hours", "the BAA gives 10 days"), not the regulation's. */
+const CONTRACTUAL = /\b(?:contract(?:s|ual|ually)?|agreements?|BAA|DPA|SLA|addendum|(?:internal|company|corporate|our|their) polic(?:y|ies)|internally)\b/i;
 const DSAR = /\b(?:access request|subject access|DSAR|erasure|right to|portability|respond to (?:a |the )?request)/i;
 
 export const REGULATION_RULES: RegulationRule[] = [
@@ -443,15 +511,14 @@ export const REGULATION_RULES: RegulationRule[] = [
 ];
 
 /** Figures attached to a named regulation must be the real ones. Checked in every text field, private half included. */
-export function checkRegulationFacts(out: GeneratorOutput): QualityFinding[] {
+export function checkRegulationFacts(input: GeneratorOutput | QualityView): QualityFinding[] {
+  const out = viewOf(input);
   const findings: QualityFinding[] = [];
   const fields: [string, string][] = [
     ...visibleFields(out),
     ...out.options.map((o): [string, string] => [`options.${o.id}`, o.text]),
     ...out.option_analysis.map((a): [string, string] => [`option_analysis.${a.id}`, a.why]),
-    ...out.rubric.flatMap((p): [string, string][] => [[`rubric.${p.id}.text`, p.text], [`rubric.${p.id}.hint`, p.hint], [`rubric.${p.id}.explanation`, p.explanation]]),
-    ...out.must_not_credit.flatMap((m): [string, string][] => [[`must_not_credit.${m.id}.claim`, m.claim], [`must_not_credit.${m.id}.why`, m.why]]),
-    ['reference_answer', out.reference_answer],
+    ...out.private,
   ];
   const seen = new Set<string>();
   for (const [field, text] of fields) {
@@ -460,6 +527,7 @@ export function checkRegulationFacts(out: GeneratorOutput): QualityFinding[] {
         if (!rule.trigger.test(s)) continue;
         if (rule.context && !rule.context.test(s)) continue;
         if (rule.exclude && rule.exclude.test(s)) continue;
+        if (CONTRACTUAL.test(s)) continue;
         for (const claim of rule.claims) {
           for (const m of s.matchAll(claim.re)) {
             // Patterns with alternatives capture the figure and unit in whichever branch matched.
@@ -499,10 +567,11 @@ const HEDGE =
   /\b(?:(?:also|equally|likewise) (?:works?|valid|correct|acceptable|reasonable|effective|sufficient|sound|fine|appropriate|stops?|blocks?|breaks?|resolves?|fixes?|addresses|contains?)|equally (?:good|strong|defensible)|just as (?:good|valid|effective|sound|strong)|would (?:also|equally) (?:work|stop|block|resolve|fix|suffice|break|contain|address)|(?:a|an) (?:valid|acceptable|reasonable|equally good|sound|legitimate|defensible) (?:alternative|choice|option|answer|approach)|either (?:option|answer|choice|approach) (?:is|would|works?)|could (?:also )?be (?:argued|justified|defended|correct|right)|arguably (?:correct|best|right|the best)|(?:is|are) not (?:wrong|incorrect)|not (?:a )?wrong|both (?:options|answers|approaches|choices) (?:are|would|work)|hard to (?:fault|argue against)|(?:as|equally) (?:good|valid) as)\b/i;
 
 const STATES_FAILURE =
-  /\b(?:but|however|yet|though|although|whereas|except|unless|instead|rather than|does not|doesn't|do not|don't|did not|didn't|would not|wouldn't|will not|won't|cannot|can't|could not|couldn't|is not|isn't|are not|aren't|was not|wasn't|has no|have no|no longer|fails?|failing|failure|misses|missing|leaves?|leaving|ignores?|overlooks?|too (?:late|slow|broad|wide|narrow|early|blunt|coarse)|later (?:step|stage)|earlier (?:step|stage)|wrong (?:step|stage|layer|target|problem)|the wrong|without|not (?:the|a|an|on|enough|where|what|how|why|until|yet|this|that|here)|nothing|none|destroys?|loses?|lost|breaks?|violat(?:es|ing)|conflicts?|hurts?|harms?|slower|wider|narrower|unrelated|irrelevant|only|merely|just|still|remains?|already|after the fact|accepts? more|costs?|downtime|outage|blast radius|does nothing|achieves nothing|no effect|no gain|less|worse|weaker|insufficient|incomplete|partial|delays?|premature|overkill|excessive|risks?)\b/i;
+  /\b(?:but|however|yet|though|although|whereas|except|unless|instead|rather than|does not|doesn't|do not|don't|did not|didn't|would not|wouldn't|will not|won't|cannot|can't|could not|couldn't|is not|isn't|are not|aren't|was not|wasn't|has no|have no|no longer|fails?|failing|failure|misses|missing|leaves?|leaving|ignores?|overlooks?|too (?:late|slow|broad|wide|narrow|early|blunt|coarse)|later (?:step|stage)|earlier (?:step|stage)|wrong (?:step|stage|layer|target|problem)|the wrong|without|not (?:the|a|an|on|enough|where|what|how|why|until|yet|this|that|here)|nothing|none|destroys?|loses?|lost|breaks?|violat(?:es|ing)|conflicts?|hurts?|harms?|slower|wider|narrower|unrelated|irrelevant|only|merely|just|still|remains?|already|after the fact|accepts? more|costs?|downtime|outage|blast radius|does nothing|achieves nothing|no effect|no gain|less|worse|weaker|insufficient|incomplete|partial|delays?|premature|overkill|excessive|risks?|never|neither|nor|not (?!wrong\b|incorrect\b)\w+|overstat\w*|understat\w*|over-?claims?|under-?claims?|exclud\w*|outside|unaffected|untouched|continues?|bypass\w*|blind)\b/i;
 
 /** Every non-best option must be shown to fail for a stated reason; none may be "also valid" or a restatement of the best one. */
-export function checkDistractors(out: GeneratorOutput): QualityFinding[] {
+export function checkDistractors(input: GeneratorOutput | QualityView): QualityFinding[] {
+  const out = viewOf(input);
   const findings: QualityFinding[] = [];
   const correct = out.options.find((o) => o.id === out.correct_option);
   if (!correct) return findings;
@@ -524,16 +593,24 @@ export function checkDistractors(out: GeneratorOutput): QualityFinding[] {
       findings.push({ rule: 'distractor', severity: 'warning', field, message: `${field}: option ${a.id} is described as "${hedged}"; make sure the stated reason it fails is decisive` });
     }
   }
-  // A distractor that restates the best option is a second right answer.
+  // A distractor that restates the best option is a second right answer: most terms shared, and the shared
+  // terms are actions, not only component names. Two different actions on one component ("revoke the
+  // ci-runner role session" / "enable logging for the ci-runner role session") share the names by design.
+  const labelTerms = contentTerms(out.names.join(' '));
+  const overlap = (a: Set<string>, b: Set<string>) => {
+    const inter = [...a].filter((x) => b.has(x)).length;
+    const union = new Set([...a, ...b]).size;
+    return { inter, j: union ? inter / union : 0 };
+  };
+  const withoutNames = (t: Set<string>) => new Set([...t].filter((x) => !labelTerms.has(x)));
   const correctTerms = contentTerms(correct.text);
   for (const o of out.options) {
     if (o.id === out.correct_option) continue;
     const t = contentTerms(o.text);
-    const inter = [...t].filter((x) => correctTerms.has(x)).length;
-    const union = new Set([...t, ...correctTerms]).size;
-    const j = union ? inter / union : 0;
-    if (j >= 0.5 && inter >= 4) {
-      findings.push({ rule: 'distractor', severity: 'error', field: `options.${o.id}`, message: `options: option ${o.id} restates the best option (${pct(j)} of their terms are shared); the two would both be defensible. Make the distractor a different action, not a rewording` });
+    const all = overlap(t, correctTerms);
+    const actions = overlap(withoutNames(t), withoutNames(correctTerms));
+    if (all.j >= 0.5 && all.inter >= 4 && actions.j >= 0.4 && actions.inter >= 3) {
+      findings.push({ rule: 'distractor', severity: 'error', field: `options.${o.id}`, message: `options: option ${o.id} restates the best option (${pct(all.j)} of their terms are shared); the two would both be defensible. Make the distractor a different action, not a rewording` });
     }
   }
   return findings;
@@ -541,6 +618,7 @@ export function checkDistractors(out: GeneratorOutput): QualityFinding[] {
 
 // ---------------------------------------------------------------------------------------------
 
-export function qualityChecks(out: GeneratorOutput): QualityFinding[] {
+export function qualityChecks(input: GeneratorOutput | QualityView): QualityFinding[] {
+  const out = viewOf(input);
   return [...checkAnswerLeak(out), ...checkTimeline(out), ...checkRegulationFacts(out), ...checkDistractors(out)];
 }

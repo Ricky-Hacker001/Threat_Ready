@@ -497,11 +497,15 @@ export class GenerationService {
       const { out, overlay, repairs } = normaliseLibraryOutput(value.value, arch, domain, seed);
       if (repairs.length) logger.info({ source_id: opts.sourceId, try: tryNumber, repairs }, 'generated question normalised');
       const check = validateLibraryItem(out, arch, domain, seed, overlay);
-      for (const w of check.warnings) emitMetric('ReasoningGenerationWarning', 1, 'Count', { Reason: warningReason(w) });
+      // Content-quality findings (gate rule 10) by rule and severity: what the cost design's p1 estimate rests on.
+      const qualityRule = new Map(check.quality.map((f) => [f.message, f.rule]));
+      for (const f of check.quality) emitMetric('ReasoningQualityFinding', 1, 'Count', { Rule: f.rule, Severity: f.severity, Tier: tier, Model: model });
+      for (const w of check.warnings) emitMetric('ReasoningGenerationWarning', 1, 'Count', { Reason: qualityRule.has(w) ? `quality_${qualityRule.get(w)}` : warningReason(w) });
       if (!check.ok) {
-        reject('validation');
+        // 'quality' when only the content-quality rules failed it, so their share of rewrites can be watched.
+        reject(check.errors.every((e) => qualityRule.has(e)) ? 'quality' : 'validation');
         // Gate messages name components and rules, never a learner; they are what operators tune the prompt with.
-        logger.warn({ source_id: opts.sourceId, difficulty, try: tryNumber, tier, architecture: arch.id, errors: check.errors.length, reasons: check.errors.slice(0, 6).map((e) => e.slice(0, 200)) }, 'generated question rejected by the quality gate');
+        logger.warn({ source_id: opts.sourceId, difficulty, try: tryNumber, tier, architecture: arch.id, errors: check.errors.length, quality: check.quality.map((f) => `${f.severity}:${f.rule}`), reasons: check.errors.slice(0, 6).map((e) => e.slice(0, 200)) }, 'generated question rejected by the quality gate');
         feedback = check.errors.slice(0, 12);
         continue;
       }
@@ -529,7 +533,7 @@ export class GenerationService {
       bank.avoid.set(arch.id, [{ title: item.public.title, question: item.public.question, path: pathLabels(item.public.diagram), objective: seed.objective }, ...lines].slice(0, 8));
       emitMetric('ReasoningGenerationStored', 1, 'Count', { Tier: tier, Model: model });
       emitMetric('ReasoningGenerationMs', Date.now() - started, 'Milliseconds', { Domain: domain.key, Difficulty: difficulty });
-      logger.info({ source_id: opts.sourceId, difficulty, architecture: arch.id, tries: tryNumber, tier, model: value.usage.model, warnings: check.warnings.length, similarity: sim.max }, 'reasoning item generated');
+      logger.info({ source_id: opts.sourceId, difficulty, architecture: arch.id, tries: tryNumber, tier, model: value.usage.model, warnings: check.warnings.length, quality: check.quality.map((f) => `${f.severity}:${f.rule}`), similarity: sim.max }, 'reasoning item generated');
       return { ok: true, item, model: value.usage.model, tier, tries: tryNumber };
     }
     emitMetric('ReasoningGenerationFailed', 1, 'Count', { Domain: domain.key });

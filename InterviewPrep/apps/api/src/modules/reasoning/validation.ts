@@ -3,7 +3,7 @@ import { architectureText, composeDiagram, levelOf, normaliseOverlay, pathKey, p
 import { ATTACK_ENTERPRISE, fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
 import type { GeneratedItem, GeneratorOutput, LibraryGeneratorOutput } from './item.types.js';
 import { LIBRARY_LEVEL_LIMITS } from './prompts/generation.prompts.js';
-import { qualityChecks } from './quality.js';
+import { qualityChecks, type QualityFinding, type QualityView } from './quality.js';
 import { jaccard, shingles } from './similarity.js';
 
 /**
@@ -377,6 +377,44 @@ export function normaliseLibraryOutput(out: LibraryGeneratorOutput, arch: Archit
 export interface LibraryValidation extends ValidationResult {
   /** The composed diagram when the attack is grounded (null when the overlay itself failed). */
   diagram: DiagramData | null;
+  /** The content-quality findings (rule 10, quality.ts); each is also in `errors` or `warnings` by its message. */
+  quality: QualityFinding[];
+}
+
+/**
+ * A library question as the content-quality rules read it (quality.ts). The situation stands in for the
+ * scenario: the organisation summary before it is fixed, reviewed architecture text. The attack-step labels
+ * are drawn on the diagram, so they are visible text for the echo and vocabulary rules. Component, origin
+ * and boundary labels are never distinctive. The objective's own wording (label, guide, question), which
+ * the writer is told to adapt, is no tell when a short field repeats it. Option letters are left to rule 5
+ * of the gate (OPTION_REF), which checks the same fields and the concepts.
+ */
+export function libraryQualityView(out: LibraryGeneratorOutput, arch: ArchitectureDef, domain: ReasoningDomain, seed: VariationSeed, overlay: AttackOverlay = overlayOf(out)): QualityView {
+  const objective = domain.variation.objectives.find((o) => o.id === seed.objective);
+  return {
+    visible: [
+      ['title', out.title],
+      ['situation', out.situation],
+      ['attack_narrative', out.attack_narrative],
+      ['objective', out.objective],
+      ['question', out.question],
+    ],
+    descriptionField: 'situation',
+    labels: overlay.steps.map((st, i): [string, string] => [`attack step ${i + 1} label`, st.label]),
+    letters: false,
+    attack_narrative: out.attack_narrative,
+    options: out.options,
+    correct_option: out.correct_option,
+    option_analysis: out.option_analysis,
+    names: [...arch.diagram.nodes.map((n) => n.label), ...arch.attackerOrigins.map((o) => o.label), ...arch.diagram.boundaries.map((b) => b.label)],
+    private: [
+      ...out.rubric.flatMap((p): [string, string][] => [[`rubric.${p.id}.text`, p.text], [`rubric.${p.id}.hint`, p.hint], [`rubric.${p.id}.explanation`, p.explanation]]),
+      ...out.must_not_credit.flatMap((m): [string, string][] => [[`must_not_credit.${m.id}.claim`, m.claim], [`must_not_credit.${m.id}.why`, m.why]]),
+      ['reference_answer', out.reference_answer],
+      ['architecture_analysis', out.architecture_analysis],
+    ],
+    given: objective ? `${objective.label} ${objective.guide} ${objective.question}` : undefined,
+  };
 }
 
 /**
@@ -542,6 +580,13 @@ export function validateLibraryItem(out: LibraryGeneratorOutput, arch: Architect
   if (!out.techniques.some((t) => t.id === seed.technique)) errors.push(`techniques: the assigned technique ${seed.technique} must be among the techniques in play`);
   if (out.techniques.length > 6) errors.push('techniques: at most six');
 
+  // 10. Content quality (quality.ts, 29 Oct 2026): the answer given away in the visible text or the step
+  // labels, a timeline that runs backwards, a misstated regulation figure, a distractor not shown to fail
+  // or restating the best option. Errors fail the gate like the rules above, and their messages are fed
+  // back to the rewrite; run last so the rewrite gets every reason at once (the feedback keeps twelve).
+  const quality = qualityChecks(libraryQualityView(out, arch, domain, seed, overlay));
+  for (const f of quality) (f.severity === 'error' ? errors : warnings).push(f.message);
+
   // Warnings: logged with a metric, never a rejection.
   if (out.difficulty !== level) warnings.push(`difficulty: the writer wrote ${out.difficulty}, the seed asked for ${level}`);
   if (level === 'advanced') {
@@ -549,7 +594,7 @@ export function validateLibraryItem(out: LibraryGeneratorOutput, arch: Architect
     const labels = subtle.map((id) => nodeById.get(id)?.label).filter((l): l is string => Boolean(l));
     if (labels.length && !labels.some((l) => mentionsLabel(out.reference_answer, l))) warnings.push('advanced: the reference answer names no component of a trust relationship marked easy to overlook');
   }
-  return { ok: errors.length === 0, errors, warnings, diagram };
+  return { ok: errors.length === 0, errors, warnings, diagram, quality };
 }
 
 /** Splits a library question into the stored public and private halves; the diagram and scenario come from the architecture. */
