@@ -491,6 +491,22 @@ describe("business accounts: roles, suspension, removal, leaving", () => {
     assert.equal(own.json.kind, "institute");
   });
 
+  test("a member, or a suspended one, leaves on their own (the profile's Leave button); the seat is freed", async () => {
+    const { admin, member } = await orgWithMember("member");
+    const left = await member.c.post("/api/org/leave");
+    assert.equal(left.status, 200, left.text);
+    assert.equal((await member.c.get("/api/me")).json.org, null);
+    assert.equal((await admin.c.get("/api/org")).json.org.seats.used, 1, "the seat is free again");
+
+    const other = await orgWithMember("member");
+    const id = (await other.member.c.get("/api/me")).json.user.id;
+    assert.equal((await other.admin.c.post(`/api/org/members/${encodeURIComponent(id)}/status`, { status: "suspended" })).status, 200);
+    const out = await other.member.c.post("/api/org/leave");
+    assert.equal(out.status, 200, out.text);
+    assert.equal((await other.member.c.get("/api/me")).json.org, null);
+    assert.equal((await other.admin.c.get("/api/org/audit")).json[0].action, "member.leave");
+  });
+
   test("a member sees their team's exports only through the console: members cannot read the list, CSV or another member", async () => {
     const { admin, member } = await orgWithMember("member");
     assert.equal((await member.c.get("/api/org/members")).status, 403);

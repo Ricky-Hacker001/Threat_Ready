@@ -821,9 +821,17 @@ export function OrgNewPage() {
   );
 }
 
-/** Used by the profile page: a short card about the person's organisation, whatever their role. */
+/**
+ * Used by the profile page: a short card about the person's organisation, whatever their role, with
+ * the way out (POST /api/org/leave allows any role; the last active org admin hands over first).
+ * Members, suspended members and members of a suspended organisation never see the console's
+ * settings, so this is where they leave.
+ */
 export function OrgCard() {
-  const { me } = useMe();
+  const { me, refresh } = useMe();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [left, setLeft] = useState<string | null>(null);
   const org = me.org;
   if (!org) {
     return (
@@ -831,6 +839,7 @@ export function OrgCard() {
         <h2 id="profile-org" className="profile-section-title">
           Organisation
         </h2>
+        {left ? <Notice tone="ok">You left {left}. Your account and personal workspace are unchanged.</Notice> : null}
         <p>You're on an individual plan. Setting up ThreatReady for a team or an institute? Create an organisation: you invite people by email and see their progress in one place.</p>
         <div>
           <Link className="btn btn-secondary" to="/app/org/new">
@@ -841,11 +850,30 @@ export function OrgCard() {
     );
   }
   const console_ = org.role !== "member" && org.memberStatus === "active" && org.status !== "suspended";
+  const name = org.name;
+
+  async function leave() {
+    const handOver = org!.role === "org_admin" ? " If you're its last admin, make someone else admin first." : " To come back you'll need a new invitation.";
+    if (!window.confirm(`Leave ${name}? Your account and personal workspace stay, and your sessions count on your personal plan.${handOver}`)) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.org.leave();
+      setLeft(name);
+      await refresh();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="module-panel" aria-labelledby="profile-org">
       <h2 id="profile-org" className="profile-section-title">
         Organisation
       </h2>
+      {error ? <Notice tone="error">{error}</Notice> : null}
       <p>
         You're {ROLE_LABEL[org.role].toLowerCase()} at <strong>{org.name}</strong>
         {org.memberStatus === "suspended" ? " (your membership is suspended)" : org.status === "suspended" ? " (the organisation is suspended)" : org.status === "pending" ? " (waiting for ThreatReady's approval)" : null}.{" "}
@@ -858,6 +886,11 @@ export function OrgCard() {
           </Link>
         </div>
       ) : null}
+      <div>
+        <Button type="button" variant="quiet" loading={busy} onClick={() => void leave()}>
+          Leave {name}
+        </Button>
+      </div>
     </section>
   );
 }
