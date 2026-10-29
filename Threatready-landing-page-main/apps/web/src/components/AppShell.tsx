@@ -1,5 +1,5 @@
 import type { AppInfo, Me } from "@threatready/contracts";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
@@ -186,7 +186,16 @@ export function AppShell() {
                 <Notice tone="info">{flash}</Notice>
               </div>
             ) : null}
-            <Outlet />
+            {/* The pages are separate chunks (main.tsx): a short line, not the full loading screen, while one arrives. */}
+            <Suspense
+              fallback={
+                <p className="page-loading" role="status">
+                  Loading…
+                </p>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </Ctx.Provider>
         ) : null}
       </main>

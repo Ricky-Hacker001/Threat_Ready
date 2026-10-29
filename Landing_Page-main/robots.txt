@@ -1,0 +1,6 @@
+# threatready.io, the public site: every page may be crawled and indexed (404.html carries noindex itself).
+# The signed-in platform is a separate host and sends X-Robots-Tag: noindex on every response.
+User-agent: *
+Allow: /
+
+Sitemap: https://threatready.io/sitemap.xml

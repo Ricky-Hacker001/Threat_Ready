@@ -319,7 +319,9 @@ export const isMalformedId = (id: string) => !ID_RE.test(id);
 /** The API says the thing doesn't exist or isn't the learner's (404), or the id in the link is invalid (422). */
 export const isNotFound = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.code === 'VALIDATION_FAILED');
 
-export function Empty({ title, children, action, icon: Icon }: { title: string; children?: ReactNode; action?: ReactNode; icon?: LucideIcon }) {
+/** An empty state. `level` is the heading level of its title in the page's outline (2 directly under the h1); the look is the same. */
+export function Empty({ title, children, action, icon: Icon, level = 3 }: { title: string; children?: ReactNode; action?: ReactNode; icon?: LucideIcon; level?: 2 | 3 | 4 }) {
+  const Heading = `h${level}` as const;
   return (
     <div className="empty stack" style={{ alignItems: 'center' }}>
       {Icon && (
@@ -327,7 +329,7 @@ export function Empty({ title, children, action, icon: Icon }: { title: string; 
           <Icon className="icon lg" aria-hidden />
         </span>
       )}
-      <h3>{title}</h3>
+      <Heading className="empty-title">{title}</Heading>
       {children && <p className="subtle" style={{ maxWidth: 460 }}>{children}</p>}
       {action}
     </div>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://threatready-db.onrender.com; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()">
 <script>try{var m=document.cookie.match(/(?:^|;\s*)tr-theme=(light|dark)/),t=m?m[1]:localStorage.getItem('tr-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
@@ -22,9 +22,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16.png">
 <link rel="apple-touch-icon" href="favicon-48.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/css/site.css">
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"Organization","name":"ThreatReady","legalName":"Aerovant Technologies Pvt Ltd","url":"https://threatready.io","logo":"https://threatready.io/threatready-logo.png","parentOrganization":{"@type":"Organization","name":"Aerovant Technologies","url":"https://aerovanttech.com/"}}
@@ -298,7 +296,7 @@
             <li>Scenarios mapped to MITRE ATT&amp;CK.</li>
           </ul>
         </div>
-        <a href="attack-reasoning-lab.html" tabindex="-1" aria-hidden="true" class="pcard-thumb"><img class="shot shot-d" src="assets/img/product/lab-session-dark.webp" alt="" loading="lazy" width="1600" height="829"><img class="shot shot-l" src="assets/img/product/lab-session-light.webp" alt="" loading="lazy" width="1600" height="829"><span class="thumb-tag">Product screenshot</span></a>
+        <a href="attack-reasoning-lab.html" tabindex="-1" aria-hidden="true" class="pcard-thumb"><img class="shot shot-d" src="assets/img/product/lab-session-dark.webp" srcset="assets/img/product/lab-session-dark-800.webp 800w, assets/img/product/lab-session-dark.webp 1600w" sizes="(min-width: 1000px) 440px, 100vw" alt="" loading="lazy" width="1600" height="829"><img class="shot shot-l" src="assets/img/product/lab-session-light.webp" srcset="assets/img/product/lab-session-light-800.webp 800w, assets/img/product/lab-session-light.webp 1600w" sizes="(min-width: 1000px) 440px, 100vw" alt="" loading="lazy" width="1600" height="829"><span class="thumb-tag">Product screenshot</span></a>
         <div class="pcard-foot"><a class="link" href="attack-reasoning-lab.html">Explore the Lab <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>
       </article>
 
@@ -334,7 +332,7 @@
             <li>A scored report you can review and keep.</li>
           </ul>
         </div>
-        <a href="interviewprep.html" tabindex="-1" aria-hidden="true" class="pcard-thumb"><img class="shot shot-d" src="assets/img/product/iprep-dark.webp" alt="" loading="lazy" width="1600" height="1089"><img class="shot shot-l" src="assets/img/product/iprep-light.webp" alt="" loading="lazy" width="1600" height="1089"><span class="thumb-tag">Product screenshot</span></a>
+        <a href="interviewprep.html" tabindex="-1" aria-hidden="true" class="pcard-thumb"><img class="shot shot-d" src="assets/img/product/iprep-dark.webp" srcset="assets/img/product/iprep-dark-800.webp 800w, assets/img/product/iprep-dark.webp 1600w" sizes="(min-width: 1000px) 440px, 100vw" alt="" loading="lazy" width="1600" height="1089"><img class="shot shot-l" src="assets/img/product/iprep-light.webp" srcset="assets/img/product/iprep-light-800.webp 800w, assets/img/product/iprep-light.webp 1600w" sizes="(min-width: 1000px) 440px, 100vw" alt="" loading="lazy" width="1600" height="1089"><span class="thumb-tag">Product screenshot</span></a>
         <div class="pcard-foot"><a class="link" href="interviewprep.html">Explore InterviewPrep <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a></div>
       </article>
     </div>

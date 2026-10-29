@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL } from "../components/Overview";
-import { Button, Notice } from "../components/ui";
+import { Button, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
@@ -120,6 +120,7 @@ const errorText = (err: unknown) =>
  * and cost (from each app's own LLM ledger).
  */
 export function AdminPage() {
+  usePageTitle("Admin console");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);

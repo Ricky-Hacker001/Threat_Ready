@@ -4,7 +4,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { AppCards } from "../components/Overview";
 import { Avatar, displayName } from "../components/ProfileMenu";
 import { useMe } from "../components/AppShell";
-import { Button, Field, Notice } from "../components/ui";
+import { Button, Field, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { messageFor } from "../lib/errors";
 import type { AdminRoleChangeResult } from "@threatready/contracts";
@@ -14,6 +14,8 @@ import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, fe
 
 /** One user across every app: identity, sessions, each app's own summary, and AI usage. */
 export function AdminUserPage() {
+  // No name or email in the tab title: browser history and tab sync are not the place for them.
+  usePageTitle("User details · Admin");
   const { id = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);

@@ -172,9 +172,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 @media (max-width: 760px) {
   .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
   .grid > .span-2 { grid-column: auto; }
+  /* The dashboard's four KPIs: two per row on phones (one full-width card each was a screen and a half of
+     scrolling before any action); tighter so the figures still fit side by side. */
+  .grid.kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .kpi-grid .card { padding: 14px; }
+  .kpi-grid .stat-value { font-size: 26px; }
   .page { padding: 22px 16px 56px; }
   h1 { font-size: 25px; }
 }
+/* The narrowest phones: one KPI per row again, so a value like "12 / 20" never breaks. */
+@media (max-width: 340px) { .grid.kpi-grid { grid-template-columns: 1fr; } }
 
 /* ---------- Cards ---------- */
 .card {
@@ -380,7 +387,8 @@ a.list-item:hover .chev { transform: translateX(3px); color: var(--text); }
 .alert.info > .icon { color: var(--info-text); }
 .alert code { font-family: var(--mono); font-size: 12px; color: var(--text-2); }
 .empty { text-align: center; padding: 40px 24px; color: var(--text-2); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); background: transparent; }
-.empty h3 { margin-bottom: 6px; color: var(--text); }
+/* The title's heading level follows the page outline (Empty `level`); it always looks like an h3. */
+.empty .empty-title { margin-bottom: 6px; color: var(--text); font-size: 15px; }
 .empty .icon-tile { margin: 0 auto 6px; width: 48px; height: 48px; border-radius: 14px; }
 /* The smallest phones: cards and empty states give their content the room, and a long call to action
    wraps instead of widening the one-column layout past the screen. */

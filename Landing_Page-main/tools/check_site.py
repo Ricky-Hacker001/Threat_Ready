@@ -8,12 +8,15 @@
   (--offline skips only the DNS lookup)
 - plan and pricing copy promises nothing the platform does not offer (no trial, no in-app prices)
 - every wide-table scroll container is a focusable, named region
+- SEO: one canonical per indexable page (its own URL), unique titles and descriptions of sensible length,
+  complete Open Graph and Twitter tags, every <img> with alt and width/height, no duplicate ids, no Google
+  Fonts (self-hosted in assets/fonts), robots.txt naming the sitemap, sitemap.xml in sync with the pages
 Exit code 1 on any failure."""
 import pathlib, re, sys, html, socket
 from urllib.parse import urlparse
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from sync_shell import APP_LINKS, PLATFORM_URL, SCROLL_WRAPS  # noqa: E402
+from sync_shell import APP_LINKS, PLATFORM_URL, SCROLL_WRAPS, SITE_URL, canonical_url, indexable, sitemap  # noqa: E402
 PLATFORM_HOST = urlparse(PLATFORM_URL).hostname
 PAGES = sorted(p for p in ROOT.glob("*.html"))
 OFFLINE = "--offline" in sys.argv[1:]
@@ -155,5 +158,57 @@ css = (ROOT / "assets/css/site.css").read_text(encoding="utf-8")
 if re.search(r"\.link::after\{[^}]*position:absolute[^}]*inset:0", css):
     fail.append("site.css: stretched-link overlay rule present")
 
-print("\n".join(fail) if fail else f"OK — {len(PAGES)} pages, links/anchors/claims clean")
+# SEO and markup hygiene. Titles stay under what results pages show in full and descriptions under the
+# truncation point; an indexable page carries exactly one canonical (its own URL, which og:url repeats),
+# the Open Graph set and a Twitter card. Duplicate ids silently rename labels and landmarks
+# (aria-labelledby picks the first), and an <img> without width/height shifts the layout while it loads.
+TITLE_MAX, DESC_MIN, DESC_MAX = 80, 50, 180
+seen_titles, seen_descs = {}, {}
+for p in PAGES:
+    s = p.read_text(encoding="utf-8")
+    m = re.search(r"<title>(.*?)</title>", s, re.S)
+    title = html.unescape(m.group(1).strip()) if m else ""
+    if not title: fail.append(f"{p.name}: missing <title>")
+    elif len(title) > TITLE_MAX: fail.append(f"{p.name}: title is {len(title)} characters (max {TITLE_MAX})")
+    if title and title in seen_titles: fail.append(f"{p.name}: title duplicates {seen_titles[title]}")
+    seen_titles.setdefault(title, p.name)
+    if re.search(r"fonts\.(googleapis|gstatic)\.com", s):
+        fail.append(f"{p.name}: loads Google Fonts (fonts are self-hosted in assets/fonts)")
+    all_ids = re.findall(r'\bid="([^"]+)"', s)
+    for dup in sorted({i for i in all_ids if all_ids.count(i) > 1}):
+        fail.append(f'{p.name}: duplicate id="{dup}"')
+    for img in re.findall(r"<img\b[^>]*>", s):
+        if not re.search(r'\balt="', img): fail.append(f"{p.name}: <img> without alt: {img[:80]}")
+        if not (re.search(r'\bwidth="', img) and re.search(r'\bheight="', img)):
+            fail.append(f"{p.name}: <img> without width/height: {img[:80]}")
+    if not indexable(s): continue
+    m = re.search(r'<meta\s+name="description"\s+content="([^"]*)"', s)
+    desc = html.unescape(m.group(1)) if m else ""
+    if not desc: fail.append(f"{p.name}: missing meta description")
+    elif not DESC_MIN <= len(desc) <= DESC_MAX: fail.append(f"{p.name}: description is {len(desc)} characters ({DESC_MIN}-{DESC_MAX})")
+    if desc and desc in seen_descs: fail.append(f"{p.name}: description duplicates {seen_descs[desc]}")
+    seen_descs.setdefault(desc, p.name)
+    canon = re.findall(r'<link\s+rel="canonical"\s+href="([^"]*)"', s)
+    if canon != [canonical_url(p.name)]:
+        fail.append(f"{p.name}: canonical should be exactly {canonical_url(p.name)} (found {', '.join(canon) or 'none'})")
+    for prop in ("og:title", "og:description", "og:image", "og:url"):
+        if not re.search(r'<meta\s+property="%s"\s+content="[^"]+"' % re.escape(prop), s): fail.append(f"{p.name}: missing {prop}")
+    m = re.search(r'<meta\s+property="og:url"\s+content="([^"]*)"', s)
+    if m and m.group(1) != canonical_url(p.name): fail.append(f"{p.name}: og:url {m.group(1)} differs from the canonical URL")
+    if not re.search(r'<meta\s+name="twitter:card"\s+content="(summary|summary_large_image)"', s): fail.append(f"{p.name}: missing twitter:card")
+for f in sorted((ROOT / "assets/css").glob("*.css")):
+    if re.search(r"fonts\.(googleapis|gstatic)\.com", f.read_text(encoding="utf-8")):
+        fail.append(f"{f.relative_to(ROOT).as_posix()}: imports Google Fonts (fonts are self-hosted in assets/fonts)")
+
+# Crawl files: robots.txt names the sitemap, and sitemap.xml is exactly what tools/sync_shell.py generates
+# from the indexable pages (so a new or noindexed page never leaves it stale).
+robots = ROOT / "robots.txt"
+if not robots.exists(): fail.append("robots.txt: missing")
+elif f"Sitemap: {SITE_URL}/sitemap.xml" not in robots.read_text(encoding="utf-8"):
+    fail.append(f"robots.txt: must name the sitemap: Sitemap: {SITE_URL}/sitemap.xml")
+sm = ROOT / "sitemap.xml"
+if not sm.exists(): fail.append("sitemap.xml: missing (run tools/sync_shell.py)")
+elif sm.read_text(encoding="utf-8") != sitemap(PAGES): fail.append("sitemap.xml: out of date with the indexable pages (run tools/sync_shell.py)")
+
+print("\n".join(fail) if fail else f"OK — {len(PAGES)} pages, links/anchors/claims/SEO clean")
 sys.exit(1 if fail else 0)

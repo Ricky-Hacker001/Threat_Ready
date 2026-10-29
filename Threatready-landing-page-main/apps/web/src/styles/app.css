@@ -1175,8 +1175,52 @@ a {
 .flash {
   margin-bottom: 20px;
 }
+/* The profile uses the shell's full width (--wrap), so its cards line up with the header and footer edges. */
 .module-wide {
-  max-width: 1040px;
+  max-width: none;
+}
+/* While a lazily loaded page's chunk arrives (main.tsx). */
+.page-loading {
+  margin: 0;
+  padding: 24px 0;
+  color: var(--ink-2);
+}
+
+/* Not-found page (pages/NotFoundPage.tsx): outside the signed-in shell, the platform's card look. */
+.notfound {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 48px var(--gutter);
+}
+.notfound-card {
+  width: 100%;
+  max-width: 440px;
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r2);
+  background: var(--surface);
+}
+.notfound-card h1 {
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+.notfound-card p {
+  margin: 0;
+  color: var(--ink-2);
+}
+.notfound-code {
+  font: 600 13px/1 var(--mono);
+  color: var(--text-3);
+  margin-top: 8px;
+}
+.notfound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
 }
 .overview {
   display: grid;
