@@ -32,6 +32,13 @@ An organisation (a company, team or institute) owns seats, a plan and the people
 - `feature_launches` gets a no-request-user SELECT policy (the consoles count launches per organisation the way the shared tables already allow since 0011); the owner policies stay.
 - Existing rows are untouched: personal workspaces keep `personal` / `learner` / `free`.
 
+## Deploying and rolling back
+
+Migrations run at boot (the launcher runs onboard's migrate before the API starts) and are never reverted: a rollback runs older code on the newer schema.
+
+- **Rollback floor (before this release reaches `main`).** After 0012, a user who creates or joins an organisation has two memberships: the personal one (`learner`/`trial`) and the organisation's. This release reads the personal one by role. The build before it (`main` at 7d81555) reads it with `where user_id = $1 limit 1`, no role filter and no order, returns no membership when that row is the organisation's, and its self-heal (`ensurePersonalWorkspace`) does nothing because a membership exists: the guard answers **403 `NO_MEMBERSHIP` on every request** for those users, depending on row order, and nothing repairs it. So first ship a one-commit release on `main` that adds `role in ('learner', 'trial')` to `findPersonalMembership` and `ensurePersonalWorkspace` (`tenancy.ts`; the same filter this release has), let it deploy and boot, then merge this release. From then on, never roll back past that release; roll forward instead.
+- **0013** (two more values in `admin_audit_log`'s action CHECK) and **0014** (an index) are safe under older code: it never writes the new actions.
+
 ## Configuration
 
 | Setting | Default | Meaning |
