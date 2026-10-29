@@ -1,0 +1,474 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "a4-ai-company",
+  "version": 1,
+  "level": "advanced",
+  "title": "AI product company: training to agents in production",
+  "organisation": {
+    "name": "Cobaltine Labs",
+    "industry": "AI software: document assistant for enterprises",
+    "size": "260 staff; ML research, platform and applied teams",
+    "summary": "Cobaltine Labs sells an AI document assistant to enterprises. Customer apps call an inference API that runs an agent with three tools: retrieval over each customer's uploaded documents, a code-execution sandbox and a web browsing tool; some features call a third-party model provider. Conversation logs flow into a training data lake that feeds a feature store and a GPU training cluster. Trained models are registered, pass an evaluation pipeline and are deployed to the inference API by ML CI/CD."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "serving", "label": "Serving cluster", "kind": "cluster" },
+      { "id": "training", "label": "Training account", "kind": "account" },
+      { "id": "mlops", "label": "ML platform", "kind": "cicd" },
+      { "id": "vendor", "label": "Third-party model", "kind": "vendor" }
+    ],
+    "nodes": [
+      { "id": "client-apps", "label": "customer apps", "type": "client", "boundary": "internet", "detail": "Enterprise apps calling the assistant", "controls": [] },
+      { "id": "web", "label": "public web pages", "type": "external", "boundary": "internet", "detail": "Any page the browsing tool may fetch", "controls": [] },
+      { "id": "inference-api", "label": "inference API", "type": "api", "boundary": "serving", "detail": "Tenant API keys, quotas and request logging", "controls": ["API keys", "rate limits"] },
+      { "id": "agent", "label": "agent runtime", "type": "service", "boundary": "serving", "detail": "Plans, calls the model and runs tools", "controls": ["output guard"] },
+      { "id": "sandbox", "label": "code-execution sandbox", "type": "container", "boundary": "serving", "detail": "Runs code the agent writes", "controls": ["kernel sandbox"] },
+      { "id": "browser", "label": "browsing tool", "type": "service", "boundary": "serving", "detail": "Fetches and extracts web pages for the agent", "controls": [] },
+      { "id": "rag-index", "label": "RAG index", "type": "database", "boundary": "serving", "detail": "Passages from every customer's documents", "controls": ["tenant filter"] },
+      { "id": "uploads", "label": "customer uploads", "type": "storage", "boundary": "serving", "detail": "Documents customers upload for retrieval", "controls": [] },
+      { "id": "data-lake", "label": "training data lake", "type": "storage", "boundary": "training", "detail": "Conversation logs, licensed and scraped data", "controls": ["training opt-out"] },
+      { "id": "features", "label": "feature store", "type": "database", "boundary": "training", "detail": "Curated training examples and features", "controls": [] },
+      { "id": "gpu", "label": "GPU training cluster", "type": "container", "boundary": "training", "detail": "Training and fine-tuning jobs", "controls": ["RBAC"] },
+      { "id": "registry", "label": "model registry", "type": "repository", "boundary": "mlops", "detail": "Model weights and metadata", "controls": [] },
+      { "id": "evals", "label": "evaluation pipeline", "type": "pipeline", "boundary": "mlops", "detail": "Safety and quality evaluations before release", "controls": ["safety eval gate"] },
+      { "id": "ml-ci", "label": "ML CI/CD", "type": "pipeline", "boundary": "mlops", "detail": "Deploys models, prompts and tool code", "controls": [] },
+      { "id": "provider", "label": "third-party model provider", "type": "model", "boundary": "vendor", "detail": "External model used by some features", "controls": [] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "client-apps", "to": "inference-api", "label": "API calls", "kind": "data" },
+      { "id": "e2", "from": "client-apps", "to": "uploads", "label": "uploads documents", "kind": "data" },
+      { "id": "e3", "from": "inference-api", "to": "agent", "label": "agent requests", "kind": "data" },
+      { "id": "e4", "from": "agent", "to": "provider", "label": "model calls", "kind": "data" },
+      { "id": "e5", "from": "agent", "to": "sandbox", "label": "runs code", "kind": "data" },
+      { "id": "e6", "from": "agent", "to": "browser", "label": "browses the web", "kind": "data" },
+      { "id": "e7", "from": "browser", "to": "web", "label": "fetches pages", "kind": "data" },
+      { "id": "e8", "from": "agent", "to": "rag-index", "label": "retrieves passages", "kind": "data" },
+      { "id": "e9", "from": "uploads", "to": "rag-index", "label": "indexes documents", "kind": "data" },
+      { "id": "e10", "from": "inference-api", "to": "data-lake", "label": "logs conversations", "kind": "data" },
+      { "id": "e11", "from": "data-lake", "to": "features", "label": "feature jobs", "kind": "data" },
+      { "id": "e12", "from": "features", "to": "gpu", "label": "training features", "kind": "data" },
+      { "id": "e13", "from": "gpu", "to": "registry", "label": "registers models", "kind": "data" },
+      { "id": "e14", "from": "registry", "to": "evals", "label": "candidate models", "kind": "data" },
+      { "id": "e15", "from": "evals", "to": "ml-ci", "label": "release gate", "kind": "control" },
+      { "id": "e16", "from": "ml-ci", "to": "inference-api", "label": "deploys models", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Controls web pages and documents the agent may read" },
+    { "id": "tenant-user", "label": "user of another tenant", "boundary": "internet", "detail": "A legitimate customer with its own API key" },
+    { "id": "insider", "label": "ML engineer account", "boundary": "training", "detail": "An ML engineer's credentials" }
+  ],
+  "identities": [
+    {
+      "id": "tenant-keys",
+      "label": "customer API keys",
+      "kind": "service",
+      "nodeIds": ["client-apps", "inference-api"],
+      "privileges": ["call the inference API for their tenant"],
+      "notes": null
+    },
+    {
+      "id": "agent-sa",
+      "label": "agent runtime identity",
+      "kind": "workload",
+      "nodeIds": ["agent", "rag-index", "sandbox", "browser"],
+      "privileges": ["query the RAG index for any tenant", "start sandboxes"],
+      "notes": "The tenant filter is applied in the agent's query, not enforced by the index"
+    },
+    {
+      "id": "sandbox-node",
+      "label": "serving node role",
+      "kind": "workload",
+      "nodeIds": ["sandbox", "agent", "uploads"],
+      "privileges": ["read customer uploads", "pull images"],
+      "notes": "Sandboxes run on the same nodes as the agent and can reach the metadata service"
+    },
+    {
+      "id": "training-role",
+      "label": "training jobs' role",
+      "kind": "workload",
+      "nodeIds": ["gpu", "data-lake", "features", "registry"],
+      "privileges": ["read the whole data lake", "write to the model registry"],
+      "notes": null
+    },
+    {
+      "id": "ml-engineers",
+      "label": "ML engineers",
+      "kind": "federated",
+      "nodeIds": ["gpu", "registry", "ml-ci"],
+      "privileges": ["submit training jobs", "run privileged pods", "promote models"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "data-lake",
+      "data": "conversation logs with customer content, licensed and scraped data",
+      "classification": "regulated",
+      "regulations": ["GDPR", "customer contracts"]
+    },
+    { "nodeId": "rag-index", "data": "passages and embeddings of customers' private documents", "classification": "confidential", "regulations": [] },
+    { "nodeId": "uploads", "data": "customers' uploaded documents", "classification": "confidential", "regulations": [] },
+    { "nodeId": "registry", "data": "model weights", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "api-keys",
+      "label": "API keys",
+      "nodeIds": ["inference-api"],
+      "status": "present",
+      "covers": "Every call is tied to a tenant key",
+      "limits": "The tenant id in the request body is trusted for retrieval"
+    },
+    {
+      "id": "rate",
+      "label": "rate limits",
+      "nodeIds": ["inference-api"],
+      "status": "present",
+      "covers": "Requests per key",
+      "limits": "One request can trigger an unbounded loop of tool and model calls"
+    },
+    {
+      "id": "output-guard",
+      "label": "output guard",
+      "nodeIds": ["agent"],
+      "status": "present",
+      "covers": "Blocks known harmful content in replies",
+      "limits": "Does not inspect tool arguments or what the sandbox sends out"
+    },
+    {
+      "id": "kernel-sandbox",
+      "label": "kernel sandbox",
+      "nodeIds": ["sandbox"],
+      "status": "present",
+      "covers": "Code runs under a separate kernel",
+      "limits": "Network egress and the metadata service are reachable from it"
+    },
+    {
+      "id": "tenant-filter",
+      "label": "tenant filter",
+      "nodeIds": ["rag-index"],
+      "status": "partial",
+      "covers": "Retrieval limited to the caller's tenant",
+      "limits": "Applied by the agent's query, not enforced by the index"
+    },
+    {
+      "id": "opt-out",
+      "label": "training opt-out",
+      "nodeIds": ["data-lake"],
+      "status": "partial",
+      "covers": "Opted-out customers are excluded from training",
+      "limits": "Applied when features are built; raw logs keep everything"
+    },
+    {
+      "id": "rbac",
+      "label": "RBAC",
+      "nodeIds": ["gpu"],
+      "status": "partial",
+      "covers": "Who can run jobs on the GPU cluster",
+      "limits": "Every ML engineer can run privileged pods"
+    },
+    {
+      "id": "eval-gate",
+      "label": "safety eval gate",
+      "nodeIds": ["evals"],
+      "status": "present",
+      "covers": "Models must pass evaluations before release",
+      "limits": "Evaluates models, not prompt or tool changes that ML CI/CD also ships"
+    },
+    {
+      "id": "model-signing",
+      "label": "model signing",
+      "nodeIds": ["registry"],
+      "status": "missing",
+      "covers": "Proving which training run produced a promoted model",
+      "limits": null
+    },
+    {
+      "id": "browse-allowlist",
+      "label": "domain allow-list",
+      "nodeIds": ["browser"],
+      "status": "missing",
+      "covers": "Limiting which sites and addresses the browsing tool fetches",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "logs-to-training",
+      "from": "inference-api",
+      "to": "data-lake",
+      "via": "conversation logs flow into training data",
+      "subtle": true,
+      "notes": "Customers assume their content stays out of training"
+    },
+    { "id": "agent-index-all", "from": "agent", "to": "rag-index", "via": "one identity for every tenant's passages", "subtle": true, "notes": null },
+    {
+      "id": "sandbox-node",
+      "from": "sandbox",
+      "to": "agent",
+      "via": "shares serving nodes and their metadata credentials",
+      "subtle": true,
+      "notes": null
+    },
+    {
+      "id": "browse-output",
+      "from": "browser",
+      "to": "agent",
+      "via": "fetched page text enters the prompt as tool output",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "training-registry",
+      "from": "gpu",
+      "to": "registry",
+      "via": "any training job can write to the registry",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    { "id": "api-logs", "label": "inference API logs", "nodeIds": ["inference-api"], "records": "requests per key with token counts", "gaps": null },
+    {
+      "id": "agent-traces",
+      "label": "agent traces",
+      "nodeIds": ["agent", "sandbox", "browser"],
+      "records": "prompts, tool calls and arguments",
+      "gaps": "sandbox network traffic is not recorded"
+    },
+    { "id": "lake-access", "label": "data lake access log", "nodeIds": ["data-lake", "features"], "records": "reads by job and user", "gaps": null },
+    {
+      "id": "registry-audit",
+      "label": "model registry audit log",
+      "nodeIds": ["registry"],
+      "records": "registrations and promotions",
+      "gaps": "no signature or provenance"
+    },
+    { "id": "gpu-audit", "label": "GPU cluster audit log", "nodeIds": ["gpu"], "records": "job submissions and privileged pods", "gaps": null }
+  ],
+  "attackSurfaces": {
+    "ai_llm_security": [
+      {
+        "id": "web-page-injection",
+        "summary": "A web page the browsing tool fetches tells the agent to run code that sends data out",
+        "entryNodeIds": ["web"],
+        "targetNodeIds": ["sandbox"],
+        "viaNodeIds": ["browser", "agent"],
+        "techniques": ["AML.T0051.001", "AML.T0053", "AML.T0025"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "cross-tenant-retrieval",
+        "summary": "A crafted question makes the agent retrieve another tenant's passages",
+        "entryNodeIds": ["inference-api"],
+        "targetNodeIds": ["rag-index"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["AML.T0051.000", "AML.T0057", "AML.T0024"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "logs-into-training",
+        "summary": "Conversation logs with customer content become training data despite opt-outs",
+        "entryNodeIds": ["inference-api"],
+        "targetNodeIds": ["gpu"],
+        "viaNodeIds": ["data-lake", "features"],
+        "techniques": ["T1119", "T1074", "T1020"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "uploads-any-tenant",
+        "summary": "Uploaded documents are retrievable by any tenant through the agent",
+        "entryNodeIds": ["uploads"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["rag-index"],
+        "techniques": ["T1213", "T1530", "T1199"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "unsigned-model",
+        "summary": "Any training job can register a model, and nothing proves where a promoted model came from",
+        "entryNodeIds": ["gpu"],
+        "targetNodeIds": ["inference-api"],
+        "viaNodeIds": ["registry", "evals", "ml-ci"],
+        "techniques": ["T1195.002", "T1072", "T1601"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "eval-gate-scope",
+        "summary": "The evaluation gate checks models, not the prompt and tool changes ML CI/CD ships",
+        "entryNodeIds": ["ml-ci"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["inference-api"],
+        "techniques": ["T1072", "T1195.001", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "privileged-training-pods",
+        "summary": "Every ML engineer can run privileged pods on the GPU cluster",
+        "entryNodeIds": ["gpu"],
+        "targetNodeIds": ["evals"],
+        "viaNodeIds": ["registry"],
+        "techniques": ["T1610", "T1611", "T1098.006"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "sandbox-shared-nodes",
+        "summary": "Code sandboxes share nodes with the agent and reach the node metadata service",
+        "entryNodeIds": ["sandbox"],
+        "targetNodeIds": ["rag-index"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1611", "T1552.005", "T1528"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "cloud_security": [
+      {
+        "id": "sandbox-metadata",
+        "summary": "The sandbox reaches the metadata service and the serving node role",
+        "entryNodeIds": ["sandbox"],
+        "targetNodeIds": ["uploads"],
+        "viaNodeIds": ["agent", "rag-index"],
+        "techniques": ["T1552.005", "T1078.004", "T1530"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "training-role-wide",
+        "summary": "The training jobs' role reads the whole data lake and writes the registry",
+        "entryNodeIds": ["gpu"],
+        "targetNodeIds": ["data-lake"],
+        "viaNodeIds": ["features"],
+        "techniques": ["T1078.004", "T1530", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "tenant-in-body",
+        "summary": "API keys are checked, but the tenant id in the request body is trusted for retrieval",
+        "entryNodeIds": ["client-apps"],
+        "targetNodeIds": ["rag-index"],
+        "viaNodeIds": ["inference-api", "agent"],
+        "techniques": ["T1550.001", "T1213", "T1078"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unbounded-tool-loop",
+        "summary": "Unbounded tool loops let one key drive thousands of model calls",
+        "entryNodeIds": ["inference-api"],
+        "targetNodeIds": ["provider"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1499.003", "T1499", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "application_security": [
+      {
+        "id": "browser-ssrf",
+        "summary": "The browsing tool fetches internal addresses, including the metadata service",
+        "entryNodeIds": ["browser"],
+        "targetNodeIds": ["rag-index"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1190", "T1552.005", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "upload-parser",
+        "summary": "A crafted PDF exploits the document parser in the indexing job",
+        "entryNodeIds": ["uploads"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["rag-index"],
+        "techniques": ["T1190", "T1059", "T1027"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "training-on-customer-data",
+        "summary": "Contracts promise customer content is not used for training, but logs feed the data lake",
+        "entryNodeIds": ["inference-api"],
+        "targetNodeIds": ["features"],
+        "viaNodeIds": ["data-lake"],
+        "techniques": ["T1213", "T1537", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "third-party-model",
+        "summary": "Some features send customer documents to a third-party model provider",
+        "entryNodeIds": ["rag-index"],
+        "targetNodeIds": ["provider"],
+        "viaNodeIds": ["agent"],
+        "techniques": ["T1199", "T1213", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "agent-hijack-reports",
+        "summary": "Reports of attackers seeding web pages with instructions for browsing agents",
+        "entryNodeIds": ["web"],
+        "targetNodeIds": ["agent"],
+        "viaNodeIds": ["browser"],
+        "techniques": ["T1587", "T1071.001", "T1036"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "gpu-token-theft",
+        "summary": "Intelligence on crews stealing ML engineer tokens to mine on GPU clusters",
+        "entryNodeIds": ["evals"],
+        "targetNodeIds": ["gpu"],
+        "viaNodeIds": ["registry"],
+        "techniques": ["T1078", "T1105", "T1584"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "engineer-token-promotion",
+        "summary": "A stolen ML engineer token promotes a model and deploys it",
+        "entryNodeIds": ["registry"],
+        "targetNodeIds": ["inference-api"],
+        "viaNodeIds": ["evals", "ml-ci"],
+        "techniques": ["T1528", "T1550.001", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "agent-shared-identity",
+        "summary": "The agent uses one identity for every tenant's retrieval and tools",
+        "entryNodeIds": ["agent"],
+        "targetNodeIds": ["uploads"],
+        "viaNodeIds": ["rag-index"],
+        "techniques": ["T1078", "T1098", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Advanced: three subtle trusts (logs to training, one agent identity for all tenants, sandboxes sharing nodes with the agent). Present controls that do not apply to a path: the kernel sandbox (egress open), the output guard (tool arguments), the eval gate (prompt and tool changes), the tenant filter (not enforced by the index)."
+}

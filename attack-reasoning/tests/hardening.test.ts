@@ -303,6 +303,9 @@ describe('client: submission ids and messages (TR-60, UX-REG3, UX-REG9)', () => 
   it('says what happened and when to try again, never a raw status or code', async () => {
     const quota = new ApiError(429, 'x', 'REASONING_DAILY_LIMIT_REACHED', { details: { limit: 20, resetAt: '2026-10-24T00:00:00.000Z' }, retryAfterSec: 3600 });
     expect(messageFor(quota)).toMatch(/^You have used today’s 20 evaluations\. Your answer was not submitted and is kept in this tab; evaluations reset at 00:00 UTC \(.+ your time\)\.$/);
+    // REASONING_USER_DAILY_QUESTIONS (26 Oct 2026): questions opened per day.
+    const opened = new ApiError(429, 'x', 'REASONING_DAILY_QUESTIONS_REACHED', { details: { limit: 40, resetAt: '2026-10-24T00:00:00.000Z' }, retryAfterSec: 3600 });
+    expect(messageFor(opened)).toMatch(/^You have opened today’s 40 questions\. Your open questions stay available; new ones can be started after 00:00 UTC \(.+ your time\)\.$/);
     expect(messageFor(new ApiError(429, 'x', 'LLM_BUDGET_EXCEEDED', { details: { scope: 'user_day', resetAt: '2026-10-24T00:00:00.000Z' } }))).toMatch(/resets at 00:00 UTC/);
     expect(messageFor(new ApiError(429, 'x', 'LLM_BUDGET_EXCEEDED'))).not.toMatch(/attempt is saved/);
     expect(messageFor(new ApiError(503, 'x', 'AI_SERVICE_PAUSED'))).toMatch(/paused for the rest of today/);

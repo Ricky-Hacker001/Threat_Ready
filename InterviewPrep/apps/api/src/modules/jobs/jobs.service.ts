@@ -67,9 +67,10 @@ export class JobsService {
     await this.queue.work<{ evaluationId: string }>(JOBS.emailSend, (d) => this.reports.runEmail(d.evaluationId));
     await this.queue.work<{ userId: string }>(JOBS.skillsRecalculate, (d) => this.skills.recalculate(d.userId));
     await this.queue.work<{ attemptId: string }>(JOBS.reasoningGenerate, (d) => this.generation.runGeneration(d.attemptId));
-    await this.queue.work<{ attemptId: string }>(JOBS.reasoningEvaluate, (d) => this.evaluation.runEvaluation(d.attemptId));
+    // `escalate` forces the LARGE challenger and reconciler (an operator's re-run; a learner's retry uses the normal rules).
+    await this.queue.work<{ attemptId: string; escalate?: boolean }>(JOBS.reasoningEvaluate, (d) => this.evaluation.runEvaluation(d.attemptId, { escalate: d.escalate === true }));
     // Registered even when the pool is off, so jobs a persisted schedule still enqueues complete as no-ops.
-    await this.queue.work<{ domain?: string; difficulty?: string; userId?: string }>(JOBS.reasoningPoolRefill, (d) => (d?.domain && d?.difficulty ? this.generation.refillPool(d) : this.fanOutRefill()));
+    await this.queue.work<{ domain?: string; difficulty?: string; userId?: string; max?: number }>(JOBS.reasoningPoolRefill, (d) => (d?.domain && d?.difficulty ? this.generation.refillPool(d) : this.fanOutRefill()));
     await this.queue.work<Record<string, unknown>>(JOBS.deadLetter, (d) => this.onDeadLetter(d));
     await this.queue.work(JOBS.interviewSweep, () => this.sweep());
     await this.queue.schedule(JOBS.interviewSweep, '*/5 * * * *');

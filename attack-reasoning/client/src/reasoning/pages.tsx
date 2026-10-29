@@ -159,9 +159,9 @@ export function DomainsPage({ go }: { go: (to: string) => void }) {
         </li>)}</ul>
         <h2 className="tr-section-title">How an assessment works</h2>
         <div className="ar-facts">
-          <div className="tr-card"><span className="tr-eyebrow">1 · Scenario</span><p>The AI builds a unique architecture, attack narrative and diagram for you. It is validated in code and checked against what you have seen before, so questions do not repeat.</p></div>
+          <div className="tr-card"><span className="tr-eyebrow">1 · Scenario</span><p>Each question is written by AI on one of fifteen reviewed reference architectures, with its own attack and situation. It is validated in code and checked against what you have seen before, so questions do not repeat.</p></div>
           <div className="tr-card"><span className="tr-eyebrow">2 · Decision and reasoning</span><p>Pick one of four options, then explain why: the evidence, the attack path, the trade-offs. You must reason before you see the answer.</p></div>
-          <div className="tr-card"><span className="tr-eyebrow">3 · Three-stage evaluation</span><p>An evaluator, an adversarial challenger and a reconciler grade your justification against a scenario-specific rubric. The score itself is computed in code from fixed weights.</p></div>
+          <div className="tr-card"><span className="tr-eyebrow">3 · Evaluation</span><p>Your justification is graded against a scenario-specific rubric; borderline or disputed answers, and a random sample of the rest, are reviewed a second time by an adversarial challenger and a reconciler. The score itself is computed in code from fixed weights.</p></div>
         </div>
       </>}
     </div>
@@ -218,7 +218,7 @@ export function DomainPage({ slug, go }: { slug: string; go: (to: string) => voi
             <span className="tr-small tr-muted">You have an unfinished {difficulty} question. <a className="ar-link" href={BASE} aria-disabled={starting} onClick={(e) => { e.preventDefault(); if (!starting) void startInstead(); }}>{starting ? 'Starting…' : 'Start a new one instead'}</a>{open.state === 'ready' && ' (the unfinished one counts as 0)'}.</span>
           </> : <>
             <button type="button" className="tr-btn tr-btn-primary" disabled={starting} onClick={start}>{starting ? 'Starting…' : warm === 'ready' ? 'Start now' : 'Start assessment'}</button>
-            <span className="tr-small tr-muted">{warm === 'ready' ? `${available} new ${difficulty} question${available === 1 ? '' : 's'} ready for you.` : warm === 'generating' ? `Preparing new ${difficulty} questions in the background…` : warm === 'on_demand' ? `Your next ${difficulty} question is generated when you start (about a minute).` : 'One generated scenario, one decision, your reasoning. About 10 minutes.'}</span>
+            <span className="tr-small tr-muted">{warm === 'ready' ? `${available} new ${difficulty} question${available === 1 ? '' : 's'} ready for you.` : warm === 'generating' ? `Preparing new ${difficulty} questions in the background…` : warm === 'on_demand' ? `Your next ${difficulty} question is generated when you start (usually a minute or two).` : 'One scenario on a reference architecture, one decision, your reasoning. About 10 minutes.'}</span>
           </>}
         </div>
       </div>}
@@ -272,7 +272,9 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
   const submissionId = useRef(uuid());
   const [slow, setSlow] = useState(false);
   const state = attempt?.state;
-  useEffect(() => { setSlow(false); if (state && TRANSIENT.has(state)) { const t = window.setTimeout(() => setSlow(true), 75_000); return () => window.clearTimeout(t); } return undefined; }, [state]);
+  // The on-demand generation ladder (a Haiku try, then a Sonnet rewrite) measured 70-82 s, so the
+  // "longer than usual" notice waits 2 minutes there; an evaluation keeps 75 s (review AR-BIZ-7).
+  useEffect(() => { setSlow(false); if (state && TRANSIENT.has(state)) { const t = window.setTimeout(() => setSlow(true), state === 'generating' ? 120_000 : 75_000); return () => window.clearTimeout(t); } return undefined; }, [state]);
   useEffect(() => { if (state === 'evaluated' && !result) reasoning.result(id).then(setResult, setSubErr); }, [state, id, result]);
   // While the learner reads and answers, the pool is restocked for the next question at this difficulty.
   const watching = attempt && (state === 'ready' || state === 'evaluating' || state === 'evaluated') ? attempt.domain : null;
@@ -323,8 +325,8 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
   useEffect(() => {
     const prev = prevState.current; prevState.current = state;
     if (!state || prev === state) return;
-    if (state === 'generating') { watched.current = true; setAnnounce('Generating your scenario. This usually takes under a minute.'); }
-    else if (state === 'evaluating') { watched.current = true; setAnnounce('Your answer was submitted. Evaluating in three stages; this usually takes one to two minutes.'); }
+    if (state === 'generating') { watched.current = true; setAnnounce('Generating your scenario. This usually takes a minute or two.'); }
+    else if (state === 'evaluating') { watched.current = true; setAnnounce('Your answer was submitted. It is being graded against the rubric; this usually takes under a minute, longer when it gets a second review.'); }
     else if (state === 'ready' && prev === 'generating') setAnnounce('Your scenario is ready.');
     else if (state === 'generation_failed') setAnnounce('Scenario generation failed. You can retry.');
     else if (state === 'evaluation_failed') setAnnounce('Evaluation failed. Your answer is saved; you can retry.');
@@ -366,7 +368,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
       <p className="tr-sr" role="status" aria-live="polite">{announce}</p>
       {attempt?.state === 'generating' && <div className="tr-card ar-wait" role="status">
         <span className="tr-spinner" aria-hidden="true" />
-        <div><h2 className="tr-h3">Generating a unique scenario</h2><p>The AI is building an architecture, an attack narrative and a diagram for you. Each item is validated in code and checked against your previous questions before you see it.</p><p className="tr-small tr-muted">{slow ? 'This is taking longer than usual. The attempt is saved; you can leave this page and come back.' : 'Usually under a minute.'}</p><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button></div>
+        <div><h2 className="tr-h3">Generating a new scenario</h2><p>The AI is writing an attack and a question for you on one of the reviewed reference architectures. Each item is validated in code and checked against your previous questions before you see it.</p><p className="tr-small tr-muted">{slow ? 'This is taking longer than usual. The attempt is saved; you can leave this page and come back.' : 'Usually a minute or two.'}</p><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button></div>
       </div>}
       {attempt && (attempt.state === 'generation_failed' || attempt.state === 'evaluation_failed') && <div className="tr-note tr-note-bad" role="alert">
         <span><b>{attempt.state === 'generation_failed' ? 'Scenario generation failed.' : 'Evaluation failed.'}</b> {FAILURE_MESSAGE(attempt.failure?.code ?? '')} {attempt.state === 'evaluation_failed' && 'Your answer is saved.'}</span> <span className="ar-note-actions"><button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={retry}>Retry</button>{endButton}</span>
@@ -402,7 +404,7 @@ export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }
             <span className="tr-eyebrow">Your decision</span>
             <h2 className="tr-h2">{attempt.item.question}</h2>
             {attempt.answer && <div className="ar-answer"><p><b>Option {attempt.answer.selectedOption}.</b> {attempt.item.options.find((o) => o.id === attempt.answer!.selectedOption)?.text}</p><blockquote className="ar-quote">{attempt.answer.justification}</blockquote><span className="tr-small tr-muted">Submitted {fmtDate(attempt.answer.submittedAt)}{attempt.answer.answerSeconds !== null && <> · answered in {fmtDuration(attempt.answer.answerSeconds)}</>}</span></div>}
-            {attempt.state === 'evaluating' && <div className="ar-wait ar-wait-inline" role="status"><span className="tr-spinner" aria-hidden="true" /><div><b>Evaluating in three stages</b><ol className="ar-stages"><li>Evaluator: grades your justification against the rubric with verbatim evidence</li><li>Challenger: looks for errors, invented references and over-credit</li><li>Reconciler: settles the disagreements and writes your feedback</li></ol><span className="tr-small tr-muted">{slow ? 'Taking longer than usual. Your answer is saved; you can come back later.' : 'Usually one to two minutes.'}</span><div className="ar-submit"><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button><span className="tr-small tr-muted">Ending now keeps this answer: it finishes evaluating and appears in your summary.</span></div></div></div>}
+            {attempt.state === 'evaluating' && <div className="ar-wait ar-wait-inline" role="status"><span className="tr-spinner" aria-hidden="true" /><div><b>Evaluating your answer</b><ol className="ar-stages"><li>Your selected option is scored against the answer key</li><li>Your justification is graded against the rubric, with verbatim evidence from your text</li><li>Borderline or disputed answers, and a random sample of the rest, get a second, adversarial review</li></ol><span className="tr-small tr-muted">{slow ? 'Taking longer than usual. Your answer is saved; you can come back later.' : 'Usually under a minute; a second review takes one to two.'}</span><div className="ar-submit"><button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={endAssessment}>{ending ? 'Ending…' : 'End assessment'}</button><span className="tr-small tr-muted">Ending now keeps this answer: it finishes evaluating and appears in your summary.</span></div></div></div>}
           </section>
         )}
         </div>
@@ -418,9 +420,9 @@ const CONF: Record<string, string> = { high: 'tr-tag-live', medium: 'tr-tag-info
 
 /** What the confidence level means, in the learner's terms. */
 const CONF_TEXT: Record<string, string> = {
-  high: 'the three grading stages agreed, so the score is reliable.',
-  medium: 'the grading stages mostly agreed; small differences were settled by the reconciler.',
-  low: 'the grading stages disagreed or one could not run, so treat the score as approximate.',
+  high: 'the grading was consistent, so the score is reliable.',
+  medium: 'the grading was mostly consistent; one or two points were judgement calls.',
+  low: 'the grading was uncertain or a grading step could not run, so treat the score as approximate.',
 };
 
 function ResultView({ r, item, go, domainSlug, next, nextReady, nextOnDemand, moving, end, ending, focusOnMount }: { r: Result; item: NonNullable<AttemptView['item']>; go: (to: string) => void; domainSlug: string; next: () => void; nextReady: boolean; nextOnDemand: boolean; moving: boolean; end: () => void; ending: boolean; focusOnMount?: boolean }) {
@@ -438,7 +440,7 @@ function ResultView({ r, item, go, domainSlug, next, nextReady, nextOnDemand, mo
         <ul className="ar-flag-notes">
           <li><b>Confidence {r.confidence}:</b> {CONF_TEXT[r.confidence] ?? ''}</li>
           {r.reviewFlag && <li><b>Uncertain grading:</b> the graders marked this result as uncertain (for example, they disagreed or the text looked off-topic). The score shown is final; there is no individual human review.</li>}
-          {r.degraded && <li><b>Simplified scoring:</b> one of the three grading stages could not run, so the score was settled with fewer checks than usual.</li>}
+          {r.degraded && <li><b>Simplified scoring:</b> a grading step could not run, so the score was settled with fewer checks than usual.</li>}
         </ul>
         {r.notices.map((n) => <p key={n} className="tr-small tr-muted">{n}</p>)}
         {r.answerSeconds !== null && <p className="tr-small tr-muted">Answered in {fmtDuration(r.answerSeconds)} (from when the question was shown; shown for information, not scored).</p>}
@@ -471,7 +473,7 @@ function ResultView({ r, item, go, domainSlug, next, nextReady, nextOnDemand, mo
     <section className="tr-card"><h2 className="tr-h3">How to improve</h2><ul className="ar-list">{r.feedback.improve.map((x) => <li key={x}>{x}</li>)}</ul></section>
     <div className="ar-actions">
       <button type="button" className="tr-btn tr-btn-primary" disabled={moving} onClick={next}>{moving ? 'Opening…' : nextReady ? 'Next question (ready)' : 'Next question'}</button>
-      <span className="tr-small tr-muted ar-next-hint">{nextReady ? `A new ${item.difficulty} architecture and question are ready.` : nextOnDemand ? 'The next architecture and question are generated when you continue (about a minute).' : 'The next architecture and question are being prepared in the background.'}</span>
+      <span className="tr-small tr-muted ar-next-hint">{nextReady ? `A new ${item.difficulty} question is ready.` : nextOnDemand ? 'The next question is generated when you continue (usually a minute or two).' : 'The next question is being prepared in the background.'}</span>
       <button type="button" className="tr-btn tr-btn-secondary ar-end" disabled={ending} onClick={end}>{ending ? 'Ending…' : 'End assessment'}</button>
       <a className="tr-btn tr-btn-ghost" href={`${BASE}domains/${domainSlug}`} onClick={(e) => { e.preventDefault(); go(`${BASE}domains/${domainSlug}`); }}>Back to domain</a>
     </div>

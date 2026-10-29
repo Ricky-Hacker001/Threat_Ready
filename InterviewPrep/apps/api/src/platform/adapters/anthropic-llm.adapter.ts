@@ -10,9 +10,10 @@ import type {
   LlmText,
   LlmTier,
   LlmUsage,
+  ModelProfile,
   StructuredSchema,
 } from '../ports/llm.port.js';
-import { withUsage } from '../ports/llm.port.js';
+import { resolveModel, withRefusalCategory, withUsage } from '../ports/llm.port.js';
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
@@ -29,18 +30,23 @@ export class AnthropicLlmAdapter implements LlmPort {
     this.client = new Anthropic({ apiKey: cfg.ANTHROPIC_API_KEY, maxRetries: cfg.LLM_MAX_RETRIES });
   }
 
-  modelFor(tier: LlmTier): string {
-    return tier === 'SMALL' ? this.cfg.LLM_MODEL_SMALL : this.cfg.LLM_MODEL_LARGE;
+  modelFor(tier: LlmTier, profile?: ModelProfile): string {
+    return resolveModel(this.cfg, tier, profile);
   }
 
   /** Optional boot check that the configured ids exist for this API key (LLM_VERIFY_MODELS_ON_BOOT). */
   async verifyModels(): Promise<void> {
-    for (const tier of ['SMALL', 'LARGE'] as const) {
-      const id = this.modelFor(tier);
+    // Each distinct id once: Attack Reasoning's SMALL model is LLM_MODEL_SMALL when REASONING_MODEL_SMALL is empty or names the same id.
+    const ids = new Map<string, string>([
+      [this.modelFor('SMALL', 'reasoning'), 'reasoning SMALL'],
+      [this.modelFor('SMALL'), 'SMALL'],
+      [this.modelFor('LARGE'), 'LARGE'],
+    ]);
+    for (const [id, label] of ids) {
       try {
         await this.client.models.retrieve(id);
       } catch (err) {
-        throw new Error(`Configured ${tier} model ${id} is not available to this API key`, { cause: err });
+        throw new Error(`Configured ${label} model ${id} is not available to this API key`, { cause: err });
       }
     }
   }
@@ -70,7 +76,7 @@ export class AnthropicLlmAdapter implements LlmPort {
   }
 
   async *stream(req: LlmRequest): AsyncIterable<LlmChunk> {
-    const model = this.modelFor(req.tier);
+    const model = this.modelFor(req.tier, req.modelProfile);
     const params = this.params(req, model, undefined);
     let stream: ReturnType<Anthropic['messages']['stream']>;
     try {
@@ -85,7 +91,7 @@ export class AnthropicLlmAdapter implements LlmPort {
         }
       }
       const final = await stream.finalMessage();
-      if (final.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'stream stopped with refusal', { retryable: false }), usageOf(final));
+      if (final.stop_reason === 'refusal') throw withUsage(withRefusalCategory(new PortError('refusal', 'stream stopped with refusal', { retryable: false }), final.stop_details?.category), usageOf(final));
       yield { type: 'done', usage: usageOf(final) };
     } catch (err) {
       throw withPartialUsage(toPortError(err), stream.currentMessage);
@@ -94,12 +100,12 @@ export class AnthropicLlmAdapter implements LlmPort {
 
   /** The message, plus the usage of a refused first try when the fallback model answered (billed too). */
   private async createWithFallback(req: LlmRequest, format: Anthropic.JSONOutputFormat | undefined): Promise<{ msg: Anthropic.Message; extra: LlmUsage[] }> {
-    const model = this.modelFor(req.tier);
+    const model = this.modelFor(req.tier, req.modelProfile);
     const first = await this.create(this.params(req, model, format), req);
     if (first.stop_reason !== 'refusal') return { msg: checkStop(first), extra: [] };
     const fallback = req.tier === 'LARGE' ? this.cfg.LLM_REFUSAL_FALLBACK_MODEL : undefined;
     logger.warn({ tier: req.tier, model, category: first.stop_details?.category ?? null, fallback: fallback ?? null }, 'llm refusal');
-    if (!fallback) throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(first));
+    if (!fallback) throw withUsage(withRefusalCategory(new PortError('refusal', 'model declined the request', { retryable: false }), first.stop_details?.category), usageOf(first));
     const extra = [usageOf(first)];
     try {
       return { msg: checkStop(await this.create(this.params(req, fallback, format), req)), extra };
@@ -131,6 +137,12 @@ export class AnthropicLlmAdapter implements LlmPort {
     return req.timeoutMs ?? (req.tier === 'SMALL' ? this.cfg.LLM_TIMEOUT_MS_SMALL : this.cfg.LLM_TIMEOUT_MS_LARGE);
   }
 
+  /**
+   * Model, output cap, system blocks, messages and output_config; nothing else. In particular no
+   * `thinking`, temperature, top_p, top_k, assistant prefill or server-side `fallbacks`: a model that
+   * thinks adaptively (Haiku 5.5) rejects the first four with a 400, and thinks by default without
+   * `thinking`, its depth set by `effort` where the model accepts it.
+   */
   private params(req: LlmRequest, model: string, format: Anthropic.JSONOutputFormat | undefined): CreateParams {
     const pricing = this.cfg.pricing[model];
     const outputConfig: Anthropic.OutputConfig = {};
@@ -139,12 +151,23 @@ export class AnthropicLlmAdapter implements LlmPort {
     return {
       model,
       max_tokens: Math.min(req.maxOutputTokens, pricing?.maxOutputTokens ?? req.maxOutputTokens),
-      // The system prompt is the stable prefix; marking it lets repeated turns read it from cache.
-      system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
+      system: systemBlocks(req),
       messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
       ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
     };
   }
+}
+
+/**
+ * The system prompt is the stable prefix; marking it lets repeated turns read it from cache. With a
+ * `systemPrefix` (shared by several calls: the grader's item context, a question writer's architecture)
+ * it becomes its own first block with its own breakpoint, so calls that differ only in `system` still
+ * read the prefix from cache. Two of the four breakpoints the API allows; learner text is never here.
+ * `cache: false` sends the same blocks unmarked: nothing is written that would never be read (COST-2).
+ */
+export function systemBlocks(req: Pick<LlmRequest, 'systemPrefix' | 'system' | 'cache'>): Anthropic.TextBlockParam[] {
+  const block = (text: string): Anthropic.TextBlockParam => (req.cache === false ? { type: 'text', text } : { type: 'text', text, cache_control: { type: 'ephemeral' } });
+  return req.systemPrefix ? [block(req.systemPrefix), block(req.system)] : [block(req.system)];
 }
 
 /** A truncated or refused message was still billed in full: its usage goes with the error (billed failures, audit §3.5). */
@@ -152,7 +175,7 @@ function checkStop(msg: Anthropic.Message): Anthropic.Message {
   if (msg.stop_reason === 'max_tokens') {
     throw withUsage(new PortError('invalid_output', 'response truncated at max_tokens', { retryable: true }), usageOf(msg));
   }
-  if (msg.stop_reason === 'refusal') throw withUsage(new PortError('refusal', 'model declined the request', { retryable: false }), usageOf(msg));
+  if (msg.stop_reason === 'refusal') throw withUsage(withRefusalCategory(new PortError('refusal', 'model declined the request', { retryable: false }), msg.stop_details?.category), usageOf(msg));
   return msg;
 }
 

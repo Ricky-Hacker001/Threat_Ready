@@ -38,8 +38,10 @@ export function queuePolicy(t: QueueTiming): Record<JobName, { retryLimit: numbe
     [JOBS.interviewSweep]: { retryLimit: 0, expireInSeconds: 120 },
     // Attack Reasoning (L17b): generation may regenerate internally (one call per try); the job retries cover provider outages.
     [JOBS.reasoningGenerate]: { retryLimit: 3, expireInSeconds: Math.max(600, forCalls(t.reasoningMaxGenerationTries)) },
-    // Evaluation: three sequential LARGE stages.
-    [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: Math.max(600, forCalls(3)) },
+    // Evaluation: one SMALL pass, then two sequential LARGE stages when escalated (three LARGE stages in
+    // REASONING_EVALUATION_MODE=full); when the SMALL model declines, stage 1 runs again on LARGE before
+    // the two. Sized for four LARGE calls (a SMALL call's worst case is within one), which covers each path.
+    [JOBS.reasoningEvaluate]: { retryLimit: 3, expireInSeconds: Math.max(600, forCalls(4)) },
     // A batch is generated in parallel (each item up to the generation tries); one retry covers a provider blip, the schedule covers the rest.
     [JOBS.reasoningPoolRefill]: { retryLimit: 1, expireInSeconds: Math.max(1800, forCalls(t.reasoningMaxGenerationTries)) },
     [JOBS.deadLetter]: { retryLimit: 3, expireInSeconds: 60 },

@@ -51,10 +51,17 @@ export const reasoningItems = pgTable(
     weights: jsonb('weights').$type<Record<string, number>>().notNull(),
     /**
      * Learners this question has been served to (kept by a trigger on reasoning_served). A pool
-     * question past REASONING_ITEM_MAX_SERVES is retired from serving, bounding how far one answer
-     * key can travel; the refill job generates a replacement.
+     * question at REASONING_ITEM_MAX_SERVES is retired from serving, bounding how far one answer
+     * key can travel; the refill job generates a replacement. Since migration 0017 the trigger also
+     * enforces the cap (transaction setting app.reasoning_item_max_serves): a serve over it is skipped.
      */
     serveCount: integer('serve_count').notNull().default(0),
+    /**
+     * The library architecture the question was written on (apps/api/src/modules/reasoning/architectures,
+     * migration 0017); null for questions generated before the library. The composed diagram is copied
+     * into `public` at generation, so a later library edit never changes an existing question.
+     */
+    architectureId: text('architecture_id'),
     generatorVersion: text('generator_version').notNull(),
     promptVersion: text('prompt_version').notNull(),
     model: text('model').notNull(),
@@ -65,6 +72,7 @@ export const reasoningItems = pgTable(
     index('reasoning_items_user_domain_idx').on(t.userId, t.domain, t.createdAt),
     index('reasoning_items_pool_idx').on(t.pool, t.domain, t.difficulty, t.createdAt),
     index('reasoning_items_pool_serve_idx').on(t.pool, t.domain, t.difficulty, t.serveCount),
+    index('reasoning_items_architecture_idx').on(t.architectureId, t.createdAt),
     check('reasoning_items_owner_or_pool', sql`pool or user_id is not null`),
     ownerPolicy('reasoning_items'),
     // Pool questions are readable by any learner's transaction; the private half is still never serialised.

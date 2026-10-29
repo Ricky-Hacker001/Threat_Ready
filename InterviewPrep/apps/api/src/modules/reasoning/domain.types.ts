@@ -95,11 +95,18 @@ export interface DomainCatalogueEntry {
 export interface VariationSeed {
   domain: ReasoningDomainKey;
   difficulty: ReasoningDifficulty;
+  /** Library seeds: the architecture id. Legacy seeds: a topology id of the domain. */
   topology: string;
+  /** Library seeds: the attack surface id. Legacy seeds: an entry point id of the domain. */
   entryPoint: string;
   objective: string;
   technique: string;
   constraint: string;
+  /**
+   * Library seeds only (gen.v3): the architecture and its version the question was written on, the
+   * attack surface, and the structural key of the attack path once generated (`pathKey`).
+   */
+  architecture?: { id: string; version: number; surface: string; pathKey?: string };
 }
 
 export const fingerprintOf = (s: VariationSeed): string => [s.domain, s.topology, s.entryPoint, s.objective, s.technique].join('|');

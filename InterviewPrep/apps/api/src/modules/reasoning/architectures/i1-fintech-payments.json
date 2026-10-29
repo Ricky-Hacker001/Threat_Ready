@@ -1,0 +1,481 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "i1-fintech-payments",
+  "version": 1,
+  "level": "intermediate",
+  "title": "Payments platform on Kubernetes with a card vault",
+  "organisation": {
+    "name": "Corvane Pay",
+    "industry": "Fintech: online card payments for merchants",
+    "size": "340 staff; platform, payments and data science teams",
+    "summary": "Corvane Pay processes card payments for about 2,000 online merchants. Merchant servers call a partner API through a gateway that requires mutual TLS; the payments API runs as pods on a managed Kubernetes cluster, scores every payment with an in-house fraud model and publishes events that a settlement worker turns into payouts. Card numbers live only in a card vault in a separate data account, encrypted with a dedicated key. Merchants also submit chargeback labels that retrain the fraud model weekly. Deployments run from CI with OIDC federation to a cloud deploy role, and security logs flow into a SIEM in a security account."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "cluster", "label": "Payments cluster", "kind": "cluster" },
+      { "id": "data", "label": "Data account", "kind": "account" },
+      { "id": "cicd", "label": "CI/CD", "kind": "cicd" },
+      { "id": "security", "label": "Security account", "kind": "management" }
+    ],
+    "nodes": [
+      { "id": "merchant-servers", "label": "merchant servers", "type": "external", "boundary": "internet", "detail": "Merchants' back ends calling the partner API with client certificates", "controls": [] },
+      { "id": "gateway", "label": "partner API gateway", "type": "gateway", "boundary": "cluster", "detail": "Terminates mutual TLS and forwards to the payments API", "controls": ["mTLS", "rate limits"] },
+      { "id": "payments-api", "label": "payments API pods", "type": "api", "boundary": "cluster", "detail": "Authorisations, refunds and chargeback label uploads", "controls": ["OAuth scopes"] },
+      { "id": "fraud-model", "label": "fraud-scoring model", "type": "model", "boundary": "cluster", "detail": "Scores every payment; retrained weekly from chargeback labels", "controls": [] },
+      { "id": "event-bus", "label": "payment events bus", "type": "queue", "boundary": "cluster", "detail": "Authorised and refunded payments, consumed by settlement", "controls": [] },
+      { "id": "settlement", "label": "settlement worker", "type": "service", "boundary": "cluster", "detail": "Builds merchant payouts; detokenises cards for refunds to card", "controls": [] },
+      { "id": "card-vault", "label": "card vault", "type": "database", "boundary": "data", "detail": "Card numbers behind tokens; detokenise on request", "controls": ["tokenisation"] },
+      { "id": "kms", "label": "card-data KMS key", "type": "secret", "boundary": "data", "detail": "Encrypts the vault; decrypt allowed by key policy", "controls": ["key policy"] },
+      { "id": "labels-bucket", "label": "chargeback labels bucket", "type": "storage", "boundary": "data", "detail": "Merchant-submitted fraud and chargeback labels with payment ids", "controls": [] },
+      { "id": "ci", "label": "CI/CD pipeline", "type": "pipeline", "boundary": "cicd", "detail": "Builds images and deploys with OIDC, no stored cloud keys", "controls": ["OIDC to cloud"] },
+      { "id": "deploy-role", "label": "deploy-payments role", "type": "identity", "boundary": "cicd", "detail": "Cloud role CI assumes to deploy to the cluster", "controls": [] },
+      { "id": "sso", "label": "workforce SSO", "type": "identity", "boundary": "security", "detail": "Engineer sign-in to CI and the cluster", "controls": ["phishing-resistant MFA"] },
+      { "id": "siem", "label": "SIEM", "type": "siem", "boundary": "security", "detail": "Correlates gateway and key usage logs", "controls": ["card-data alerts"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "merchant-servers", "to": "gateway", "label": "mTLS API calls", "kind": "data" },
+      { "id": "e2", "from": "gateway", "to": "payments-api", "label": "forwards with merchant id", "kind": "data" },
+      { "id": "e3", "from": "payments-api", "to": "fraud-model", "label": "scores each payment", "kind": "data" },
+      { "id": "e4", "from": "payments-api", "to": "event-bus", "label": "publishes events", "kind": "data" },
+      { "id": "e5", "from": "event-bus", "to": "settlement", "label": "consumes events", "kind": "data" },
+      { "id": "e6", "from": "settlement", "to": "card-vault", "label": "detokenises for refunds", "kind": "data" },
+      { "id": "e7", "from": "card-vault", "to": "kms", "label": "decrypts with key", "kind": "control" },
+      { "id": "e8", "from": "payments-api", "to": "labels-bucket", "label": "stores chargeback labels", "kind": "data" },
+      { "id": "e9", "from": "labels-bucket", "to": "fraud-model", "label": "weekly retraining", "kind": "data" },
+      { "id": "e10", "from": "ci", "to": "deploy-role", "label": "OIDC token exchange", "kind": "auth" },
+      { "id": "e11", "from": "deploy-role", "to": "payments-api", "label": "deploys to cluster", "kind": "control" },
+      { "id": "e12", "from": "sso", "to": "ci", "label": "engineer sign-in", "kind": "auth" },
+      { "id": "e13", "from": "gateway", "to": "siem", "label": "gateway logs", "kind": "control" },
+      { "id": "e14", "from": "kms", "to": "siem", "label": "key usage logs", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Unknown address on the internet" },
+    {
+      "id": "rogue-merchant",
+      "label": "malicious merchant account",
+      "boundary": "internet",
+      "detail": "A real merchant account with a valid certificate, used for fraud"
+    }
+  ],
+  "identities": [
+    {
+      "id": "merchant-certs",
+      "label": "merchant client certificates and tokens",
+      "kind": "service",
+      "nodeIds": ["merchant-servers", "gateway"],
+      "privileges": ["call the payments API as one merchant", "upload chargeback labels"],
+      "notes": "The certificate says which merchant is calling; OAuth scopes say which endpoints it may use"
+    },
+    {
+      "id": "payments-sa",
+      "label": "payments-api service account",
+      "kind": "workload",
+      "nodeIds": ["payments-api"],
+      "privileges": ["publish payment events", "write to the chargeback labels bucket", "call the fraud model"],
+      "notes": "Bound to a cloud role through workload identity"
+    },
+    {
+      "id": "settlement-role",
+      "label": "settlement role",
+      "kind": "workload",
+      "nodeIds": ["settlement", "card-vault", "kms"],
+      "privileges": ["detokenise any card in the vault", "decrypt with the card-data KMS key"],
+      "notes": null
+    },
+    {
+      "id": "deploy-role",
+      "label": "deploy-payments role",
+      "kind": "machine",
+      "nodeIds": ["deploy-role", "ci"],
+      "privileges": ["deploy any workload to the payments cluster", "read and write cluster secrets", "read vault backups in the data account"],
+      "notes": "Its trust policy accepts OIDC tokens from every branch of the repository"
+    },
+    {
+      "id": "engineers",
+      "label": "platform engineers",
+      "kind": "federated",
+      "nodeIds": ["sso", "ci"],
+      "privileges": ["approve deployments", "break-glass admin on the cluster"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "card-vault", "data": "card numbers (PAN) and expiry dates behind tokens", "classification": "regulated", "regulations": ["PCI DSS"] },
+    {
+      "nodeId": "labels-bucket",
+      "data": "chargeback and fraud labels with merchant and payment ids",
+      "classification": "confidential",
+      "regulations": []
+    }
+  ],
+  "controls": [
+    {
+      "id": "mtls",
+      "label": "mTLS",
+      "nodeIds": ["gateway"],
+      "status": "present",
+      "covers": "Only merchants with a valid client certificate reach the API",
+      "limits": "Proves which merchant is calling, not which merchant's payments it may touch"
+    },
+    {
+      "id": "rate-limits",
+      "label": "rate limits",
+      "nodeIds": ["gateway"],
+      "status": "present",
+      "covers": "Per-merchant request rates on the partner API",
+      "limits": "Generous for scoring calls, so slow probing stays under them"
+    },
+    {
+      "id": "oauth-scopes",
+      "label": "OAuth scopes",
+      "nodeIds": ["payments-api"],
+      "status": "partial",
+      "covers": "Which endpoints a merchant token may call",
+      "limits": "The refunds and labels endpoints accept any token with the payments scope and do not check ownership of the payment id"
+    },
+    {
+      "id": "tokenisation",
+      "label": "tokenisation",
+      "nodeIds": ["card-vault"],
+      "status": "present",
+      "covers": "Card numbers never leave the vault except for refunds to card",
+      "limits": "Any workload holding the settlement role can detokenise"
+    },
+    {
+      "id": "key-policy",
+      "label": "key policy",
+      "nodeIds": ["kms"],
+      "status": "present",
+      "covers": "Only the vault and the settlement role may decrypt",
+      "limits": null
+    },
+    {
+      "id": "oidc",
+      "label": "OIDC to cloud",
+      "nodeIds": ["ci"],
+      "status": "present",
+      "covers": "No long-lived cloud keys in CI",
+      "limits": "The deploy role trusts tokens from every branch, not only protected main"
+    },
+    {
+      "id": "sso-mfa",
+      "label": "phishing-resistant MFA",
+      "nodeIds": ["sso"],
+      "status": "present",
+      "covers": "Engineer sign-in to CI and the cluster",
+      "limits": "Does not protect a session cookie that is already issued"
+    },
+    {
+      "id": "card-alerts",
+      "label": "card-data alerts",
+      "nodeIds": ["siem"],
+      "status": "present",
+      "covers": "Alerts on detokenise and decrypt calls by unexpected identities",
+      "limits": "Sees gateway and key logs only; no Kubernetes audit events"
+    },
+    {
+      "id": "netpol",
+      "label": "network policies",
+      "nodeIds": ["payments-api", "settlement", "fraud-model"],
+      "status": "missing",
+      "covers": "Limiting which pods may talk to each other in the cluster",
+      "limits": null
+    },
+    {
+      "id": "label-review",
+      "label": "label validation",
+      "nodeIds": ["labels-bucket", "fraud-model"],
+      "status": "missing",
+      "covers": "Checking merchant-submitted labels before they retrain the model",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "ci-oidc",
+      "from": "ci",
+      "to": "deploy-role",
+      "via": "OIDC federation: the role trusts the repository's workflow tokens",
+      "subtle": false,
+      "notes": "Any branch can request the role"
+    },
+    {
+      "id": "deploy-vault-backup",
+      "from": "deploy-role",
+      "to": "card-vault",
+      "via": "cross-account read role for vault backups",
+      "subtle": false,
+      "notes": "Kept from a migration last year"
+    },
+    {
+      "id": "pod-network",
+      "from": "payments-api",
+      "to": "settlement",
+      "via": "flat pod network: any pod can reach the settlement worker",
+      "subtle": false,
+      "notes": "The worker's internal endpoint has no authentication"
+    }
+  ],
+  "logSources": [
+    {
+      "id": "gateway-logs",
+      "label": "API gateway access logs",
+      "nodeIds": ["gateway"],
+      "records": "every partner call with certificate subject, merchant id, path and status",
+      "gaps": "does not record which payment ids a request named"
+    },
+    {
+      "id": "vault-logs",
+      "label": "vault and KMS audit log",
+      "nodeIds": ["card-vault", "kms"],
+      "records": "every detokenise and decrypt call with the calling role",
+      "gaps": null
+    },
+    {
+      "id": "k8s-audit",
+      "label": "Kubernetes audit log",
+      "nodeIds": ["payments-api", "settlement", "fraud-model"],
+      "records": "API server requests: deployments, exec and secret reads",
+      "gaps": "metadata level only and not forwarded to the SIEM"
+    },
+    {
+      "id": "ci-history",
+      "label": "CI run history",
+      "nodeIds": ["ci", "deploy-role"],
+      "records": "which branch and workflow assumed the deploy role",
+      "gaps": "kept 30 days in the CI service only"
+    },
+    {
+      "id": "siem-cases",
+      "label": "SIEM correlation",
+      "nodeIds": ["siem"],
+      "records": "gateway and key usage logs with card-data alert rules",
+      "gaps": "no Kubernetes, CI or model training events"
+    }
+  ],
+  "attackSurfaces": {
+    "cloud_security": [
+      {
+        "id": "oidc-branch-deploy",
+        "summary": "A workflow on an unprotected branch exchanges its OIDC token for the deploy role",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["payments-api"],
+        "viaNodeIds": ["deploy-role"],
+        "techniques": ["T1078.004", "T1550.001", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "vault-backup-role",
+        "summary": "The deploy role's leftover cross-account read role reaches the card vault backups",
+        "entryNodeIds": ["deploy-role"],
+        "targetNodeIds": ["card-vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.004", "T1530", "T1537"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "api_security": [
+      {
+        "id": "refund-bola",
+        "summary": "The refunds endpoint accepts another merchant's payment id with any valid token",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["settlement"],
+        "viaNodeIds": ["event-bus"],
+        "techniques": ["T1078", "T1565.001", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "stolen-merchant-credentials",
+        "summary": "A merchant's client certificate and token are taken from its server and replayed",
+        "entryNodeIds": ["merchant-servers"],
+        "targetNodeIds": ["payments-api"],
+        "viaNodeIds": ["gateway"],
+        "techniques": ["T1552.001", "T1528", "T1550.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "detokenise-via-settlement",
+        "summary": "A compromised pod reaches the settlement worker, which can detokenise any card",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["card-vault"],
+        "viaNodeIds": ["settlement"],
+        "techniques": ["T1213", "T1550.001", "T1119"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "labels-exposure",
+        "summary": "Chargeback labels with payment ids are readable by every workload with the payments role",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["labels-bucket"],
+        "viaNodeIds": [],
+        "techniques": ["T1530", "T1074", "T1020"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "devsecops_supply_chain": [
+      {
+        "id": "branch-workflow",
+        "summary": "A pull request edits the workflow so its own branch deploys with the deploy role",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["deploy-role"],
+        "viaNodeIds": [],
+        "techniques": ["T1195.002", "T1072", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "tampered-base-image",
+        "summary": "A tampered base image is built and deployed to the payments pods",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["payments-api"],
+        "viaNodeIds": ["deploy-role"],
+        "techniques": ["T1195.001", "T1204.003", "T1072"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "container_kubernetes": [
+      {
+        "id": "flat-pod-network",
+        "summary": "A compromised payments pod reaches the settlement worker across a flat pod network",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["settlement"],
+        "viaNodeIds": [],
+        "techniques": ["T1046", "T1613", "T1528"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "deploy-role-workloads",
+        "summary": "The deploy role can create any workload, including one that runs as the settlement service account",
+        "entryNodeIds": ["deploy-role"],
+        "targetNodeIds": ["settlement"],
+        "viaNodeIds": ["payments-api"],
+        "techniques": ["T1610", "T1098.006", "T1528"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "engineer-cookie-replay",
+        "summary": "An engineer's SSO session cookie is stolen and replayed against CI",
+        "entryNodeIds": ["sso"],
+        "targetNodeIds": ["ci"],
+        "viaNodeIds": [],
+        "techniques": ["T1539", "T1550.004", "T1078.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "deploy-trust-too-wide",
+        "summary": "The deploy role trusts workflow tokens from every branch, not only main",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["deploy-role"],
+        "viaNodeIds": [],
+        "techniques": ["T1550.001", "T1484.002", "T1098.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "pci-scope-creep",
+        "summary": "The flat pod network puts every cluster workload in PCI scope",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["card-vault"],
+        "viaNodeIds": ["settlement"],
+        "techniques": ["T1078", "T1213", "T1530"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unreviewed-training-data",
+        "summary": "Merchant-submitted labels retrain the fraud model with no review",
+        "entryNodeIds": ["labels-bucket"],
+        "targetNodeIds": ["fraud-model"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1078", "T1213"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "unexpected-detokenise",
+        "summary": "The SIEM alerts on detokenise calls by an identity that never made them before",
+        "entryNodeIds": ["settlement"],
+        "targetNodeIds": ["card-vault"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1087", "T1041"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "branch-deploy-unseen",
+        "summary": "A deploy from a feature branch is visible only in CI history, not in the SIEM",
+        "entryNodeIds": ["ci"],
+        "targetNodeIds": ["payments-api"],
+        "viaNodeIds": ["deploy-role"],
+        "techniques": ["T1078", "T1098", "T1562.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "certificate-equals-trust",
+        "summary": "A valid merchant certificate is treated as permission to act for any merchant",
+        "entryNodeIds": ["gateway"],
+        "targetNodeIds": ["payments-api"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1550.001", "T1199"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "pod-implicit-trust",
+        "summary": "Any pod in the cluster is trusted to call the settlement worker",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["settlement"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1528", "T1021.007"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "label-poisoning",
+        "summary": "A merchant uploads crafted chargeback labels that teach the fraud model to pass its own fraud",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["fraud-model"],
+        "viaNodeIds": ["labels-bucket"],
+        "techniques": ["AML.T0020", "AML.T0043", "AML.T0031"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "model-probing",
+        "summary": "Repeated scoring requests map the fraud model's thresholds",
+        "entryNodeIds": ["payments-api"],
+        "targetNodeIds": ["fraud-model"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0040", "AML.T0043", "AML.T0024"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Intermediate: two paths that look safe because of a control (mTLS, OIDC) but are not (ownership not checked; every branch trusted). Pod network is flat; the SIEM sees no cluster or CI events."
+}

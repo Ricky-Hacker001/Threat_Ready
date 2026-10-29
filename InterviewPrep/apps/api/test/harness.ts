@@ -152,7 +152,8 @@ export async function drainJobs(t: TestApp, opts: { only?: string[]; maxRounds?:
     [JOBS.emailSend]: (d) => t.app.get(ReportsService).runEmail(d.evaluationId!),
     [JOBS.skillsRecalculate]: (d) => t.app.get(SkillsService).recalculate(d.userId!),
     [JOBS.reasoningGenerate]: (d) => t.app.get(GenerationService).runGeneration(d.attemptId!),
-    [JOBS.reasoningEvaluate]: (d) => t.app.get(EvaluationService).runEvaluation(d.attemptId!),
+    // As the worker does: a manual retry's job carries escalate: true (the second review).
+    [JOBS.reasoningEvaluate]: (d) => t.app.get(EvaluationService).runEvaluation(d.attemptId!, { escalate: (d as { escalate?: unknown }).escalate === true }),
     [JOBS.reasoningPoolRefill]: (d) => t.app.get(GenerationService).refillPool(d ?? {}),
     [JOBS.deadLetter]: (d) => t.app.get(JobsService).onDeadLetter(d),
   };

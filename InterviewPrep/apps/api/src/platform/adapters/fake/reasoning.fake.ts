@@ -1,4 +1,5 @@
 import type { LlmRequest } from '../../ports/llm.port.js';
+import { fakeReasoningQuestion } from './reasoning-question.fake.js';
 
 /**
  * Deterministic Attack Reasoning outputs for the fake LlmPort (tests and offline demos). Items are
@@ -6,9 +7,15 @@ import type { LlmRequest } from '../../ports/llm.port.js';
  * derived from the justification so the quote checks and integrity rules run for real. Markers:
  *   ASSERT:<claimId>      the justification asserts a must-not-credit claim
  *   CHALLENGE:<pointId>   the challenger downgrades that point to missed
+ *   QUIETCHALLENGE:<id>   the same, but the evaluator is not unsure of it (review AR-BIZ-6: a stage 1
+ *                         that over-credits with confidence, which a tiered evaluation finalises alone)
  *   TECHERROR             the challenger reports one technical error
  *   FLUENT_BUT_WRONG      the challenger flags fluent-but-wrong
  *   CVE-2024-99999        a hallucinated reference
+ *   LOWCONF               the evaluator reports low confidence (so a tiered evaluation escalates)
+ *   WRONGCLAIM            the evaluator reports one incorrect claim
+ * The evaluator (stage 1, Haiku in a tiered evaluation) is also unsure of an answer carrying any of the
+ * challenger's markers, so those answers reach the challenger without full mode.
  */
 const lastUser = (req: LlmRequest) => req.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '';
 const tagged = (s: string, tag: string) => s.match(new RegExp(`<${tag}>\\n([\\s\\S]*?)\\n</${tag}>`))?.[1];
@@ -165,14 +172,20 @@ interface GradingContext {
   question: string;
 }
 
+/**
+ * The item is in the cached system prefix (evaluation prompts v3) or, for older prompts, in the user
+ * message; the learner's answer is always in the user message. Ids are read outside the untrusted
+ * block, so a justification cannot add rubric points to the fake's view.
+ */
 function gradingContext(req: LlmRequest): GradingContext {
-  const u = lastUser(req);
+  const user = lastUser(req);
+  const u = `${req.systemPrefix ?? ''}\n${user.replace(/<untrusted_justification>[\s\S]*?<\/untrusted_justification>/, '')}`;
   return {
     pointIds: [...u.matchAll(/^- \[([a-z0-9_-]+)\] \((reasoning|architecture|risk)/gm)].map((m) => ({ id: m[1]!, dimension: m[2]! })),
     claimIds: [...u.matchAll(/^- \{([a-z0-9_-]+)\}:/gm)].map((m) => m[1]!),
     selected: u.match(/Selected option: ([A-D])/)?.[1] ?? 'A',
     correct: u.match(/the best option is ([A-D])/)?.[1] ?? 'B',
-    justification: tagged(u, 'untrusted_justification') ?? '',
+    justification: tagged(user, 'untrusted_justification') ?? '',
     question: u.match(/^Question: ([^\n]+)/m)?.[1] ?? 'the question',
   };
 }
@@ -202,13 +215,22 @@ export function fakeReasoningEvaluator(req: LlmRequest): unknown {
     integrity: { off_topic: n > 0 && n < 3, instructs_grader: injected(c.justification), argues_for_option: arguesFor(c.justification, c.selected) },
     strengths: n >= 20 ? ['You named the identity the attacker is using.'] : [],
     gaps: n < 45 ? ['You did not walk the attack path on the diagram.'] : [],
+    confidence: UNSURE.test(c.justification) ? 'low' : n < 20 ? 'medium' : 'high',
+    reasoning_summary:
+      n >= 45
+        ? `Your justification for "${c.question.slice(0, 120)}" names the identity in use, follows the attack path and weighs the alternatives against the constraint.`
+        : `Your justification for "${c.question.slice(0, 120)}" states a choice but does not yet walk the attack path or weigh the alternatives.`,
+    improve: n >= 45 ? ['Name the log entry that proves the path before you choose a control.'] : ['Walk the attack path component by component before choosing a control.', 'Say why each rejected option is weaker here.'],
   };
 }
+
+/** Markers the fake evaluator is unsure about: its own LOWCONF and everything only the challenger checks. */
+const UNSURE = /LOWCONF|(?<!QUIET)CHALLENGE:|TECHERROR|FLUENT_BUT_WRONG|CVE-\d{4}-99999|T1078\.099/;
 
 export function fakeReasoningChallenger(req: LlmRequest): unknown {
   const c = gradingContext(req);
   const j = c.justification;
-  const challenges = [...j.matchAll(/CHALLENGE:([a-z0-9_-]+)/g)].map((m) => m[1]!).filter((id) => c.pointIds.some((p) => p.id === id)).map((id) => ({ point_id: id, suggested_status: 'missed' as const, reason: 'The quoted sentence does not actually show this point.' }));
+  const challenges = [...j.matchAll(/(?:QUIET)?CHALLENGE:([a-z0-9_-]+)/g)].map((m) => m[1]!).filter((id) => c.pointIds.some((p) => p.id === id)).map((id) => ({ point_id: id, suggested_status: 'missed' as const, reason: 'The quoted sentence does not actually show this point.' }));
   return {
     challenges,
     technical_errors: /TECHERROR/.test(j) ? [{ quote: 'TECHERROR', why: 'Technically incorrect for this architecture.' }] : [],
@@ -261,6 +283,8 @@ export function fakeReasoning(name: string, req: LlmRequest): unknown {
   switch (name) {
     case 'reasoning_item':
       return fakeReasoningItem(req);
+    case 'reasoning_question':
+      return fakeReasoningQuestion(req);
     case 'reasoning_evaluator':
       return fakeReasoningEvaluator(req);
     case 'reasoning_challenger':

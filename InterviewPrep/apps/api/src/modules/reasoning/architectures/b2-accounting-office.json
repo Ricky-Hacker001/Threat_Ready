@@ -1,0 +1,433 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "b2-accounting-office",
+  "version": 1,
+  "level": "beginner",
+  "title": "Small accounting firm with cloud email and an AI assistant",
+  "organisation": {
+    "name": "Brightwater & Lowe",
+    "industry": "Accounting and tax advisory",
+    "size": "35 staff; IT run by a partner and an outside contractor",
+    "summary": "Brightwater & Lowe prepares tax returns and payroll for about 900 small businesses and families. Staff work on laptops in the office or from home over the office VPN, keep client tax files and ID scans on a NAS file server, and use a cloud email and documents suite with single sign-on and push MFA. A practice management service holds client records and billing. Last year a partner connected an AI email assistant that reads every mailbox to draft replies and summarise attachments, and the NAS is backed up nightly to a cloud backup service."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "office", "label": "Office network", "kind": "corporate" },
+      { "id": "cloud", "label": "Cloud services tenant", "kind": "tenant" }
+    ],
+    "nodes": [
+      { "id": "clients", "label": "firm clients", "type": "user", "boundary": "internet", "detail": "Send documents and questions by email", "controls": [] },
+      { "id": "laptops", "label": "staff laptops", "type": "endpoint", "boundary": "office", "detail": "Windows laptops used in the office and at home", "controls": ["EDR", "disk encryption"] },
+      { "id": "firewall", "label": "office firewall and VPN", "type": "firewall", "boundary": "office", "detail": "Internet access for the office; VPN for remote staff", "controls": ["firewall rules"] },
+      { "id": "nas", "label": "NAS file server", "type": "storage", "boundary": "office", "detail": "Client tax files, payroll records and ID scans", "controls": ["nightly snapshots"] },
+      { "id": "idp", "label": "SSO identity provider", "type": "identity", "boundary": "cloud", "detail": "Single sign-on for email, documents and the practice app", "controls": ["push MFA"] },
+      { "id": "mail", "label": "email and documents suite", "type": "email", "boundary": "cloud", "detail": "Mailboxes, shared documents and calendars", "controls": ["spam filter"] },
+      { "id": "practice-app", "label": "practice management app", "type": "saas", "boundary": "cloud", "detail": "Client records, engagement letters and billing", "controls": [] },
+      { "id": "backup", "label": "cloud backup service", "type": "storage", "boundary": "cloud", "detail": "Nightly copies of every NAS share", "controls": [] },
+      { "id": "ai-assistant", "label": "AI email assistant", "type": "saas", "boundary": "cloud", "detail": "Drafts replies and summarises attachments for every mailbox", "controls": [] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "clients", "to": "mail", "label": "emails with documents", "kind": "data" },
+      { "id": "e2", "from": "laptops", "to": "mail", "label": "mail and documents", "kind": "data" },
+      { "id": "e3", "from": "laptops", "to": "idp", "label": "SSO sign-in", "kind": "auth" },
+      { "id": "e4", "from": "idp", "to": "mail", "label": "issues sessions", "kind": "auth" },
+      { "id": "e5", "from": "laptops", "to": "nas", "label": "SMB file shares", "kind": "data" },
+      { "id": "e6", "from": "laptops", "to": "practice-app", "label": "client records", "kind": "data" },
+      { "id": "e7", "from": "laptops", "to": "firewall", "label": "internet access", "kind": "data" },
+      { "id": "e8", "from": "firewall", "to": "nas", "label": "VPN users to shares", "kind": "data" },
+      { "id": "e9", "from": "nas", "to": "backup", "label": "nightly backup", "kind": "data" },
+      { "id": "e10", "from": "ai-assistant", "to": "mail", "label": "reads and drafts mail", "kind": "auth" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Phishing and password attacks from the internet" },
+    { "id": "former-staff", "label": "former employee", "boundary": "internet", "detail": "Left last month; some accounts were not removed" }
+  ],
+  "identities": [
+    {
+      "id": "staff-accounts",
+      "label": "staff accounts",
+      "kind": "human",
+      "nodeIds": ["idp", "laptops", "mail"],
+      "privileges": ["email and documents", "every NAS share", "practice management records"],
+      "notes": "Push MFA on cloud sign-in; the VPN uses the same password without MFA"
+    },
+    {
+      "id": "office-admin",
+      "label": "office admin account",
+      "kind": "human",
+      "nodeIds": ["nas", "firewall"],
+      "privileges": ["administer the NAS, its snapshots and the firewall"],
+      "notes": "One password shared by both partners and the IT contractor"
+    },
+    {
+      "id": "assistant-grant",
+      "label": "AI assistant OAuth grant",
+      "kind": "service",
+      "nodeIds": ["ai-assistant", "mail"],
+      "privileges": ["read and send mail for every staff member", "read attachments"],
+      "notes": "Consented for the whole tenant by a partner"
+    },
+    {
+      "id": "backup-agent",
+      "label": "backup agent account",
+      "kind": "service",
+      "nodeIds": ["backup", "nas"],
+      "privileges": ["read every NAS share", "delete old backups"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    { "nodeId": "nas", "data": "client tax files, payroll records and passport and ID scans", "classification": "regulated", "regulations": ["GDPR"] },
+    { "nodeId": "mail", "data": "client correspondence and attachments", "classification": "confidential", "regulations": ["GDPR"] },
+    { "nodeId": "practice-app", "data": "client contacts, engagement letters and billing", "classification": "confidential", "regulations": [] }
+  ],
+  "controls": [
+    {
+      "id": "edr",
+      "label": "EDR",
+      "nodeIds": ["laptops"],
+      "status": "present",
+      "covers": "Malware and suspicious scripts on staff laptops",
+      "limits": "Not installed on the NAS"
+    },
+    {
+      "id": "disk-encryption",
+      "label": "disk encryption",
+      "nodeIds": ["laptops"],
+      "status": "present",
+      "covers": "Data on a lost or stolen laptop",
+      "limits": null
+    },
+    {
+      "id": "firewall-rules",
+      "label": "firewall rules",
+      "nodeIds": ["firewall"],
+      "status": "present",
+      "covers": "Inbound connections to the office",
+      "limits": "The VPN accepts a password alone"
+    },
+    {
+      "id": "push-mfa",
+      "label": "push MFA",
+      "nodeIds": ["idp"],
+      "status": "present",
+      "covers": "Cloud sign-ins with a stolen password",
+      "limits": "Push prompts can be repeated until a tired user approves one"
+    },
+    {
+      "id": "spam-filter",
+      "label": "spam filter",
+      "nodeIds": ["mail"],
+      "status": "present",
+      "covers": "Known phishing links and malware attachments",
+      "limits": null
+    },
+    {
+      "id": "snapshots",
+      "label": "nightly snapshots",
+      "nodeIds": ["nas"],
+      "status": "present",
+      "covers": "Restoring files changed in the last 14 days",
+      "limits": "The office admin account can delete them"
+    },
+    {
+      "id": "vpn-mfa",
+      "label": "VPN MFA",
+      "nodeIds": ["firewall"],
+      "status": "missing",
+      "covers": "Remote access with a stolen or reused password",
+      "limits": null
+    },
+    {
+      "id": "consent-review",
+      "label": "app consent review",
+      "nodeIds": ["idp"],
+      "status": "missing",
+      "covers": "Third-party apps gaining access to mailboxes",
+      "limits": null
+    },
+    {
+      "id": "immutable-backup",
+      "label": "immutable backups",
+      "nodeIds": ["backup"],
+      "status": "missing",
+      "covers": "Backups that cannot be deleted by a compromised account",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "assistant-mail",
+      "from": "ai-assistant",
+      "to": "mail",
+      "via": "tenant-wide OAuth grant to read and send mail",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "backup-nas",
+      "from": "backup",
+      "to": "nas",
+      "via": "backup agent with read access to every share and rights to delete backups",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "vpn-office",
+      "from": "firewall",
+      "to": "laptops",
+      "via": "VPN users join the office network like a desk in the office",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    {
+      "id": "idp-signins",
+      "label": "IdP sign-in log",
+      "nodeIds": ["idp"],
+      "records": "sign-ins with location, device and MFA result",
+      "gaps": "kept 30 days on the current plan"
+    },
+    {
+      "id": "mail-audit",
+      "label": "mailbox audit log",
+      "nodeIds": ["mail"],
+      "records": "mailbox access, inbox rules and sent mail",
+      "gaps": "app access is logged as the AI assistant, not per message"
+    },
+    { "id": "edr-console", "label": "EDR console", "nodeIds": ["laptops"], "records": "alerts and process history from staff laptops", "gaps": null },
+    {
+      "id": "firewall-log",
+      "label": "firewall log",
+      "nodeIds": ["firewall"],
+      "records": "VPN connections with user and source address, blocked traffic",
+      "gaps": "kept 7 days on the device"
+    }
+  ],
+  "attackSurfaces": {
+    "endpoint_security": [
+      {
+        "id": "invoice-macro",
+        "summary": "A fake invoice attachment runs a macro on a staff laptop",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.002", "T1059.001", "T1547.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "browser-passwords",
+        "summary": "Malware on a laptop takes passwords saved in the browser",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["practice-app"],
+        "viaNodeIds": [],
+        "techniques": ["T1555.003", "T1105", "T1113"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "network_security": [
+      {
+        "id": "vpn-password",
+        "summary": "A stolen password opens the VPN, which lands on the office network next to the NAS",
+        "entryNodeIds": ["firewall"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1133", "T1021.002", "T1046"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "flat-office-network",
+        "summary": "The office network is flat: an infected laptop reaches the NAS over SMB",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1021.002", "T1570", "T1046"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "mfa-fatigue",
+        "summary": "Repeated push prompts until a staff member approves one",
+        "entryNodeIds": ["idp"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1621", "T1078.004", "T1566.002"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "shared-admin-password",
+        "summary": "One shared admin password runs both the NAS and the firewall",
+        "entryNodeIds": ["firewall"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1110.003", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "nas-tax-files",
+        "summary": "Client tax files and ID scans sit on shares every staff account can read",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1039", "T1005", "T1074"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "mail-forwarding",
+        "summary": "An inbox forwarding rule quietly copies client mail outside the firm",
+        "entryNodeIds": ["mail"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1114", "T1020", "T1567.002"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "nas-ransomware",
+        "summary": "Ransomware reaches the NAS and tries to delete its snapshots",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1486", "T1490", "T1489"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "payment-change-emails",
+        "summary": "A compromised mailbox sends clients fake bank-detail changes",
+        "entryNodeIds": ["idp"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1098", "T1070"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "tax-season-phishing",
+        "summary": "A report warns of tax-season phishing kits that steal cloud sessions from accounting firms",
+        "entryNodeIds": ["mail"],
+        "targetNodeIds": ["idp"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1071.001", "T1036"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "remote-access-tool",
+        "summary": "Intelligence on a group that installs remote-access tools on small-office laptops",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1105", "T1547.001", "T1053.005"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "vpn-equals-office",
+        "summary": "A VPN connection is trusted like a desk in the office",
+        "entryNodeIds": ["firewall"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1133", "T1078", "T1021.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "assistant-wide-grant",
+        "summary": "The AI assistant's tenant-wide grant trusts it with every mailbox",
+        "entryNodeIds": ["ai-assistant"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1528", "T1550.001", "T1199"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "client-data-obligations",
+        "summary": "Client tax files and ID scans have no access review and no retention rule",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1213", "T1552"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "unvetted-ai-vendor",
+        "summary": "An AI assistant was given access to all client mail without a vendor review",
+        "entryNodeIds": ["ai-assistant"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1213", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "impossible-travel",
+        "summary": "Sign-ins to one account from two countries within an hour",
+        "entryNodeIds": ["idp"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1110.003", "T1098"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "macro-alert",
+        "summary": "EDR alerts on a spreadsheet that started PowerShell",
+        "entryNodeIds": ["laptops"],
+        "targetNodeIds": ["nas"],
+        "viaNodeIds": [],
+        "techniques": ["T1566", "T1204.002", "T1059.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "ai_llm_security": [
+      {
+        "id": "email-prompt-injection",
+        "summary": "A client email carries hidden instructions the AI assistant follows when drafting replies",
+        "entryNodeIds": ["mail"],
+        "targetNodeIds": ["ai-assistant"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0051.001", "AML.T0057", "AML.T0053"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "summary-leak",
+        "summary": "The assistant summarises attachments into replies, leaking client data to whoever asks",
+        "entryNodeIds": ["ai-assistant"],
+        "targetNodeIds": ["mail"],
+        "viaNodeIds": [],
+        "techniques": ["AML.T0051.000", "AML.T0057", "AML.T0024"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Beginner: flat office network, password-only VPN, push MFA that can be spammed, a shared admin password and an AI assistant with a tenant-wide mail grant."
+}

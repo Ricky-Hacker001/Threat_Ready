@@ -1,0 +1,434 @@
+{
+  "$schema": "./architecture.schema.json",
+  "id": "i2-regional-hospital",
+  "version": 1,
+  "level": "intermediate",
+  "title": "Regional hospital with clinical devices and vendor access",
+  "organisation": {
+    "name": "Calderbrook Regional Hospital",
+    "industry": "Healthcare: 450-bed acute hospital",
+    "size": "3,800 staff; an IT team of 30 with two security analysts",
+    "summary": "Calderbrook Regional Hospital runs its electronic health record (EHR) system and Active Directory in its own data centre. Clinicians use shared workstations on the wards, and remote staff reach the EHR through a remote access gateway that offers both per-application access and a legacy full-tunnel VPN. Infusion pumps report to a clinical device gateway that writes into the EHR, and the imaging (PACS) server is supported by its vendor through an always-on remote support tool. EHR backups go to a cloud backup service, and a SIEM collects domain controller logs and EDR alerts."
+  },
+  "diagram": {
+    "boundaries": [
+      { "id": "internet", "label": "Internet", "kind": "internet" },
+      { "id": "corporate", "label": "Hospital network", "kind": "corporate" },
+      { "id": "clinical", "label": "Clinical device segment", "kind": "private" },
+      { "id": "datacentre", "label": "Hospital data centre", "kind": "onprem" },
+      { "id": "vendor", "label": "Vendors and cloud", "kind": "vendor" }
+    ],
+    "nodes": [
+      { "id": "email-gw", "label": "email gateway", "type": "email", "boundary": "corporate", "detail": "Inbound mail for all staff", "controls": ["attachment sandbox"] },
+      { "id": "workstations", "label": "ward workstations", "type": "endpoint", "boundary": "corporate", "detail": "Shared clinical PCs with an EHR client and image viewer", "controls": ["EDR"] },
+      { "id": "remote-gw", "label": "remote access gateway", "type": "gateway", "boundary": "corporate", "detail": "Per-app access for staff; legacy full-tunnel VPN profile", "controls": ["ZTNA policies"] },
+      { "id": "pumps", "label": "infusion pumps", "type": "device", "boundary": "clinical", "detail": "Networked pumps reporting doses and alarms", "controls": [] },
+      { "id": "device-gw", "label": "clinical device gateway", "type": "gateway", "boundary": "clinical", "detail": "Collects pump data and writes it to the EHR", "controls": [] },
+      { "id": "pacs", "label": "PACS server", "type": "storage", "boundary": "clinical", "detail": "Medical images; domain-joined, vendor-managed Windows server", "controls": [] },
+      { "id": "ad", "label": "Active Directory", "type": "identity", "boundary": "datacentre", "detail": "Domain controllers for staff and service accounts", "controls": [] },
+      { "id": "ehr", "label": "EHR system", "type": "database", "boundary": "datacentre", "detail": "Patient records, medications, allergies and notes", "controls": ["role-based access"] },
+      { "id": "siem", "label": "SIEM", "type": "siem", "boundary": "datacentre", "detail": "Domain controller logs and EDR alerts", "controls": ["use-case rules"] },
+      { "id": "vendor-tool", "label": "PACS vendor support tool", "type": "saas", "boundary": "vendor", "detail": "Always-on remote support into the PACS server", "controls": [] },
+      { "id": "backup", "label": "cloud backup service", "type": "storage", "boundary": "vendor", "detail": "Nightly EHR database backups", "controls": ["immutable backups"] }
+    ],
+    "edges": [
+      { "id": "e1", "from": "email-gw", "to": "workstations", "label": "delivers mail", "kind": "data" },
+      { "id": "e2", "from": "workstations", "to": "ad", "label": "domain sign-in", "kind": "auth" },
+      { "id": "e3", "from": "workstations", "to": "ehr", "label": "EHR client sessions", "kind": "data" },
+      { "id": "e4", "from": "workstations", "to": "pacs", "label": "views images", "kind": "data" },
+      { "id": "e5", "from": "remote-gw", "to": "ehr", "label": "remote app access", "kind": "data" },
+      { "id": "e6", "from": "remote-gw", "to": "ad", "label": "authenticates users", "kind": "auth" },
+      { "id": "e7", "from": "pumps", "to": "device-gw", "label": "pump telemetry", "kind": "data" },
+      { "id": "e8", "from": "device-gw", "to": "ehr", "label": "writes infusion records", "kind": "data" },
+      { "id": "e9", "from": "vendor-tool", "to": "pacs", "label": "vendor support sessions", "kind": "auth" },
+      { "id": "e10", "from": "ehr", "to": "backup", "label": "nightly backup", "kind": "data" },
+      { "id": "e11", "from": "ad", "to": "siem", "label": "DC logs", "kind": "control" },
+      { "id": "e12", "from": "workstations", "to": "siem", "label": "EDR alerts", "kind": "control" }
+    ]
+  },
+  "attackerOrigins": [
+    { "id": "attacker", "label": "external attacker", "boundary": "internet", "detail": "Phishing and internet-facing services" },
+    { "id": "pacs-vendor", "label": "compromised vendor account", "boundary": "vendor", "detail": "A support engineer account at the PACS vendor" },
+    { "id": "insider", "label": "curious staff member", "boundary": "corporate", "detail": "A member of staff with ordinary EHR access" }
+  ],
+  "identities": [
+    {
+      "id": "clinicians",
+      "label": "clinicians",
+      "kind": "human",
+      "nodeIds": ["workstations", "ehr", "ad"],
+      "privileges": ["read and write records of patients in their care", "break-glass access to any record"],
+      "notes": "Shared workstation sessions on the wards"
+    },
+    {
+      "id": "pacs-svc",
+      "label": "PACS service account",
+      "kind": "service",
+      "nodeIds": ["pacs", "ad", "workstations"],
+      "privileges": ["local administrator on every ward workstation (for the image viewer)"],
+      "notes": "Password unchanged since 2016"
+    },
+    {
+      "id": "vendor-acct",
+      "label": "PACS vendor support account",
+      "kind": "vendor",
+      "nodeIds": ["vendor-tool", "pacs"],
+      "privileges": ["full control of the PACS server"],
+      "notes": "One shared vendor password, no MFA"
+    },
+    {
+      "id": "it-admins",
+      "label": "IT admins",
+      "kind": "human",
+      "nodeIds": ["ad", "remote-gw"],
+      "privileges": ["domain admin", "manage remote access policies"],
+      "notes": null
+    }
+  ],
+  "dataStores": [
+    {
+      "nodeId": "ehr",
+      "data": "patient records, medications, allergies and clinical notes",
+      "classification": "regulated",
+      "regulations": ["health records law", "GDPR"]
+    },
+    {
+      "nodeId": "pacs",
+      "data": "medical images with patient identifiers",
+      "classification": "regulated",
+      "regulations": ["health records law", "GDPR"]
+    },
+    { "nodeId": "backup", "data": "EHR database backups", "classification": "regulated", "regulations": ["health records law"] }
+  ],
+  "controls": [
+    {
+      "id": "sandbox",
+      "label": "attachment sandbox",
+      "nodeIds": ["email-gw"],
+      "status": "present",
+      "covers": "Malicious attachments in inbound mail",
+      "limits": "Links to file-sharing sites are not detonated"
+    },
+    {
+      "id": "edr",
+      "label": "EDR",
+      "nodeIds": ["workstations"],
+      "status": "present",
+      "covers": "Malware and suspicious activity on ward workstations",
+      "limits": "Not installed on the PACS server (vendor-managed)"
+    },
+    {
+      "id": "ztna",
+      "label": "ZTNA policies",
+      "nodeIds": ["remote-gw"],
+      "status": "partial",
+      "covers": "Per-application remote access with device checks",
+      "limits": "The legacy full-tunnel VPN profile is still enabled for IT and vendors"
+    },
+    {
+      "id": "ehr-rbac",
+      "label": "role-based access",
+      "nodeIds": ["ehr"],
+      "status": "partial",
+      "covers": "Clinicians see the patients in their care",
+      "limits": "Break-glass access is used daily and rarely reviewed"
+    },
+    {
+      "id": "siem-rules",
+      "label": "use-case rules",
+      "nodeIds": ["siem"],
+      "status": "present",
+      "covers": "Alerts on EDR detections and admin group changes",
+      "limits": "No rules for PACS or device gateway activity; PACS service account sign-ins are filtered as noise"
+    },
+    {
+      "id": "immutable",
+      "label": "immutable backups",
+      "nodeIds": ["backup"],
+      "status": "present",
+      "covers": "Backups cannot be deleted for 30 days",
+      "limits": null
+    },
+    {
+      "id": "segmentation",
+      "label": "clinical segmentation",
+      "nodeIds": ["pumps", "device-gw", "pacs"],
+      "status": "missing",
+      "covers": "Separating clinical devices from workstations and the data centre",
+      "limits": null
+    },
+    {
+      "id": "vendor-mfa",
+      "label": "vendor MFA",
+      "nodeIds": ["vendor-tool"],
+      "status": "missing",
+      "covers": "Vendor remote sessions with a stolen password",
+      "limits": null
+    },
+    {
+      "id": "laps",
+      "label": "unique local admin passwords",
+      "nodeIds": ["workstations"],
+      "status": "missing",
+      "covers": "One local admin password reused on every workstation",
+      "limits": null
+    }
+  ],
+  "trustRelationships": [
+    {
+      "id": "vendor-always-on",
+      "from": "vendor-tool",
+      "to": "pacs",
+      "via": "always-on support agent with a shared vendor password",
+      "subtle": false,
+      "notes": "The PACS server sits on the clinical segment, which routes to the data centre"
+    },
+    {
+      "id": "pacs-domain",
+      "from": "pacs",
+      "to": "ad",
+      "via": "PACS server is domain-joined; its service account is local admin on every workstation",
+      "subtle": false,
+      "notes": null
+    },
+    {
+      "id": "device-writes",
+      "from": "device-gw",
+      "to": "ehr",
+      "via": "EHR accepts whatever the device gateway writes",
+      "subtle": false,
+      "notes": null
+    }
+  ],
+  "logSources": [
+    {
+      "id": "edr-telemetry",
+      "label": "EDR telemetry",
+      "nodeIds": ["workstations"],
+      "records": "process, script and network events on ward workstations",
+      "gaps": null
+    },
+    {
+      "id": "dc-logs",
+      "label": "domain controller logs",
+      "nodeIds": ["ad"],
+      "records": "sign-ins, Kerberos tickets and group changes",
+      "gaps": "PACS service account sign-ins are filtered out as noise"
+    },
+    {
+      "id": "ehr-audit",
+      "label": "EHR access audit",
+      "nodeIds": ["ehr"],
+      "records": "every record opened with user, workstation and reason",
+      "gaps": "break-glass reasons are free text and not reviewed"
+    },
+    {
+      "id": "remote-log",
+      "label": "remote access gateway log",
+      "nodeIds": ["remote-gw"],
+      "records": "sessions with user, device check and application",
+      "gaps": "full-tunnel VPN sessions show only the connection, not what was reached"
+    }
+  ],
+  "attackSurfaces": {
+    "network_security": [
+      {
+        "id": "clinical-to-datacentre",
+        "summary": "The clinical segment routes into the data centre, so a compromised PACS server reaches AD",
+        "entryNodeIds": ["pacs"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": [],
+        "techniques": ["T1021.002", "T1210", "T1046"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "vpn-full-tunnel",
+        "summary": "The legacy full-tunnel VPN profile puts vendors and IT on the internal network",
+        "entryNodeIds": ["remote-gw"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1133", "T1021.001", "T1046"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "endpoint_security": [
+      {
+        "id": "ward-dropper",
+        "summary": "A ward workstation runs a dropper from a file-sharing link",
+        "entryNodeIds": ["workstations"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": [],
+        "techniques": ["T1204.002", "T1059.001", "T1547.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "pacs-no-edr",
+        "summary": "The PACS server has no EDR, so tools staged there go unseen",
+        "entryNodeIds": ["pacs"],
+        "targetNodeIds": ["workstations"],
+        "viaNodeIds": [],
+        "techniques": ["T1105", "T1036.005", "T1543.003"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "identity_access": [
+      {
+        "id": "pacs-service-account",
+        "summary": "The PACS service account is local admin on every workstation with a 2016 password",
+        "entryNodeIds": ["pacs"],
+        "targetNodeIds": ["workstations"],
+        "viaNodeIds": [],
+        "techniques": ["T1078.002", "T1558.003", "T1098"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "break-glass-abuse",
+        "summary": "Break-glass access lets any clinician open any record",
+        "entryNodeIds": ["workstations"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1078.002", "T1098"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "incident_response": [
+      {
+        "id": "ward-ransomware",
+        "summary": "Ransomware spreads across ward workstations toward the EHR",
+        "entryNodeIds": ["workstations"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1486", "T1490", "T1021.001"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "night-vendor-sessions",
+        "summary": "Unexplained vendor sessions on the PACS server at night",
+        "entryNodeIds": ["vendor-tool"],
+        "targetNodeIds": ["pacs"],
+        "viaNodeIds": [],
+        "techniques": ["T1219", "T1078", "T1070.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "security_operations": [
+      {
+        "id": "filtered-service-account",
+        "summary": "PACS service account sign-ins are filtered as noise in the SIEM",
+        "entryNodeIds": ["pacs"],
+        "targetNodeIds": ["ad"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1087", "T1003"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "phish-to-records",
+        "summary": "A phishing alert on one workstation followed by unusual record browsing",
+        "entryNodeIds": ["email-gw"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": ["workstations"],
+        "techniques": ["T1566", "T1204.002", "T1078"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "threat_intelligence": [
+      {
+        "id": "vendor-access-ransomware",
+        "summary": "An advisory on a ransomware group entering hospitals through vendor remote access",
+        "entryNodeIds": ["vendor-tool"],
+        "targetNodeIds": ["pacs"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1021", "T1486"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "device-gateway-scanning",
+        "summary": "Intelligence on scanning for exposed medical device gateways",
+        "entryNodeIds": ["device-gw"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1595", "T1590", "T1071.001"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "zero_trust": [
+      {
+        "id": "any-user-any-device",
+        "summary": "Any signed-in user reaches the EHR through the remote gateway, whatever their device",
+        "entryNodeIds": ["remote-gw"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1078", "T1133", "T1550.004"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "device-gateway-trust",
+        "summary": "The EHR trusts whatever the device gateway writes",
+        "entryNodeIds": ["device-gw"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1078", "T1557"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "data_security": [
+      {
+        "id": "backup-copy",
+        "summary": "EHR backups sit with a cloud provider behind one admin account",
+        "entryNodeIds": ["ehr"],
+        "targetNodeIds": ["backup"],
+        "viaNodeIds": [],
+        "techniques": ["T1537", "T1530", "T1119"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "images-on-shares",
+        "summary": "Medical images with patient identifiers are on a share every workstation can read",
+        "entryNodeIds": ["workstations"],
+        "targetNodeIds": ["pacs"],
+        "viaNodeIds": [],
+        "techniques": ["T1039", "T1005", "T1074"],
+        "objectives": null,
+        "notes": null
+      }
+    ],
+    "grc_risk": [
+      {
+        "id": "vendor-access-unregistered",
+        "summary": "The PACS vendor's always-on access is not in the risk register",
+        "entryNodeIds": ["vendor-tool"],
+        "targetNodeIds": ["pacs"],
+        "viaNodeIds": [],
+        "techniques": ["T1199", "T1078", "T1082"],
+        "objectives": null,
+        "notes": null
+      },
+      {
+        "id": "pump-risk-acceptance",
+        "summary": "Unpatched infusion pumps share a network with the device gateway",
+        "entryNodeIds": ["pumps"],
+        "targetNodeIds": ["ehr"],
+        "viaNodeIds": ["device-gw"],
+        "techniques": ["T1203", "T1190", "T1082"],
+        "objectives": null,
+        "notes": null
+      }
+    ]
+  },
+  "reviewNotes": "Intermediate: a domain-joined, vendor-managed PACS server is the bridge between the clinical segment and AD; the remote gateway has a legacy full-tunnel profile; the SIEM filters the one account that matters."
+}

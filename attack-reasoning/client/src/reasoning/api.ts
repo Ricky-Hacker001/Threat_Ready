@@ -90,6 +90,10 @@ export function messageFor(e: unknown): string {
       const limit = (e.details as { limit?: unknown } | undefined)?.limit;
       return `You have used today’s ${typeof limit === 'number' ? `${limit} ` : ''}evaluations. Your answer was not submitted and is kept in this tab; evaluations reset at ${resetText(resetOf(e))}.`;
     }
+    case 'REASONING_DAILY_QUESTIONS_REACHED': {
+      const limit = (e.details as { limit?: unknown } | undefined)?.limit;
+      return `You have opened today’s ${typeof limit === 'number' ? `${limit} ` : ''}questions. Your open questions stay available; new ones can be started after ${resetText(resetOf(e))}.`;
+    }
     case 'LLM_BUDGET_EXCEEDED':
       return `You have reached today’s AI usage limit, so this could not start. Nothing was lost: a draft answer stays in this tab. The limit resets at ${resetText(resetOf(e))}.`;
     case 'AI_SERVICE_PAUSED':

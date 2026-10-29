@@ -1,0 +1,726 @@
+{
+  "title": "ThreatReady Attack Reasoning architecture",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "maxLength": 40,
+      "allOf": [
+        {
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        {
+          "pattern": "^[bia][1-5]-"
+        }
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "level": {
+      "type": "string",
+      "enum": [
+        "beginner",
+        "intermediate",
+        "advanced"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "organisation": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "industry": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "size": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 250,
+          "maxLength": 650,
+          "pattern": "^[^\\n]+$"
+        }
+      },
+      "required": [
+        "name",
+        "industry",
+        "size",
+        "summary"
+      ],
+      "additionalProperties": false
+    },
+    "diagram": {
+      "type": "object",
+      "properties": {
+        "boundaries": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "internet",
+                  "edge",
+                  "dmz",
+                  "vpc",
+                  "private",
+                  "data",
+                  "identity",
+                  "account",
+                  "onprem",
+                  "cicd",
+                  "management",
+                  "cluster",
+                  "corporate",
+                  "ot",
+                  "tenant",
+                  "vendor"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "nodes": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "user",
+                  "client",
+                  "external",
+                  "web",
+                  "api",
+                  "service",
+                  "identity",
+                  "database",
+                  "queue",
+                  "storage",
+                  "cloud",
+                  "firewall",
+                  "gateway",
+                  "network",
+                  "control",
+                  "secret",
+                  "compute",
+                  "endpoint",
+                  "container",
+                  "pipeline",
+                  "repository",
+                  "model",
+                  "device",
+                  "email",
+                  "siem",
+                  "saas"
+                ]
+              },
+              "boundary": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "detail": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "controls": {
+                "maxItems": 4,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 32
+                }
+              }
+            },
+            "required": [
+              "id",
+              "label",
+              "type",
+              "boundary",
+              "detail",
+              "controls"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "edges": {
+          "minItems": 1,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "from": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "to": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 70
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "data",
+                  "auth",
+                  "control"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "from",
+              "to",
+              "label",
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "boundaries",
+        "nodes",
+        "edges"
+      ],
+      "additionalProperties": false
+    },
+    "attackerOrigins": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "boundary": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "boundary",
+          "detail"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "identities": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "workload",
+              "service",
+              "federated",
+              "machine",
+              "vendor"
+            ]
+          },
+          "nodeIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            }
+          },
+          "privileges": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 160
+            }
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "kind",
+          "nodeIds",
+          "privileges",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "dataStores": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "nodeId": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "data": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "regulated",
+              "confidential",
+              "internal",
+              "public"
+            ]
+          },
+          "regulations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40
+            }
+          }
+        },
+        "required": [
+          "nodeId",
+          "data",
+          "classification",
+          "regulations"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "controls": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          },
+          "nodeIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "present",
+              "partial",
+              "missing"
+            ]
+          },
+          "covers": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "limits": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "nodeIds",
+          "status",
+          "covers",
+          "limits"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "trustRelationships": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "from": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "to": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "via": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "subtle": {
+            "type": "boolean"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "from",
+          "to",
+          "via",
+          "subtle",
+          "notes"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "logSources": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 40,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "nodeIds": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            }
+          },
+          "records": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 400
+          },
+          "gaps": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "nodeIds",
+          "records",
+          "gaps"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "attackSurfaces": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "enum": [
+          "cloud_security",
+          "identity_access",
+          "application_security",
+          "network_security",
+          "security_operations",
+          "incident_response",
+          "devsecops_supply_chain",
+          "container_kubernetes",
+          "data_security",
+          "threat_intelligence",
+          "endpoint_security",
+          "zero_trust",
+          "api_security",
+          "ai_llm_security",
+          "grc_risk"
+        ]
+      },
+      "additionalProperties": {
+        "minItems": 1,
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "maxLength": 40,
+              "pattern": "^[a-z0-9][a-z0-9-]*$"
+            },
+            "summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 240
+            },
+            "entryNodeIds": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              }
+            },
+            "targetNodeIds": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              }
+            },
+            "viaNodeIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              }
+            },
+            "techniques": {
+              "minItems": 1,
+              "maxItems": 6,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^(AML\\.)?T\\d{4}(\\.\\d{3})?$"
+              }
+            },
+            "objectives": {
+              "anyOf": [
+                {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z0-9_]*$"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "notes": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 400
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "summary",
+            "entryNodeIds",
+            "targetNodeIds",
+            "viaNodeIds",
+            "techniques",
+            "objectives",
+            "notes"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    "reviewNotes": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "level",
+    "title",
+    "organisation",
+    "diagram",
+    "attackerOrigins",
+    "identities",
+    "dataStores",
+    "controls",
+    "trustRelationships",
+    "logSources",
+    "attackSurfaces",
+    "reviewNotes"
+  ],
+  "additionalProperties": false
+}

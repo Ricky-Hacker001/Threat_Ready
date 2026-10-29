@@ -452,12 +452,13 @@ describe('timing: the clock runs only while answering', () => {
 describe('configuration', () => {
   const base = { DATABASE_URL: 'postgres://x', APP_ORIGIN: 'http://localhost:5173', API_BASE_URL: 'http://localhost:3000', BETTER_AUTH_SECRET: 's'.repeat(40), INTERNAL_API_TOKEN: 't'.repeat(40), STORAGE_DRIVER: 'fs', LLM_DRIVER: 'fake' };
   it('rejects unverified model ids', () => {
-    expect(() => loadConfig({ ...base, LLM_MODEL_SMALL: 'claude-haiku-5-5' })).toThrow(/not in the verified model registry/);
+    // claude-haiku-5-5 is in the registry since 27 Oct 2026 (Attack Reasoning's REASONING_MODEL_SMALL); an id it lacks is still refused.
+    expect(() => loadConfig({ ...base, LLM_MODEL_SMALL: 'claude-haiku-9-9' })).toThrow(/not in the verified model registry/);
     expect(loadConfig(base).LLM_MODEL_LARGE).toBe('claude-sonnet-5-5');
   });
   it('accepts an explicitly priced override after verification', () => {
-    const cfg = loadConfig({ ...base, LLM_MODEL_SMALL: 'claude-haiku-5-5', LLM_PRICING_OVERRIDES: JSON.stringify({ 'claude-haiku-5-5': { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, cacheWritePerMTok: 0.125 } }) });
-    expect(cfg.pricing['claude-haiku-5-5']!.inputPerMTok).toBe(0.1);
+    const cfg = loadConfig({ ...base, LLM_MODEL_SMALL: 'claude-haiku-9-9', LLM_PRICING_OVERRIDES: JSON.stringify({ 'claude-haiku-9-9': { inputPerMTok: 0.1, outputPerMTok: 0.5, cacheReadPerMTok: 0.01, cacheWritePerMTok: 0.125 } }) });
+    expect(cfg.pricing['claude-haiku-9-9']!.inputPerMTok).toBe(0.1);
   });
   it('refuses development drivers and missing Sentry in production', () => {
     expect(() => loadConfig({ ...base, NODE_ENV: 'production' })).toThrow(/STORAGE_DRIVER|LLM_DRIVER|SENTRY_DSN/);
@@ -768,7 +769,8 @@ describe('security fixes 2026-10-23', () => {
   it('derives job expiry from the LLM timeout and retries, above the worst case', () => {
     const p = queuePolicy({ llmTimeoutMsLarge: 120_000, llmMaxRetries: 2, reasoningMaxGenerationTries: 3 });
     const perCall = 120 * 3 * 2;
-    expect(p[JOBS.reasoningEvaluate].expireInSeconds).toBe(perCall * 3 + 60);
+    // Four sequential calls since 27 Oct 2026: a declined SMALL stage 1 runs again on LARGE before the challenger and reconciler.
+    expect(p[JOBS.reasoningEvaluate].expireInSeconds).toBe(perCall * 4 + 60);
     expect(p[JOBS.reasoningGenerate].expireInSeconds).toBe(perCall * 3 + 60);
     expect(p[JOBS.interviewFinalScoring]).toEqual({ retryLimit: 2, expireInSeconds: perCall * 2 + 60 });
     expect(p[JOBS.interviewFinalScoring].expireInSeconds).toBeGreaterThan(120 * 3 * 2);
