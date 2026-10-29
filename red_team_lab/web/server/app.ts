@@ -129,11 +129,13 @@ export function createApp(store: Store, staticDir: string | undefined, opts: App
   // State-changing requests must originate from this app's own pages (CSRF defence). Accept the
   // configured public origin (e.g. the Vite dev server behind a proxy) OR a genuine same-origin request
   // (Origin equals the server origin serving the page) — same-origin is always safe, and it lets the
-  // built client be served directly from this server on any port without extra configuration.
+  // built client be served directly from this server on any port without extra configuration. A
+  // request with no Origin at all is refused like a foreign one (browsers send Origin on every POST;
+  // the hosted path, threatready-lab-001/server/app.ts, refuses it too).
   api.use((req, res, next) => {
     if (req.method === 'GET' || req.method === 'HEAD' || req.path === '/dev/login' || req.path === '/dev/logout') return next();
     const origin = req.headers.origin;
-    if (!origin) return next();
+    if (!origin) return res.status(403).json({ error: 'Cross-origin request refused.', code: 'VALIDATION_FAILED' });
     const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'http').split(',')[0].trim();
     const selfOrigin = req.headers.host ? `${proto}://${req.headers.host}` : null;
     if (origin === opts.appOrigin || origin === selfOrigin) return next();

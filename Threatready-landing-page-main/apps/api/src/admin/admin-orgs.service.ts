@@ -27,6 +27,8 @@ import { AppsClient } from "../platform/apps.client.js";
 import { secondsByUser } from "./activity.queries.js";
 import type { Range } from "./admin.service.js";
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const MAX_ORGS = 2_000;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -200,7 +202,7 @@ export class AdminOrgsService {
   }
 
   async detail(id: string, range: Range): Promise<AdminOrgDetail> {
-    if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound();
+    if (!UUID.test(id)) throw notFound();
     const { rows } = await this.rows(range, id);
     const org = rows[0];
     if (!org) throw notFound();
@@ -212,7 +214,7 @@ export class AdminOrgsService {
   }
 
   private async load(id: string) {
-    if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound();
+    if (!UUID.test(id)) throw notFound();
     const [row] = await this.db
       .select({ org: organizations, ent: entitlements })
       .from(organizations)

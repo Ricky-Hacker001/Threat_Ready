@@ -53,7 +53,8 @@ are combined.
 
 - **Dependency patches:** `body-parser` (2.4.0 / 1.20.9) and `multer` (2.5.0) close GHSA-27r3-jxmh-p828 and
   GHSA-q7qp-rjg7-q26m. The new CI audit gate checks every lockfile and passes. Onboard has one moderate advisory
-  left, below the gate.
+  left, below the gate: `esbuild` 0.18.20 (GHSA-67mh-4wv8-2f99, dev-only, pulled in through `better-auth` →
+  `drizzle-kit`); `qs` 6.16.0 (GHSA-6pq8-jhm2-2vcw, runtime, soc and onboard) was published after this merge.
 - **CI:** their matrix on Node 24 (typecheck, lint with the regex scanner, tests, `npm audit`, gitleaks and a full
   `deploy/build.sh`), plus our onboard e2e settings, publish check and site check.
 

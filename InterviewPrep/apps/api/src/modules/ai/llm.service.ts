@@ -28,6 +28,12 @@ export type BudgetPolicy = 'new_interview' | 'live_turn' | 'finalize' | 'reasoni
 
 /** Finalize-class work may run until the global spend reaches this multiple of the daily cap. */
 const BREAKER_GRACE = 1.1;
+/**
+ * Key of the transaction-scoped advisory lock every reservation takes before it reads the global
+ * daily spend (`pg_advisory_xact_lock(hashtextextended('ai-global-breaker', 42))`), so a breaker check
+ * and its reservation are atomic across connections. Same seed (42) as the per-learner lock.
+ */
+export const GLOBAL_BREAKER_LOCK_KEY = 'ai-global-breaker';
 
 export interface CallMeta {
   feature: string;
@@ -208,7 +214,12 @@ export class LlmService {
     const estimate = this.estimate(req, meta);
 
     return this.ledger(meta.owner, async (tx) => {
+      // Per-learner lock (the user-day and session sums), then the platform-wide one so the breaker
+      // read in assertWithinBudget and the reservation below are atomic across every connection:
+      // N concurrent reservations at the cap used to each read the same total and all pass (audit
+      // 2026-10-29 L12). Always this order; both are released with the transaction.
       await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 42))', [meta.owner.userId]);
+      await tx.sql.executeSql('SELECT pg_advisory_xact_lock(hashtextextended($1, 42))', [GLOBAL_BREAKER_LOCK_KEY]);
       await this.assertWithinBudget(tx, meta, estimate, true);
       const [row] = await tx.db
         .insert(llmCallLog)

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { hkdfSync } from 'node:crypto';
 import { test } from 'node:test';
-import { boolEnv, childExitLine, derivedToken, gatewayIpToForwardedFor, heapUsedOf, internalTokenEnv, passwordDigest, roleSyncNeeded } from '../launcher-lib.mjs';
+import { IDENTITY_CACHE_MAX_SECONDS, boolEnv, captchaCheck, childExitLine, derivedToken, gatewayIpToForwardedFor, heapUsedOf, identityCacheSeconds, internalTokenEnv, passwordDigest, roleSyncNeeded } from '../launcher-lib.mjs';
 
 const SECRET = 'k'.repeat(64);
 
@@ -90,4 +90,43 @@ test('gatewayIpToForwardedFor: the gateway stamp becomes X-Forwarded-For for a l
 test('boolEnv', () => {
   assert.equal(boolEnv(undefined, true), true); assert.equal(boolEnv('', false), false);
   assert.equal(boolEnv('true', false), true); assert.equal(boolEnv('1', false), true); assert.equal(boolEnv('false', true), false); assert.equal(boolEnv('no', true), false);
+});
+
+test('captchaCheck (H4): production without both Turnstile keys is fatal unless the operator set ALLOW_NO_CAPTCHA=true; never a silent waiver', () => {
+  const on = captchaCheck({ siteKey: 'site', secretKey: 'secret', allowNoCaptcha: undefined, production: true });
+  assert.deepEqual(on, { on: true, fatal: null, warning: null });
+  for (const keys of [{}, { siteKey: 'site' }, { secretKey: 'secret' }]) {
+    const prod = captchaCheck({ ...keys, allowNoCaptcha: undefined, production: true });
+    assert.equal(prod.on, false);
+    assert.match(prod.fatal ?? '', /ALLOW_NO_CAPTCHA=true/, JSON.stringify(keys));
+    assert.equal(prod.warning, null);
+    // Only the exact opt-in onboard accepts; 'false', '1' or 'yes' are not it.
+    for (const v of ['false', '1', 'yes', 'TRUE', '']) assert.ok(captchaCheck({ ...keys, allowNoCaptcha: v, production: true }).fatal, `ALLOW_NO_CAPTCHA=${JSON.stringify(v)}`);
+    const opted = captchaCheck({ ...keys, allowNoCaptcha: 'true', production: true });
+    assert.equal(opted.fatal, null);
+    assert.match(opted.warning, /CAPTCHA is OFF \(ALLOW_NO_CAPTCHA=true\)/);
+    // Outside production (a local launcher) a missing key is a warning, as before.
+    const dev = captchaCheck({ ...keys, allowNoCaptcha: undefined, production: false });
+    assert.equal(dev.fatal, null);
+    assert.match(dev.warning, /CAPTCHA is OFF/);
+  }
+  assert.match(captchaCheck({ siteKey: 'site', production: true }).fatal, /^TURNSTILE_SECRET_KEY is missing/);
+  assert.match(captchaCheck({ secretKey: 'secret', production: true }).fatal, /^TURNSTILE_SITE_KEY is missing/);
+  assert.match(captchaCheck({ production: true }).fatal, /^TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are not set/);
+});
+
+test('identityCacheSeconds (L20): IDENTITY_CACHE_SECONDS for the labs child, 0..300, default 30, clamped like InterviewPrep\'s bound', () => {
+  assert.equal(IDENTITY_CACHE_MAX_SECONDS, 300);
+  assert.equal(identityCacheSeconds(undefined), 30);
+  assert.equal(identityCacheSeconds(''), 30);
+  assert.equal(identityCacheSeconds('  '), 30);
+  assert.equal(identityCacheSeconds('abc'), 30);
+  assert.equal(identityCacheSeconds('0'), 0, 'zero: every request asks onboard');
+  assert.equal(identityCacheSeconds('5'), 5);
+  assert.equal(identityCacheSeconds('300'), 300);
+  assert.equal(identityCacheSeconds('301'), 300, 'over the bound: clamped');
+  assert.equal(identityCacheSeconds('86400'), 300);
+  assert.equal(identityCacheSeconds('-5'), 0);
+  assert.equal(identityCacheSeconds('12.9'), 12, 'whole seconds');
+  assert.equal(identityCacheSeconds('Infinity'), 30);
 });

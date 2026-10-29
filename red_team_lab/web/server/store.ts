@@ -54,7 +54,8 @@ export class Store {
     if (!u || u.name !== name) { this.data.users[id] = { id, name }; this.save(); }
     return this.data.users[id];
   }
-  session(id: string) { return this.data.sessions[id] || null; }
+  /** Own keys only: an id of "constructor" or "__proto__" must not read Object.prototype. */
+  session(id: string) { return typeof id === 'string' && Object.hasOwn(this.data.sessions, id) ? this.data.sessions[id] : null; }
   allSessionsOf(userId: string) { return Object.values(this.data.sessions).filter(s => s.userId === userId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)); }
   sessionsOf(userId: string, labId: string) { return Object.values(this.data.sessions).filter(s => s.userId === userId && s.labId === labId).sort((a, b) => a.run - b.run); }
   /** `keep`: archived runs the cap must never evict (the caller's best and best completed run, BIZ-06). */

@@ -30,8 +30,14 @@ const MAX_BODY_BYTES = 256 * 1024;
 const engineError = (rid: string, code: string, message: string, retryable = false) => ({ error: { code, message, retryable, request_id: rid } });
 
 const HOP_BY_HOP = new Set(['connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'host', 'content-length']);
+/**
+ * Client-address headers a browser (or a proxy in front) may send: never forwarded, so the engine's
+ * `req.ip` (Express `trust proxy`) can only be this app's address or the header this app stamps below
+ * (audit 2026-10-29 L13).
+ */
+const CLIENT_ADDRESS_HEADERS = new Set(['x-forwarded-for', 'forwarded', 'x-real-ip', 'cf-connecting-ip', 'true-client-ip']);
 /** Headers never copied from the browser's request: hop-by-hop, any Proxy-*, and any client-IP header (written below from what this app decided). */
-const dropIncoming = (name: string, clientIpHeader?: string) => HOP_BY_HOP.has(name) || name.startsWith('proxy-') || name === clientIpHeader || name === CLIENT_IP_HEADER;
+export const dropIncoming = (name: string, clientIpHeader?: string) => HOP_BY_HOP.has(name) || name.startsWith('proxy-') || CLIENT_ADDRESS_HEADERS.has(name) || name === clientIpHeader || name === CLIENT_IP_HEADER;
 /** Methods that carry no request body here: a body sent with one is never forwarded. */
 const BODYLESS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE']);
 

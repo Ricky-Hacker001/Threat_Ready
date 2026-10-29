@@ -3,6 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { createApp } from '../server/app';
+import { dropIncoming } from '../server/proxy';
 import { createStandaloneServer } from '../server/standalone';
 import type { IdentityResolver } from '../server/identity';
 import { SCENARIOS } from '../server/scenarios';
@@ -157,6 +158,27 @@ describe('gateway to the reasoning engine (the monolith)', () => {
       await request(gatewayed).get('/v1/reasoning/domains').set({ ...as('asha'), 'x-threatready-client-ip': 'not-an-ip' });
       expect(engine2.calls.at(-1)!.headers['x-threatready-client-ip']).not.toBe('not-an-ip');
     } finally { engine2.close(); }
+  });
+  it('drops every client-address header a browser or a proxy in front may send (audit 2026-10-29 L13), with or without an engine IP header', async () => {
+    const engine3 = await startEngineStub();
+    const addressHeaders = { 'x-forwarded-for': '203.0.113.9', forwarded: 'for=203.0.113.9', 'x-real-ip': '203.0.113.9', 'cf-connecting-ip': '203.0.113.9', 'true-client-ip': '203.0.113.9' };
+    try {
+      // The standalone layout stamps the engine's header with the address this app decided (index.ts passes it).
+      const standalone = createStandaloneServer(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine3.url, clientIpHeader: 'x-threatready-client-ip' } });
+      expect((await request(standalone).get('/v1/reasoning/domains').set({ ...as('asha'), ...addressHeaders })).status).toBe(200);
+      let h = engine3.calls.at(-1)!.headers;
+      for (const name of Object.keys(addressHeaders)) expect(h[name], name).toBeUndefined();
+      expect(h['x-threatready-client-ip']).toBeDefined();
+      expect(h['x-threatready-client-ip']).not.toBe('203.0.113.9');
+      // Without an engine header configured the engine falls back to the connection's address: still nothing client-chosen.
+      const bare = createApp(undefined, { identity, internalToken: TOKEN, appOrigin: ORIGIN, onboardUrl: 'http://localhost:5173', reasoningApi: { url: engine3.url } });
+      expect((await request(bare).get('/v1/reasoning/domains').set({ ...as('asha'), ...addressHeaders, 'x-threatready-client-ip': '203.0.113.9' })).status).toBe(200);
+      h = engine3.calls.at(-1)!.headers;
+      for (const name of [...Object.keys(addressHeaders), 'x-threatready-client-ip']) expect(h[name], name).toBeUndefined();
+      expect(h['x-forwarded-host']).toBeDefined();
+      expect(dropIncoming('x-forwarded-for')).toBe(true);
+      expect(dropIncoming('accept')).toBe(false);
+    } finally { engine3.close(); }
   });
   it('cannot reach the engine\'s internal API through the /v1 proxy', async () => {
     const app = await setup();

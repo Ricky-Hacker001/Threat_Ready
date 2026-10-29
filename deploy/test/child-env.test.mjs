@@ -2,7 +2,7 @@
 // security patch 2: per-caller internal tokens, the labs child).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { childEnv, interviewChildEnv, labsChildEnv, onboardChildEnv, testHooksSet, tunables } from '../child-env.mjs';
+import { RENDER_KEYS, childEnv, interviewChildEnv, labsChildEnv, onboardChildEnv, testHooksSet, tunables } from '../child-env.mjs';
 import { internalTokenEnv } from '../launcher-lib.mjs';
 
 /** The Render service's environment: required keys plus operator tunables of both apps (dummy values). */
@@ -59,11 +59,35 @@ test('onboard gets its own tunables and secrets, never InterviewPrep\'s or the l
   assert.equal(env.RENDER_GIT_COMMIT, 'abc123');
 });
 
-test('onboard: one Turnstile key alone is not forwarded (CAPTCHA off instead of a boot failure)', () => {
+test('onboard: one Turnstile key alone is not forwarded; the launcher never grants ALLOW_NO_CAPTCHA for missing keys (H4)', () => {
   const env = childEnv(onboardChildEnv({ ...CTX, turnstile: null }, { ...SERVICE, TURNSTILE_SECRET_KEY: '' }), SERVICE);
   assert.equal(env.TURNSTILE_SITE_KEY, undefined);
   assert.equal(env.TURNSTILE_SECRET_KEY, undefined);
-  assert.equal(env.ALLOW_NO_CAPTCHA, 'true');
+  // No keys and no operator opt-in: onboard gets 'false' and applies its own production check (the
+  // launcher has already refused to start in that case, deploy/start.mjs).
+  assert.equal(env.ALLOW_NO_CAPTCHA, 'false');
+  const none = childEnv(onboardChildEnv({ ...CTX, turnstile: null }, { ...SERVICE, TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '' }), SERVICE);
+  assert.equal(none.ALLOW_NO_CAPTCHA, 'false');
+  // Only the operator's own ALLOW_NO_CAPTCHA=true is forwarded as 'true'; any other spelling is not an opt-in.
+  const opted = childEnv(onboardChildEnv({ ...CTX, turnstile: null }, { ...SERVICE, TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', ALLOW_NO_CAPTCHA: 'true' }), SERVICE);
+  assert.equal(opted.ALLOW_NO_CAPTCHA, 'true');
+  for (const v of ['1', 'yes', 'TRUE', '']) {
+    assert.equal(childEnv(onboardChildEnv({ ...CTX, turnstile: null }, { ...SERVICE, TURNSTILE_SITE_KEY: '', TURNSTILE_SECRET_KEY: '', ALLOW_NO_CAPTCHA: v }), SERVICE).ALLOW_NO_CAPTCHA, 'false', `ALLOW_NO_CAPTCHA=${JSON.stringify(v)}`);
+  }
+  // With both keys the opt-in is still passed through as set (onboard uses CAPTCHA whenever the keys are there).
+  assert.equal(childEnv(onboardChildEnv(CTX, { ...SERVICE, ALLOW_NO_CAPTCHA: 'true' }), SERVICE).ALLOW_NO_CAPTCHA, 'true');
+});
+
+test('Render metadata reaches the children by name only: RENDER_DEPLOY_HOOK (or any other RENDER-prefixed operator variable) does not (I4)', () => {
+  const service = { ...SERVICE, RENDER_EXTERNAL_URL: 'https://threatready.onrender.com', RENDER_EXTERNAL_HOSTNAME: 'threatready.onrender.com', RENDER_GIT_BRANCH: 'main', RENDER_SERVICE_ID: 'srv-1', RENDER_SERVICE_NAME: 'threatready', RENDER_INSTANCE_ID: 'srv-1-abc',
+    RENDER_DEPLOY_HOOK: 'https://api.render.com/deploy/srv-1?key=secret', RENDER_API_KEY: 'rnd_secret', RENDERING_MODE: 'x' };
+  for (const env of [childEnv(onboardChildEnv(CTX, service), service), childEnv(interviewChildEnv(CTX, service), service), childEnv(labsChildEnv(CTX, service), service), childEnv({}, service)]) {
+    for (const k of RENDER_KEYS) assert.equal(env[k], service[k], k);
+    for (const k of ['RENDER_DEPLOY_HOOK', 'RENDER_API_KEY', 'RENDERING_MODE']) assert.equal(env[k], undefined, k);
+  }
+  assert.deepEqual(RENDER_KEYS, ['RENDER', 'RENDER_EXTERNAL_URL', 'RENDER_EXTERNAL_HOSTNAME', 'RENDER_GIT_COMMIT', 'RENDER_GIT_BRANCH', 'RENDER_SERVICE_ID', 'RENDER_SERVICE_NAME', 'RENDER_INSTANCE_ID']);
+  // A listed key that is unset is simply absent (not the string "undefined").
+  assert.equal(childEnv({}, { PATH: '/usr/bin' }).RENDER_GIT_BRANCH, undefined);
 });
 
 test('InterviewPrep gets its tunables (RATE_LIMIT_SCALE, LLM_*, IDENTITY_*, REPORT_*, S3/AWS, REASONING_*), never onboard\'s secrets', () => {

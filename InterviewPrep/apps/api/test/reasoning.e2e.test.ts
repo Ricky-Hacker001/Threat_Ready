@@ -57,7 +57,7 @@ describe('attack reasoning: cloud security end to end', () => {
 
   beforeAll(async () => {
     await resetDatabase();
-    t = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20' });
+    t = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', ALLOWED_APP_ORIGINS: 'http://localhost:5176' });
     learner = await signUp(t, 'Asha Rao');
     other = await signUp(t, 'Other Person');
     learnerId = (await learner.get('/v1/me')).body.id;
@@ -578,6 +578,12 @@ describe('attack reasoning: cloud security end to end', () => {
     expect(s.body.app).toBe('reasoning');
     expect(s.body.stats.find((x: { label: string }) => x.label === 'Assessments completed').value).toBeGreaterThan(3);
     expect(s.body.items[0].url).toMatch(/^http:\/\/localhost:5176\/ar\/attempts\//);
+    // Links are built only on this app's own origins (APP_ORIGIN, ALLOWED_APP_ORIGINS; audit 2026-10-29 I3).
+    for (const bad of ['http://evil.example/ar', 'http://localhost:5176/ar?x=1', 'http://localhost:5176/ar#f', 'javascript:alert(1)']) {
+      const r = await request(t.app.getHttpServer()).get(`/internal/v1/reasoning/users/${learnerId}/summary?appOrigin=${encodeURIComponent(bad)}`).set('Authorization', TOKEN());
+      expect(r.status, bad).toBe(422);
+      expect(r.body.error.code, bad).toBe('VALIDATION_FAILED');
+    }
     expect(s.body.aiUsage.calls).toBeGreaterThan(10);
     const to = new Date(Date.now() + 60_000);
     const range = `from=${new Date(to.getTime() - 86_400_000).toISOString()}&to=${to.toISOString()}`;
@@ -603,7 +609,7 @@ describe('attack reasoning: budget gates, quota, retries, pool switch-off, share
 
   beforeAll(async () => {
     await resetDatabase();
-    t = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20' });
+    t = await startApp({ RATE_LIMIT_SCALE: '20', REASONING_MAX_OPEN_ATTEMPTS: '20', ALLOWED_APP_ORIGINS: 'http://localhost:5176' });
   });
   beforeEach(() => t.llm.reset());
   afterAll(async () => t?.close());

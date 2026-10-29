@@ -41,6 +41,8 @@ const NEGATIVE_TTL_MS = 10_000;
  */
 const KNOWN_GOOD_MS = 12 * 3600_000;
 const SATURATION_LOG_MS = 10_000;
+/** A rejected internal token is this app's misconfiguration, logged as an error at most this often. */
+const TOKEN_REJECTED_LOG_MS = 60_000;
 
 /** Cold lookups queued behind one client's in-flight share; beyond this they are refused at once. */
 const MAX_WAITERS_PER_CLIENT = 64;
@@ -59,6 +61,18 @@ export const IDENTITY_TIMING = { clientWaitMs: 2_000 };
  * onboard and without taking an in-flight slot (audit 2026-10-23 IP-REG1). Returns the decoded value.
  */
 const SESSION_COOKIE_NAME = /^(?:__Secure-)?tr\.session_token$/;
+
+/**
+ * Whether a 401 from onboard rejected this app's internal token (`assertInternalCaller` in onboard's
+ * platform/internal-token.ts answers `{ code: "UNAUTHENTICATED", message: "Internal token required" }`)
+ * rather than the learner's cookie. Such an answer says nothing about the session: it must never be
+ * cached as "signed out", or a token rotation signs the whole platform out silently (audit 2026-10-29 L14).
+ */
+export function internalTokenRejected(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const { code, message } = body as { code?: unknown; message?: unknown };
+  return code === 'UNAUTHENTICATED' && typeof message === 'string' && /internal token/i.test(message);
+}
 
 export function sessionTokenOf(cookie: string | undefined): string | null {
   if (!cookie || cookie.length > 8192) return null;
@@ -98,6 +112,7 @@ export class IdentityAdapter {
   /** sha256(token) -> when onboard last confirmed it: these sessions are never shed by the caps. */
   private readonly knownGood = new Map<string, number>();
   private shed = { count: 0, loggedAt: 0 };
+  private tokenRejectedLoggedAt = 0;
   /** Users whose mirror row and personal organisation are known to exist in this process. */
   private readonly provisioned = new Map<string, string>();
 
@@ -215,6 +230,16 @@ export class IdentityAdapter {
     const setCookies = res.headers.getSetCookie?.() ?? [];
 
     if (res.status === 401) {
+      const body: unknown = await res.json().catch(() => null);
+      if (internalTokenRejected(body)) {
+        // Provider misconfiguration (a wrong or rotated INTERNAL_TOKEN_TO_ONBOARD), not a signed-out
+        // learner: no cache either way, the request fails as the provider being unavailable.
+        if (Date.now() - this.tokenRejectedLoggedAt >= TOKEN_REJECTED_LOG_MS) {
+          this.tokenRejectedLoggedAt = Date.now();
+          logger.error({ status: res.status }, 'identity provider rejected this app\'s internal token (INTERNAL_TOKEN_TO_ONBOARD); check the token rotation');
+        }
+        throw new DomainError('AUTH_PROVIDER_UNAVAILABLE', { details: { reason: 'internal_token' } });
+      }
       this.cache.delete(key);
       this.knownGood.delete(key);
       if (this.negative.size >= CACHE_MAX) this.negative.delete(this.negative.keys().next().value!);

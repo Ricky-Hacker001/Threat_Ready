@@ -208,9 +208,11 @@ export function runTool(ctx, id, body) {
   const def = TOOLS.find((t) => t.id === id);
   if (!def) throw new HttpError(404, 'Unknown tool.');
   if (ctx.tier < def.tier) throw new HttpError(403, `${def.label} is available from Tier ${def.tier}.`);
-  const result = IMPL[id](ctx, body.input, body.filter);
+  // The filter is bounded before the tool sees it and before it is recorded (like `input` below).
+  const filter = String(body.filter || '').trim().slice(0, 300);
+  const result = IMPL[id](ctx, body.input, filter);
   const input = String(body.input || '').trim().slice(0, 300);
-  return { def, input, result };
+  return { def, input, filter, result };
 }
 
 export const hostsList = HOSTS;

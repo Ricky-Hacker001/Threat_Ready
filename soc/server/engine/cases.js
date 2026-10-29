@@ -36,6 +36,32 @@ export const hooks = { onClose: null, onChange: null };
 const ephemeral = new Map();
 const TIER_NUM = { L1: 1, L2: 2, L3: 3 };
 const DECAY = [1, 0.7, 0.4];
+// Per-case growth bounds. Every list an analyst can append to is capped
+// (oldest entry dropped, like `searches`), every free-text value is sliced,
+// and a write that would still push the serialised case past CASE_MAX_BYTES
+// is refused with 413 and rolled back. Normal use stays far below all of
+// these; they exist so one case cannot grow the store without limit.
+const TOOL_RUNS_MAX = 400;
+const HISTORY_MAX = 1000;
+const IOCS_MAX = 100;
+const DRAFT_TEXT_MAX = 2000;
+const DRAFT_ITEM_TEXT_MAX = 500;
+const DRAFT_LIST_MAX = 50;
+const DRAFT_KEYS_MAX = 50;
+const CASE_MAX_BYTES = 512 * 1024;
+
+/** Refuses (413) a case whose serialised form exceeds CASE_MAX_BYTES. */
+export function assertCaseSize(c) {
+  if (JSON.stringify(c).length > CASE_MAX_BYTES) {
+    throw new HttpError(413, 'case_too_large', { message: 'This case file is full. Remove notes, indicators or pinned events before adding more.' });
+  }
+}
+// Runs the size check after a write; when it trips the write is undone
+// before the error propagates, so the stored case never exceeds the cap.
+function commit(c, undo) {
+  try { assertCaseSize(c); } catch (err) { undo(); throw err; }
+  store.save();
+}
 
 export function getCase(id) {
   const c = store.get(id) || ephemeral.get(id);
@@ -95,7 +121,13 @@ const currentDef = (c) => stageDef(getScenario(c.scenarioId), c.stage);
 
 function log(c, actor, kind, text, extra = {}) {
   c.history.push({ ts: extra.ts ?? Date.now(), actor, kind, text, stage: c.stage, ...(extra.data ? { data: extra.data } : {}) });
+  if (c.history.length > HISTORY_MAX) c.history.shift();
   c.rev++;
+}
+// Undoes the last log() call (for a write that is rolled back).
+function unlog(c) {
+  c.history.pop();
+  c.rev--;
 }
 const actorOf = (c) => {
   const def = currentDef(c);
@@ -399,13 +431,15 @@ export function pinEvent(c, eventId, note) {
   if (!ev) throw new HttpError(404, 'That event is no longer available.');
   const existing = c.pins.find((p) => p.eventId === eventId);
   if (existing) {
+    const before = existing.note;
     existing.note = String(note ?? existing.note ?? '').slice(0, 400);
     c.rev++;
+    commit(c, () => { existing.note = before; c.rev--; });
   } else {
     c.pins.push({ eventId, note: String(note || '').slice(0, 400), at: Date.now(), by: actorOf(c), snapshot: publicEvent(ev) });
     log(c, actorOf(c), 'evidence', `Pinned ${ev.source} event from ${ev.host} as evidence.`, { data: { eventId, raw: ev.raw } });
+    commit(c, () => { unlog(c); c.pins.pop(); });
   }
-  store.save();
 }
 
 export function unpinEvent(c, eventId) {
@@ -425,9 +459,12 @@ export function addIoc(c, { type, value }, quiet = false) {
   const t = IOC_TYPES.includes(type) ? type : guessIocType(v);
   if (c.iocs.some((i) => i.value.toLowerCase() === v.toLowerCase())) return false;
   c.iocs.push({ type: t, value: v, at: Date.now(), by: actorOf(c) });
-  if (!quiet) log(c, actorOf(c), 'evidence', `Added indicator to the case: ${t} ${v}`);
-  else c.rev++;
-  store.save();
+  if (c.iocs.length > IOCS_MAX) c.iocs.shift();
+  // Quiet adds come from submit() (bounded by the form and IOCS_MAX) and
+  // must not fail a submission half-way through.
+  if (quiet) { c.rev++; store.save(); return true; }
+  log(c, actorOf(c), 'evidence', `Added indicator to the case: ${t} ${v}`);
+  commit(c, () => { unlog(c); c.iocs.pop(); });
   return true;
 }
 
@@ -454,15 +491,49 @@ export function addNote(c, text) {
   const t = String(text || '').trim().slice(0, 2000);
   if (!t) throw new HttpError(400, 'Write a note first.');
   log(c, actorOf(c), 'note', t);
-  store.save();
+  commit(c, () => unlog(c));
+}
+
+// A draft is kept in the shape the form produces (strings, lists of ids,
+// lists of small objects such as ioc_list entries) but every piece is
+// bounded and anything else is dropped.
+const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+function draftItem(v) {
+  if (typeof v === 'string') return v.slice(0, DRAFT_TEXT_MAX);
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
+  if (isPlain(v)) {
+    return Object.fromEntries(Object.entries(v).slice(0, 10).filter(([, x]) => typeof x === 'string').map(([k, x]) => [k.slice(0, 50), x.slice(0, DRAFT_ITEM_TEXT_MAX)]));
+  }
+  return undefined;
+}
+function draftValue(v) {
+  if (Array.isArray(v)) return v.slice(0, DRAFT_LIST_MAX).map(draftItem).filter((x) => x !== undefined);
+  return draftItem(v);
+}
+function draftLinks(v) {
+  if (!Array.isArray(v)) return undefined;
+  return v.slice(0, DRAFT_LIST_MAX).filter((x) => typeof x === 'string').map((x) => x.slice(0, DRAFT_ITEM_TEXT_MAX));
+}
+export function cleanDraft(def, values, links) {
+  const vals = isPlain(values) ? values : {};
+  const lnks = isPlain(links) ? links : {};
+  const ids = Array.isArray(def?.fields) ? def.fields.map((f) => f.id) : Object.keys(vals).slice(0, DRAFT_KEYS_MAX);
+  const out = { values: {}, links: {} };
+  for (const id of ids) {
+    if (Object.hasOwn(vals, id)) { const v = draftValue(vals[id]); if (v !== undefined) out.values[id] = v; }
+    if (Object.hasOwn(lnks, id)) { const l = draftLinks(lnks[id]); if (l !== undefined) out.links[id] = l; }
+  }
+  return out;
 }
 
 export function saveDraft(c, { values = {}, links = {} }) {
   requireOpen(c);
   const def = currentDef(c);
   if (def.kind !== 'form') return;
-  c.stages[c.stage].draft = { values, links };
-  store.save();
+  const st = c.stages[c.stage];
+  const before = st.draft;
+  st.draft = cleanDraft(def, values, links);
+  commit(c, () => { st.draft = before; });
 }
 
 export function tool(c, id, body) {
@@ -470,10 +541,11 @@ export function tool(c, id, body) {
   const def = currentDef(c);
   const ctx = { c, scenario: getScenario(c.scenarioId), stream: streamFor(c), tier: TIER_NUM[def.tier] || 1, visibleInput: body?._visibleInput };
   ctx.stream.ensure();
-  const { def: tdef, input, result } = runTool(ctx, id, body || {});
-  c.toolRuns.push({ ts: Date.now(), tool: id, input: input.toLowerCase(), filter: String(body?.filter || '').toLowerCase(), stage: c.stage });
+  const { def: tdef, input, filter, result } = runTool(ctx, id, body || {});
+  c.toolRuns.push({ ts: Date.now(), tool: id, input: input.toLowerCase(), filter: filter.toLowerCase(), stage: c.stage });
+  if (c.toolRuns.length > TOOL_RUNS_MAX) c.toolRuns.shift();
   log(c, actorOf(c), 'tool', `${tdef.label}${input ? `: ${input.length > 90 ? `${input.slice(0, 90)}…` : input}` : ''}`);
-  store.save();
+  commit(c, () => { unlog(c); c.toolRuns.pop(); });
   return result;
 }
 

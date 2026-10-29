@@ -44,7 +44,10 @@ app.use((req, res, next) => {
   res.json = (body) => json(res.statusCode >= 400 && body && typeof body === 'object' && !Array.isArray(body) && !('requestId' in body) ? { ...body, requestId: id } : body);
   next();
 });
-app.use(express.json({ limit: '256kb' }));
+// The largest honest body is a stage submission or draft: a handful of short
+// answers, a few free-text fields of up to a couple of thousand characters
+// and lists of event ids. 64 kB is several times that.
+app.use(express.json({ limit: '64kb' }));
 app.use('/api', sessionMiddleware);
 
 const wrap = (fn) => (req, res, next) => Promise.resolve().then(() => fn(req, res)).catch(next);

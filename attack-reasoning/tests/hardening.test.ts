@@ -4,7 +4,7 @@ import net from 'node:net';
 import type { AddressInfo } from 'node:net';
 import request from 'supertest';
 import { createApp } from '../server/app';
-import { onboardIdentity, type IdentityResolver } from '../server/identity';
+import { internalTokenRejected, onboardIdentity, type IdentityResolver } from '../server/identity';
 import { createStandaloneServer, SECURITY_HEADERS } from '../server/standalone';
 import { ApiError } from '../client/src/api';
 import { FAILURE_MESSAGE, messageFor, reasoning, startQuestion, uuid } from '../client/src/reasoning/api';
@@ -107,6 +107,36 @@ describe('identity: junk cannot crowd out valid sessions (IP-REG1)', () => {
       expect(await again).toMatchObject({ ok: true, user: { id: 'user-known' } });
       expect(onboard.state.calls - calls).toBe(2);
     } finally { onboard.state.delayMs = 0; }
+  });
+});
+
+describe('identity: a rejected internal token is a provider fault, never a signed-out learner (audit 2026-10-29 L14)', () => {
+  it('answers unavailable without caching, logs once a minute, and a real 401 is still cached as signed out', async () => {
+    let body: unknown = { statusCode: 401, code: 'UNAUTHENTICATED', message: 'Internal token required' };
+    let calls = 0;
+    const server = http.createServer((_req, res) => { calls++; res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify(body)); });
+    const url = await listen(server);
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(' ')); };
+    try {
+      const id = onboardIdentity({ identityUrl: url, internalToken: TOKEN, cacheSeconds: 30 });
+      for (let i = 0; i < 3; i++) expect(await id({ cookie: cookie('user-1') }, '198.51.100.1')).toEqual({ ok: false, reason: 'unavailable' });
+      expect(calls).toBe(3); // nothing cached either way
+      expect(errors.filter((e) => /internal token/i.test(e))).toHaveLength(1);
+      expect(id.peek!({ cookie: cookie('user-1') })).toBeNull();
+      // The token is fixed and the learner is really signed out: cached as before.
+      body = { statusCode: 401, code: 'UNAUTHENTICATED', message: 'Sign in to continue' };
+      expect(await id({ cookie: cookie('user-1') }, '198.51.100.1')).toMatchObject({ ok: false, reason: 'signed-out' });
+      expect(await id({ cookie: cookie('user-1') }, '198.51.100.1')).toMatchObject({ ok: false, reason: 'signed-out' });
+      expect(calls).toBe(4);
+      expect(internalTokenRejected({ code: 'UNAUTHENTICATED', message: 'Internal token required' })).toBe(true);
+      expect(internalTokenRejected({ code: 'UNAUTHENTICATED', message: 'Sign in to continue' })).toBe(false);
+      expect(internalTokenRejected(null)).toBe(false);
+    } finally {
+      console.error = original;
+      server.close();
+    }
   });
 });
 

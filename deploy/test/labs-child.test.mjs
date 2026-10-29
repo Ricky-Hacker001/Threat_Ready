@@ -124,11 +124,12 @@ describe('labs child under the launcher: env from labsChildEnv, one shared resol
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'tr-labs-launcher-'));
-    // Onboard stand-in: the identity endpoint answers only the labs->onboard token.
+    // Onboard stand-in: the identity endpoint answers only the labs->onboard and ar->onboard tokens.
+    const accepted = [TOKENS.labs.LABS_INTERNAL_TOKEN_TO_ONBOARD, TOKENS.labs.AR_INTERNAL_TOKEN_TO_ONBOARD].map((t) => `Bearer ${t}`);
     onboard = http.createServer((req, res) => {
       if (req.url !== '/api/internal/identity/session') { res.writeHead(404).end(); return; }
       lookups.push({ auth: req.headers.authorization, cookie: req.headers.cookie });
-      if (req.headers.authorization !== `Bearer ${TOKENS.labs.LABS_INTERNAL_TOKEN_TO_ONBOARD}`) { res.writeHead(401, { 'content-type': 'application/json' }).end('{}'); return; }
+      if (!accepted.includes(req.headers.authorization)) { res.writeHead(401, { 'content-type': 'application/json' }).end('{}'); return; }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ user: { id: 'u-launcher', name: 'Learner', email: 'l@example.test', isTrial: false } }));
     });
     await new Promise((r) => onboard.listen(0, '127.0.0.1', r));
@@ -153,6 +154,35 @@ describe('labs child under the launcher: env from labsChildEnv, one shared resol
     const mine = lookups.slice(before);
     assert.equal(mine.length, 1, 'the Red Team request was answered from the shared resolver');
     assert.equal(mine[0].auth, `Bearer ${TOKENS.labs.LABS_INTERNAL_TOKEN_TO_ONBOARD}`);
+  });
+
+  test('L20: IDENTITY_CACHE_SECONDS reaches both resolvers: 0 asks onboard on every request, the default (30) reuses the lookup; out of range is clamped and logged', async () => {
+    // The default child (no IDENTITY_CACHE_SECONDS): a second request on the same session is a cache hit.
+    const cookie = sessionCookie('cached');
+    let before = lookups.length;
+    assert.equal((await get('/labs/api/me', { cookie, 'x-threatready-client-ip': '203.0.113.9' })).status, 200);
+    assert.equal((await get('/labs/api/me', { cookie, 'x-threatready-client-ip': '203.0.113.9' })).status, 200);
+    assert.equal(lookups.length - before, 1, 'default: one lookup for two requests');
+    // IDENTITY_CACHE_SECONDS=0 (the launcher forwards it to this child): no reuse at all, in the labs
+    // resolver and in Attack Reasoning's.
+    const zero = await startChild({ IDENTITY_CACHE_SECONDS: '0' });
+    try {
+      const fresh = sessionCookie('uncached');
+      const z = async (p) => { const r = await fetch(`http://127.0.0.1:${zero.port}${p}`, { headers: { cookie: fresh, 'x-threatready-client-ip': '203.0.113.9' } }); return r.status; };
+      before = lookups.length;
+      assert.equal(await z('/labs/api/me'), 200);
+      assert.equal(await z('/labs/api/me'), 200);
+      assert.equal(lookups.length - before, 2, 'cacheSeconds 0: every labs request asks onboard');
+      before = lookups.length;
+      assert.equal(await z('/ar/api/me'), 200);
+      assert.equal(await z('/ar/api/me'), 200);
+      assert.equal(lookups.length - before, 2, 'cacheSeconds 0: every Attack Reasoning request asks onboard');
+      assert.equal(lookups[lookups.length - 1].auth, `Bearer ${TOKENS.labs.AR_INTERNAL_TOKEN_TO_ONBOARD}`);
+    } finally { zero.child.kill('SIGKILL'); }
+    const big = await startChild({ IDENTITY_CACHE_SECONDS: '999' });
+    try {
+      assert.match(output, /IDENTITY_CACHE_SECONDS="999" is not a whole number from 0 to 300; using 300/);
+    } finally { big.child.kill('SIGKILL'); }
   });
 
   test('TR_STATE_DURABLE follows the launcher: starting value from the environment, changes over IPC (labs catalog and SOC session info)', async () => {

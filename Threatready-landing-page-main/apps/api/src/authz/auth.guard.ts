@@ -14,7 +14,7 @@ import type { Request } from "express";
 import { AUTH, type Auth } from "../auth/auth.js";
 import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
-import { users } from "../db/schema.js";
+import { sessions, users } from "../db/schema.js";
 import { effectiveTenant, ensurePersonalWorkspace, findOrgMembership, findPersonalMembership, toOrgContext } from "../tenancy/tenancy.js";
 import {
   ADMIN_PERMISSIONS,
@@ -72,6 +72,17 @@ export class AuthGuard implements CanActivate {
       query: fresh ? { disableCookieCache: true } : undefined,
     });
     if (!session) throw unauthenticated();
+    // Absolute lifetime (AUTH_SESSION_MAX_AGE_DAYS) on top of the sliding seven days: a long-lived
+    // cookie on a shared or stolen device ends on its own. The row is deleted so the cookie cache
+    // cannot revive it, and the client sees a plain sign-out.
+    const maxAgeDays = this.config.AUTH_SESSION_MAX_AGE_DAYS;
+    if (maxAgeDays > 0) {
+      const createdAt = new Date(session.session.createdAt as unknown as string | Date).getTime();
+      if (Number.isFinite(createdAt) && Date.now() - createdAt > maxAgeDays * 24 * 60 * 60 * 1000) {
+        await this.db.delete(sessions).where(eq(sessions.id, session.session.id));
+        throw unauthenticated();
+      }
+    }
 
     const user = session.user as typeof session.user & {
       username?: string | null;

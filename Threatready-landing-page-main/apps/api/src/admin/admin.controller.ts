@@ -4,7 +4,7 @@ import type { Request } from "express";
 import type { AdminOrgDetail, AdminOrgList, AdminOrgPlan, AdminOrgRow, AdminOrgStatus, AdminOverview, AdminRoleChangeResult, AdminUserDetail, AdminUserList } from "@threatready/contracts";
 import { adminOrgPlanSchema, adminOrgStatusSchema, adminRoleChangeSchema } from "@threatready/contracts";
 import { CurrentPrincipal, FreshSession, RequirePermission, type Principal } from "../authz/authz.js";
-import { UserThrottlerGuard, clientIp } from "../common/throttle.js";
+import { UserThrottlerGuard, assertSameOriginFetch, clientIp } from "../common/throttle.js";
 import { CONFIG, type Config } from "../config.js";
 import { ZodBody } from "../common/zod.js";
 import { AdminOrgsService, orgListQuerySchema } from "./admin-orgs.service.js";
@@ -93,7 +93,10 @@ export class AdminController {
   @RequirePermission("admin:read")
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", 'attachment; filename="threatready-users.csv"')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   async exportUsers(@Query() query: Record<string, unknown>, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<string> {
+    assertSameOriginFetch(req, this.config.WEB_ORIGIN);
     const parsed = listQuerySchema.safeParse(query);
     if (!parsed.success) throw new BadRequestException({ code: "VALIDATION_FAILED", message: "Invalid filters" });
     const range = parseRange(query);

@@ -56,11 +56,17 @@ services:
       # Interviews always use LLM_MODEL_SMALL.
       # Forwarded to InterviewPrep by the REASONING_ prefix (deploy/child-env.mjs), like
       # REASONING_EVALUATION_MODE (default full; tiered after a larger agreement check).
-      # --- Cloudflare Turnstile (CAPTCHA on sign-up, sign-in and OTP requests). Set BOTH or none:
-      #     without them production runs on rate limits alone (the launcher warns at start).
+      # --- Cloudflare Turnstile (CAPTCHA on sign-up, sign-in and OTP requests). Set BOTH or none.
+      #     Without both, production refuses to start (the deploy fails) unless ALLOW_NO_CAPTCHA below is
+      #     "true" (deploy/README.md, "CAPTCHA").
       - key: TURNSTILE_SITE_KEY
         sync: false
       - key: TURNSTILE_SECRET_KEY
+        sync: false
+      # --- Explicit opt-in to running production WITHOUT CAPTCHA (a demo deployment): "true" lets the
+      #     launcher and onboard boot without the Turnstile keys, with sign-up on rate limits alone. Leave
+      #     empty on a real deployment; it is forwarded to onboard only when set to "true". ---
+      - key: ALLOW_NO_CAPTCHA
         sync: false
       # --- Optional: social sign-in. Redirect URIs: <service URL>/api/auth/callback/google and /github ---
       - key: GOOGLE_CLIENT_ID

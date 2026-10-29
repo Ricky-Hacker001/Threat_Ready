@@ -36,6 +36,20 @@ const CLIENT_QUEUE_FACTOR = 16;
 /** A session onboard confirmed this recently is never shed by the caps when it is checked again. */
 const KNOWN_GOOD_MS = 12 * 3600_000;
 const SHED_LOG_MS = 10_000;
+/** A rejected internal token is this app's misconfiguration, logged as an error at most this often. */
+const TOKEN_REJECTED_LOG_MS = 60_000;
+
+/**
+ * Whether a 401 from onboard rejected this app's internal token (onboard's `assertInternalCaller` answers
+ * `{ code: "UNAUTHENTICATED", message: "Internal token required" }`) rather than the learner's cookie.
+ * Such an answer says nothing about the session: never cached as signed-out, or a token rotation signs
+ * every learner out silently (audit 2026-10-29 L14).
+ */
+export function internalTokenRejected(body: unknown): boolean {
+  if (typeof body !== 'object' || body === null) return false;
+  const { code, message } = body as { code?: unknown; message?: unknown };
+  return code === 'UNAUTHENTICATED' && typeof message === 'string' && /internal token/i.test(message);
+}
 
 const SESSION_COOKIE = /^(?:__Secure-)?tr\.session_token$/;
 /**
@@ -121,6 +135,7 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
   };
   const base = opts.identityUrl.replace(/\/+$/, '');
   const bearer = opts.callerToken ?? callerInternalToken('onboard', opts.internalToken);
+  let tokenRejectedAt = 0;
   const remember = (key: string, user: PlatformUser | null, entryTtl: number) => {
     if (entryTtl <= 0) return;
     cache.delete(key); // re-insert at the end: Map order is insertion order, so the oldest entries come first
@@ -142,7 +157,14 @@ export function onboardIdentity(opts: { identityUrl: string; internalToken: stri
       });
     } catch (e: any) { console.error(`identity provider unreachable: ${e?.message ?? e}`); return { ok: false, reason: 'unavailable' }; }
     const setCookies = res.headers.getSetCookie?.() ?? [];
-    if (res.status === 401) { remember(key, null, NEGATIVE_TTL_MS); confirmed(key, false); return { ok: false, reason: 'signed-out', setCookies }; }
+    if (res.status === 401) {
+      if (internalTokenRejected(await res.json().catch(() => null))) {
+        // Provider misconfiguration (a wrong or rotated token), not a signed-out learner: nothing cached, a retryable 503.
+        if (Date.now() - tokenRejectedAt >= TOKEN_REJECTED_LOG_MS) { tokenRejectedAt = Date.now(); console.error('identity provider rejected this app\'s internal token (INTERNAL_TOKEN_TO_ONBOARD / INTERNAL_API_TOKEN); check the token rotation'); }
+        return { ok: false, reason: 'unavailable' };
+      }
+      remember(key, null, NEGATIVE_TTL_MS); confirmed(key, false); return { ok: false, reason: 'signed-out', setCookies };
+    }
     if (!res.ok) { console.error(`identity provider error: HTTP ${res.status}`); return { ok: false, reason: 'unavailable' }; }
     const body: any = await res.json().catch(() => null);
     const u = body?.user;

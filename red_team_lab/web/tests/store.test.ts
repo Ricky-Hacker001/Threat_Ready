@@ -24,6 +24,15 @@ describe('Red Team store — TR-15 (caps + corrupt-file preservation) and LAB-RE
     expect(JSON.parse(fs.readFileSync(file, 'utf8')).sessions).toBeTruthy();
   });
 
+  it('session(): own keys only — "constructor", "__proto__" and friends read nothing from Object.prototype (audit I5)', () => {
+    const store = new Store(null);
+    const s = store.createSession('u1', 'TR-RED-001', { x: 1 });
+    expect(store.session(s.id)).toBe(s);
+    for (const id of ['constructor', '__proto__', 'hasOwnProperty', 'toString', 'valueOf', '']) expect(store.session(id)).toBe(null);
+    expect(store.session(undefined as any)).toBe(null);
+    expect(store.session('no-such-session')).toBe(null);
+  });
+
   it('preserves a well-formed-JSON but wrong-shaped store too', () => {
     const dir = mkTmp();
     const file = path.join(dir, 'store.json');

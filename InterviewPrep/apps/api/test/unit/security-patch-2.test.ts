@@ -332,13 +332,19 @@ describe('A11b: prompt-injection replay set', () => {
     for (const c of corpus) {
       for (const tag of tags) {
         const wrapped = untrusted(tag, c.text);
-        const opens = wrapped.match(new RegExp(`<${tag}>`, 'g')) ?? [];
-        const closes = wrapped.match(new RegExp(`</${tag}>`, 'g')) ?? [];
-        expect(opens.length, `${c.id}: extra opening <${tag}>`).toBe(1);
-        expect(closes.length, `${c.id}: extra closing </${tag}>`).toBe(1);
+        // Counted with string search, not a RegExp built from the tag (tools/check-regexp-from-input.mjs).
+        const occurrences = (hay: string, marker: string) => hay.split(marker).length - 1;
+        expect(occurrences(wrapped, `<${tag}>`), `${c.id}: extra opening <${tag}>`).toBe(1);
+        expect(occurrences(wrapped, `</${tag}>`), `${c.id}: extra closing </${tag}>`).toBe(1);
         expect(wrapped.toLowerCase().indexOf(`</${tag}>`), `${c.id}: closing tag must be the last thing`).toBe(wrapped.length - `</${tag}>`.length);
-        // Case variants of the tag are neutralised too.
-        expect(wrapped.slice(`<${tag}>\n`.length, -`\n</${tag}>`.length).toLowerCase()).not.toMatch(new RegExp(`</?${tag}(?![a-z_])`));
+        // Case variants of the tag are neutralised too: no `<tag` or `</tag` followed by anything but a tag-name character.
+        const inner = wrapped.slice(`<${tag}>\n`.length, -`\n</${tag}>`.length).toLowerCase();
+        for (const open of [`<${tag}`, `</${tag}`]) {
+          for (let i = inner.indexOf(open); i >= 0; i = inner.indexOf(open, i + 1)) {
+            const next = inner[i + open.length] ?? '';
+            expect(/^[a-z_]$/.test(next), `${c.id}: "${open}" survives in the wrapped text`).toBe(true);
+          }
+        }
       }
     }
   });
@@ -352,7 +358,9 @@ describe('A11b: prompt-injection replay set', () => {
       }
       expect(out.reviewFlag, `${c.id}: not flagged for review`).toBe(true);
       expect(out.confidence, c.id).toBe('low');
-      expect(out.notes.some((n) => /instruct the grader/.test(n)), c.id).toBe(true);
+      // The learner-facing note never names the screen that fired (audit 2026-10-29 L15).
+      expect(out.notes.some((n) => /instruct the grader/i.test(n)), c.id).toBe(false);
+      expect(out.notes, c.id).toContain('This answer was flagged for review.');
     }
   });
 

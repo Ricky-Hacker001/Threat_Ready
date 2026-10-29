@@ -70,6 +70,38 @@ async function request<T>(method: string, path: string, body?: unknown, headers:
   return data as T;
 }
 
+/**
+ * Fetch a file the API serves as an attachment and hand it to the browser as a download. Exports are
+ * audited reads, so the API accepts them only as the console's own fetch (Fetch Metadata same-origin,
+ * not a document navigation) — a plain link would also follow from any page that linked to it.
+ */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_ORIGIN}/api${path}`, { credentials: "include" });
+  } catch {
+    throw new ApiError(0, "NETWORK", "Can't reach ThreatReady. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const retryAfter = Number(data?.retryAfter ?? res.headers.get("retry-after")) || undefined;
+    throw new ApiError(res.status, typeof data?.code === "string" ? data.code : "ERROR", typeof data?.message === "string" ? data.message : "Download failed", retryAfter);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+}
+
 export interface PublicConfig {
   providers: { google: boolean; github: boolean };
   turnstileSiteKey: string | null;

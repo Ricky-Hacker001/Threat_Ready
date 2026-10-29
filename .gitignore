@@ -39,8 +39,8 @@ test-results/
 .claude/
 .DS_Store
 
-# Internal audit reports: describe unfixed vulnerabilities, never publish
-audit/
+# Internal audit reports (audit/) are tracked here but never published: scripts/publish.rsync-filter drops
+# the folder and `scripts/publish-check.mjs --published` refuses a tree that still has it (audit/README.md).
 
 # Python bytecode (site tools)
 __pycache__/

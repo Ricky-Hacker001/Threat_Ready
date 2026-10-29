@@ -1,0 +1,39 @@
+# Dependabot: keeps the SHA-pinned GitHub Actions in ci.yml current (weekly) and opens one grouped PR a
+# month per lockfile for npm/pnpm dependencies. Security advisories are not limited by the schedule.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # One entry per lockfile directory (CI's npm matrix + the pnpm workspace). Grouped so each directory
+  # gets a single PR; majors are separate so a breaking bump never hides inside a routine one.
+  - package-ecosystem: npm
+    directories:
+      - /deploy
+      - /InterviewPrep
+      - /threatready-lab-001
+      - /attack-reasoning
+      - /red_team_lab/web
+      - /soc
+      - /ThreatWall
+      - /DevSecOps-Simulation
+      - /AI-Security
+      - /e2e
+      - /Threatready-landing-page-main
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      majors:
+        update-types: ["major"]

@@ -24,13 +24,16 @@ export function App() {
 
   if (err) return <div className="tr-center"><div className="tr-note tr-note-bad" role="alert">{err} <button className="tr-btn tr-btn-secondary tr-btn-sm" onClick={load}>Retry</button></div></div>;
   if (!user) return <PlatformLoading app="Attack Reasoning Lab" />;
-  const route = (re: string) => new RegExp(`^${BASE}${re}/?$`).exec(path);
-  const scenario = route('scenarios/([\\w-]{1,40})');
-  const domain = route('domains/([a-z0-9-]{1,40})');
-  const attempt = route('attempts/([0-9a-f-]{36})');
-  const historyRoute = route('history');
-  const summaryRoute = route('summary');
-  const legacy = route('scenarios');
+  // The path below the app's base (a build-time constant), matched by literal patterns: no RegExp is
+  // ever built from a string (tools/check-regexp-from-input.mjs).
+  const below = path.startsWith(BASE) ? path.slice(BASE.length) : null;
+  const route = (re: RegExp) => (below === null ? null : re.exec(below));
+  const scenario = route(/^scenarios\/([\w-]{1,40})\/?$/);
+  const domain = route(/^domains\/([a-z0-9-]{1,40})\/?$/);
+  const attempt = route(/^attempts\/([0-9a-f-]{36})\/?$/);
+  const historyRoute = route(/^history\/?$/);
+  const summaryRoute = route(/^summary\/?$/);
+  const legacy = route(/^scenarios\/?$/);
   return <Shell current="reasoning" user={user}>
     {scenario ? <ScenarioPage id={scenario[1]!} back={() => go(`${BASE}scenarios`)} />
       : legacy ? <ScenarioList open={(id) => go(`${BASE}scenarios/${encodeURIComponent(id)}`)} />

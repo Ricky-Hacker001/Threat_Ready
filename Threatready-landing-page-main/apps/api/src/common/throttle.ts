@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import { ThrottlerGuard } from "@nestjs/throttler";
 import type { Request } from "express";
 import type { IncomingMessage } from "node:http";
@@ -26,6 +26,30 @@ export function stampClientIp(req: IncomingMessage, proxyHeader: string | undefi
   // An IPv4 client on a dual-stack socket reads "::ffff:203.0.113.7"; keep one spelling per client.
   if (ip) req.headers[CLIENT_IP] = ip.replace(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/, "$1");
   else delete req.headers[CLIENT_IP];
+}
+
+/**
+ * A GET that has a side effect (an export writes an audit row) must be the console's own fetch, never
+ * a top-level navigation from another site: the session cookie is SameSite=Lax, so a link on any
+ * page would carry it. Browsers that send Fetch Metadata must say same-origin (or same-site) and not
+ * a document navigation; older browsers without the headers must carry the console's Origin or Referer.
+ */
+export function assertSameOriginFetch(req: Request, webOrigin: string): void {
+  const site = req.headers["sec-fetch-site"];
+  const dest = req.headers["sec-fetch-dest"];
+  const origin = new URL(webOrigin).origin;
+  if (typeof site === "string") {
+    if ((site === "same-origin" || site === "none") && dest !== "document") return;
+    throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
+  }
+  const from = typeof req.headers.origin === "string" ? req.headers.origin : typeof req.headers.referer === "string" ? req.headers.referer : "";
+  let fromOrigin = "";
+  try {
+    fromOrigin = from ? new URL(from).origin : "";
+  } catch {
+    fromOrigin = "";
+  }
+  if (fromOrigin !== origin) throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
 }
 
 /** The client IP stamped for this request (stampClientIp). */

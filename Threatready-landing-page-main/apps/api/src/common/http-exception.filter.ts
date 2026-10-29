@@ -38,6 +38,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
       res.status(429).json({ statusCode: 429, code: body.code, message: body.message, retryAfter });
       return;
     }
+    // body-parser (express.json) errors are plain Errors with a `type`: a bad body is the client's 400/413, not our 500.
+    const bodyError = bodyParserStatus(exception);
+    if (bodyError) {
+      res.status(bodyError.status).json({ statusCode: bodyError.status, code: bodyError.code, message: bodyError.message });
+      return;
+    }
     if (exception instanceof HttpException) {
       const status = exception.getStatus();
       const body = exception.getResponse();
@@ -54,4 +60,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
     void reportError(exception, `${req.method} ${(req.route as { path?: string } | undefined)?.path ?? "(no route)"}`);
     res.status(500).json({ statusCode: 500, code: "INTERNAL", message: "Something went wrong" });
   }
+}
+
+const BODY_PARSER_ERRORS: Record<string, { status: number; code: string; message: string }> = {
+  "entity.parse.failed": { status: 400, code: "VALIDATION_FAILED", message: "The request body is not valid JSON." },
+  "entity.too.large": { status: 413, code: "PAYLOAD_TOO_LARGE", message: "The request body is too large." },
+  "entity.verify.failed": { status: 403, code: "FORBIDDEN", message: "Forbidden" },
+  "request.aborted": { status: 400, code: "VALIDATION_FAILED", message: "The request ended before the body arrived." },
+  "encoding.unsupported": { status: 415, code: "UNSUPPORTED_MEDIA_TYPE", message: "Unsupported content encoding." },
+  "charset.unsupported": { status: 415, code: "UNSUPPORTED_MEDIA_TYPE", message: "Unsupported charset." },
+  "parameters.too.many": { status: 413, code: "PAYLOAD_TOO_LARGE", message: "Too many parameters." },
+};
+
+/** The response for a body-parser error, or null when `err` is something else. */
+export function bodyParserStatus(err: unknown): { status: number; code: string; message: string } | null {
+  if (!(err instanceof Error)) return null;
+  const type = (err as { type?: unknown }).type;
+  return typeof type === "string" ? (BODY_PARSER_ERRORS[type] ?? null) : null;
 }

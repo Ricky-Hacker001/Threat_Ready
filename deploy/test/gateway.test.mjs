@@ -411,8 +411,12 @@ function rawSocket(port, lines) {
   });
 }
 
-const SECURITY_HEADERS = ['content-security-policy', 'strict-transport-security', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'x-robots-tag'];
-const assertSecurityHeaders = (r, label) => { for (const h of SECURITY_HEADERS) assert.ok(r.headers[h], `${label}: missing ${h}`); };
+const SECURITY_HEADERS = ['content-security-policy', 'strict-transport-security', 'x-frame-options', 'x-content-type-options', 'referrer-policy', 'permissions-policy', 'x-robots-tag'];
+const assertSecurityHeaders = (r, label) => {
+  for (const h of SECURITY_HEADERS) assert.ok(r.headers[h], `${label}: missing ${h}`);
+  // SAMEORIGIN, never DENY: the labs' sandboxed documents are framed by same-origin pages (audit I6).
+  assert.equal(r.headers['x-frame-options'], 'SAMEORIGIN', `${label}: x-frame-options`);
+};
 
 describe('gateway', () => {
   const onboard = stubChild('onboard');
@@ -541,19 +545,59 @@ describe('gateway', () => {
     assert.equal(upstreamHeaders['x-forwarded-proto'], 'https');
   });
 
-  test('healthz and readyz: 503 when degraded; readyz reports all three children', async () => {
+  test('L17: X-Forwarded-Proto to a child is the public URL\'s scheme, never the client\'s header (no "http, https")', async () => {
+    // No publicUrl (this describe's gateway): https, whatever the client claims.
+    for (const claimed of ['http', 'https', 'http, https', 'ftp']) {
+      const before = labs.seen.length;
+      const r = await call(gwPort, 'GET', '/labs/proto', { 'x-forwarded-proto': claimed, 'x-forwarded-for': '1.2.3.4' });
+      assert.equal(r.status, 200);
+      assert.equal(labs.seen[before].headers['x-forwarded-proto'], 'https', `client sent "${claimed}"`);
+    }
+    // The launcher passes PUBLIC_URL: its scheme is what the children get (http for a local launcher).
+    for (const [publicUrl, want] of [['https://tr.example', 'https'], ['http://localhost:10000', 'http'], ['not a url', 'https'], [undefined, 'https']]) {
+      const app = await createGateway({ onboardPort: ports.onboard, interviewPort: ports.interview, labsPort: ports.labs, ready, publicUrl, config: gatewayConfig({}), log: () => {} });
+      const srv = http.createServer(app);
+      const port = await listen(srv);
+      try {
+        for (const p of ['/api/x', '/v1/x', '/labs/x', '/ar/x']) {
+          const child = p.startsWith('/api') ? onboard : p.startsWith('/v1') ? interview : labs;
+          const before = child.seen.length;
+          assert.equal((await call(port, 'GET', p, { 'x-forwarded-proto': 'http' })).status, 200);
+          assert.equal(child.seen[before].headers['x-forwarded-proto'], want, `${publicUrl} ${p}`);
+        }
+      } finally { await close(srv); }
+    }
+  });
+
+  test('healthz and readyz: 503 when degraded; readyz reports all three children to internal callers only (L19)', async () => {
+    // Loopback peer, no edge header: the operator on the instance gets the detail.
     const r = await call(gwPort, 'GET', '/readyz');
     assert.equal(r.status, 200);
     assert.deepEqual(Object.keys(json(r).status).sort(), ['interview', 'labs', 'onboard']);
+    assert.deepEqual(json(r).exits, state.exits);
+    // Anything that came through the edge (any edge header) gets the status code and `ready` alone:
+    // no per-child status, exit counts or heap samples to watch from outside.
+    for (const h of ['x-forwarded-for', 'x-forwarded-proto', 'cf-connecting-ip', 'rndr-id', 'via']) {
+      const pub = await call(gwPort, 'GET', '/readyz', { [h]: '1' });
+      assert.equal(pub.status, 200, h);
+      assert.deepEqual(json(pub), { ready: true }, h);
+      assertSecurityHeaders(pub, `readyz via ${h}`);
+    }
     state.degraded = true;
     try {
       const h = await call(gwPort, 'GET', '/healthz');
       assert.equal(h.status, 503);
       assert.deepEqual(json(h), { ok: false });
+      assert.deepEqual(json(await call(gwPort, 'GET', '/healthz', { 'x-forwarded-for': '1.2.3.4' })), { ok: false }, '/healthz unchanged for the edge');
     } finally { state.degraded = false; }
     assert.equal((await call(gwPort, 'GET', '/healthz')).status, 200);
     state.labs = false; state.status.labs = 'starting';
-    try { assert.equal((await call(gwPort, 'GET', '/readyz')).status, 503, 'labs not ready → readyz 503'); } finally { state.labs = true; state.status.labs = 'ready'; }
+    try {
+      assert.equal((await call(gwPort, 'GET', '/readyz')).status, 503, 'labs not ready → readyz 503');
+      const pub = await call(gwPort, 'GET', '/readyz', { 'x-forwarded-for': '1.2.3.4' });
+      assert.equal(pub.status, 503);
+      assert.deepEqual(json(pub), { ready: false });
+    } finally { state.labs = true; state.status.labs = 'ready'; }
   });
 
   test('labs child down → /labs and /ar answer 503 UPSTREAM_UNAVAILABLE while /api still proxies', async () => {

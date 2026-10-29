@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { onboardApps, onboardIdentity } from './identity';
+import { CLIENT_IP_HEADER } from './ratelimit';
 import { createStandaloneServer, trustProxyFrom } from './standalone';
 
 const root = path.resolve(import.meta.dirname, '..');
@@ -18,6 +19,10 @@ const identityUrl = env('IDENTITY_URL', 'http://localhost:3000');
 // The reasoning engine: the ThreatReady monolith (InterviewPrep API). Optional so the catalogue still serves without it.
 const reasoningApiUrl = process.env.REASONING_API_URL;
 if (!reasoningApiUrl) console.warn('REASONING_API_URL is not set: assessments are unavailable; the catalogue still serves.');
+// The header the engine reads the visitor's IP from (its CLIENT_IP_HEADER; x-threatready-client-ip on
+// the gateway). This app stamps it with the IP it decided and strips every client-sent address header,
+// so the engine's per-client limits key on the learner, never on a value the learner chose (L13).
+const reasoningApiClientIpHeader = process.env.REASONING_API_CLIENT_IP_HEADER || CLIENT_IP_HEADER;
 
 // The app lives under /ar (its API at /ar/api, onboard's internal calls at /ar/internal); /v1 is the engine.
 const appOrigin = new URL(env('APP_ORIGIN', 'http://localhost:5176')).origin;
@@ -27,7 +32,7 @@ const server = createStandaloneServer(path.join(root, 'dist'), {
   appOrigin,
   onboardUrl: new URL(env('ONBOARD_URL', 'http://localhost:5173')).origin,
   apps: onboardApps(identityUrl),
-  reasoningApi: reasoningApiUrl ? { url: new URL(reasoningApiUrl).origin } : undefined,
+  reasoningApi: reasoningApiUrl ? { url: new URL(reasoningApiUrl).origin, clientIpHeader: reasoningApiClientIpHeader } : undefined,
 }, {
   // Behind a reverse proxy, say so (AR_TRUST_PROXY=1, or loopback, or its addresses); a proxy that
   // sets x-threatready-client-ip for every request: AR_TRUST_CLIENT_IP_HEADER=1.

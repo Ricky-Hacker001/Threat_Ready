@@ -41,6 +41,13 @@ const OPEN_STATES = ['generating', 'ready', 'evaluating'] as const;
 const SERVE_CANDIDATES = 3;
 /** Failures the budget caused: the failed run never reached the model, so retrying one is not counted. */
 const BUDGET_CODES = new Set(['LLM_BUDGET_EXCEEDED', 'AI_SERVICE_PAUSED']);
+/**
+ * Failures whose retry is not counted against REASONING_MAX_RETRIES: the budget ones, and a grader
+ * refusal (the model declined the answer; not the learner's doing, audit 2026-10-29 M1). Such retries
+ * stay bounded by the daily evaluation quota and the learner's daily cap, which every retry is checked
+ * against below.
+ */
+const FREE_RETRY_CODES = new Set([...BUDGET_CODES, 'REASONING_EVALUATION_DECLINED']);
 /** Refusals of a submission that lift at 00:00 UTC: the daily evaluation quota and both AI budgets. */
 const SUBMIT_REFUSALS = new Set([...BUDGET_CODES, 'REASONING_DAILY_LIMIT_REACHED']);
 /**
@@ -140,7 +147,8 @@ export class ReasoningService {
    * learner sees is what they can get): live pool questions (fewer than REASONING_ITEM_MAX_SERVES
    * serves; legacy ones only while REASONING_SERVE_LEGACY_ITEMS) they were never served, with no
    * fingerprint, and no architecture + attack path + objective, they were served. reasoning_served is
-   * owner-isolated by RLS, so the subqueries only see the learner's own rows.
+   * owner-isolated by RLS, so the subqueries only see the learner's own rows; the shape comparison runs
+   * in reasoning_item_shape_served() (migration 0018), as the API role cannot read seed or fingerprint.
    */
   private servable(p: Principal, domain: string, bucket: string, exclude: string[] = []) {
     return and(
@@ -152,15 +160,12 @@ export class ReasoningService {
       this.cfg.REASONING_SERVE_LEGACY_ITEMS ? undefined : isNotNull(reasoningItems.architectureId),
       exclude.length ? notInArray(reasoningItems.id, exclude) : undefined,
       sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s WHERE s.item_id = ${reasoningItems.id} AND s.user_id = ${p.userId})`,
-      // Never a question of the same shape as one already served (a near-duplicate by construction).
-      sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s JOIN ${reasoningItems} j ON j.id = s.item_id WHERE s.user_id = ${p.userId} AND j.fingerprint = ${reasoningItems.fingerprint})`,
-      // Nor one with the same architecture, attack path and objective as any question they were served
-      // (review AR-BIZ-2): generation no longer compares a new question's structure with retired ones,
-      // so the learner's guarantee is kept here. Legacy questions have no architecture and never match.
-      sql`NOT EXISTS (SELECT 1 FROM ${reasoningServed} s JOIN ${reasoningItems} j ON j.id = s.item_id WHERE s.user_id = ${p.userId}
-            AND j.architecture_id = ${reasoningItems.architectureId}
-            AND j.seed->'architecture'->>'pathKey' = ${reasoningItems.seed}->'architecture'->>'pathKey'
-            AND j.seed->>'objective' = ${reasoningItems.seed}->>'objective')`,
+      // Never a question of the same shape as one already served (a near-duplicate by construction): the
+      // same fingerprint, or the same architecture, attack path and objective as any question they were
+      // served (review AR-BIZ-2: generation no longer compares a new question's structure with retired
+      // ones, so the learner's guarantee is kept here; legacy questions have no architecture and never
+      // match). The function answers for the transaction's learner (app.user_id) only.
+      sql`NOT reasoning_item_shape_served(${reasoningItems.id})`,
     );
   }
 
@@ -361,7 +366,11 @@ export class ReasoningService {
     }
   }
 
-  /** Skips an unanswered scenario. It leaves the open-attempt count and the history's scores. */
+  /**
+   * Skips an unanswered scenario. It leaves the open-attempt count and the history's scores. Skipping
+   * one still `generating` stops its ladder before the next billed call, and a question finished after
+   * the skip is discarded, not pooled or served (GenerationService.runGeneration, audit 2026-10-29 L16).
+   */
   async abandon(p: Principal, id: string): Promise<ReasoningAttemptView> {
     return this.db.user(p, async (tx) => {
       const a = await loadOwnedAttempt(tx, p.userId, id, true);
@@ -459,14 +468,15 @@ export class ReasoningService {
   /**
    * Re-queues a failed stage. Idempotent: the job key carries the attempt version. Each stage can be
    * retried REASONING_MAX_RETRIES times per attempt (a retry after a budget refusal is free: that run
-   * never reached the model), and only when the budget allows the run (audit TR-08).
+   * never reached the model; so is one after the grader declined, FREE_RETRY_CODES), and only when the
+   * budget allows the run (audit TR-08).
    */
   async retry(p: Principal, id: string): Promise<ReasoningAttemptView> {
     return this.db.user(p, async (tx) => {
       await this.lockLearner(tx, p);
       const a = await loadOwnedAttempt(tx, p.userId, id, true);
       const max = this.cfg.REASONING_MAX_RETRIES;
-      const counted = BUDGET_CODES.has(a.failureCode ?? '') ? 0 : 1;
+      const counted = FREE_RETRY_CODES.has(a.failureCode ?? '') ? 0 : 1;
       if (a.state === 'generation_failed') {
         if (counted && max > 0 && a.generationRetries >= max) throw new DomainError('REASONING_RETRY_LIMIT_REACHED');
         await this.budgetCheck(tx, this.generationMeta(p, a.domain), this.gen.generationEstimateUsd(a.domain, a.difficulty));

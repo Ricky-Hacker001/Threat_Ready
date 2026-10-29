@@ -43,6 +43,19 @@ describe('API security', () => {
     expect(r.status).toBe(403);
   });
 
+  it('a state-changing request with no Origin at all is refused, like the hosted path (audit L18); reads need none', async () => {
+    const noOrigin = { Cookie: auth('Asha').Cookie };
+    const r = await request(app).post(`/api/sessions/${sid}/actions`).set(noOrigin).send({ type: 'browser.navigate', params: { url: '/' }, requestId: rid() });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe('VALIDATION_FAILED');
+    expect((await request(app).post(`/api/sessions/${sid}/reset`).set(noOrigin).send({ confirm: 'RESET' })).status).toBe(403);
+    expect((await request(app).post('/api/labs/TR-RED-001/sessions').set(noOrigin)).status).toBe(403);
+    // Nothing changed: the session is where it was.
+    expect((await request(app).get(`/api/sessions/${sid}`).set(noOrigin)).status).toBe(200);
+    // The configured origin and a genuine same-origin request still pass.
+    expect((await request(app).post(`/api/sessions/${sid}/actions`).set(auth('Asha')).send({ type: 'browser.navigate', params: { url: '/' }, requestId: rid() })).body.ok).toBe(true);
+  });
+
   it('repeated requests are idempotent', async () => {
     const id = rid();
     const a = await act('Asha', sid, 'browser.navigate', { url: '/products' }, id);

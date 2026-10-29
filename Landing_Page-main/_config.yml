@@ -1,0 +1,9 @@
+# GitHub Pages (Jekyll) build settings for threatready.io. The site is plain HTML; Jekyll only needs to
+# leave the site tooling and non-site files out of the published tree (they used to be served, e.g.
+# /docs/AUDIT.html). Keep this list in step with whatever is added under Landing_Page-main/ that is not a page.
+exclude:
+  - tools
+  - docs
+  - README.md
+  - "*.py"
+  - "__pycache__"

@@ -60,7 +60,7 @@ Since 28 Oct 2026 a company, team or institute can hold a **business account**: 
 
 ## Run everything locally
 
-Node 24 or newer: every `package.json` sets `engines.node` to `>=24`, matching Render's `NODE_VERSION` and CI (pnpm refuses to install onboard on older Node).
+Node 24 or newer: every `package.json` sets `engines.node` to `>=24`, matching Render's `NODE_VERSION` and CI. `engine-strict=true` (root `.npmrc`) makes npm refuse an older Node; npm reads `.npmrc` per package directory, so copy that line into a package's own `.npmrc` to enforce it there too (pnpm, for onboard, only warns unless its `.npmrc` sets it).
 
 | Service | Port | Command (from the project folder) |
 |---|---|---|
@@ -102,18 +102,20 @@ Publish with the filter, then check the result before committing there:
 
 ```
 rsync -a --delete --filter='merge scripts/publish.rsync-filter' ./ ../Threat_Ready/
-node scripts/publish-check.mjs ../Threat_Ready
+node scripts/publish-check.mjs --published ../Threat_Ready
 ```
 
 The filter leaves out every nested `.git`, any `.glb`, real `.env` files (templates stay), private
-keys, `audit/`, build output and local lab data. `publish-check` fails on any of those, on gitlinks and
-on files over 25 MB; CI runs it on every push too.
+keys, `audit/` (internal audit reports, see `audit/README.md`), build output and local lab data.
+`publish-check` fails on any of those, on gitlinks and on files over 25 MB; `--published` (and any
+folder/zip check) also fails on `audit/`, which is expected in this source tree. CI runs the source-tree
+check on every push.
 
 ## Known follow-ups
 
 - Identity is cached for `IDENTITY_CACHE_SECONDS` (30 s) per app, on top of Better Auth's 60-second cookie cache, so a revoked session can keep working for up to about 1½ minutes outside onboard (the internal identity endpoint and the admin console bypass the cookie cache).
 - InterviewPrep's old local accounts (from before this change) keep their data, but their ids don't match onboard users, so that usage appears in admin totals and not under any onboard user.
-- InterviewPrep still lists `better-auth` in its `package.json` files although nothing imports it, and its `sessions`, `accounts` and `verifications` tables are no longer written. Remove both in a cleanup.
+- InterviewPrep's `sessions`, `accounts` and `verifications` tables are no longer written (the unused `better-auth` dependency was removed on 29 Oct 2026). Drop the tables in a cleanup migration.
 - Labs, SOC and Red Team still store progress in JSON files. On Render the launcher mirrors them to PostgreSQL so a restart keeps them (`deploy/README.md`), but that is one instance's backup, not shared state: moving the stores to PostgreSQL is the next step for multi-instance deploys.
 - The ADD's staff TOTP requirement now applies to the admin console. Add the Better Auth 2FA plugin and require it for `admin:read`.
 - The Playwright browser test for Labs is updated but was not run here (no Chromium installed): `npx playwright install chromium && npm run build && npm run test:e2e`.

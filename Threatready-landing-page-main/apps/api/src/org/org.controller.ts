@@ -23,7 +23,7 @@ import {
 } from "@threatready/contracts";
 import type { Request } from "express";
 import { CurrentPrincipal, FreshSession, Public, RequirePermission, type Principal } from "../authz/authz.js";
-import { ClientIpThrottlerGuard, UserThrottlerGuard, clientIp } from "../common/throttle.js";
+import { ClientIpThrottlerGuard, UserThrottlerGuard, assertSameOriginFetch, clientIp } from "../common/throttle.js";
 import { ZodBody } from "../common/zod.js";
 import { CONFIG, type Config } from "../config.js";
 import { cell } from "../admin/csv.js";
@@ -45,6 +45,14 @@ export class OrgController {
   private firstParty(req: Request): void {
     const origin = typeof req.headers.origin === "string" ? req.headers.origin : "";
     if (!origin || origin !== new URL(this.config.WEB_ORIGIN).origin) throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
+  }
+
+  /**
+   * A GET that writes an audit row (exports) must come from the console itself, never from a link on
+   * another site: the session cookie is SameSite=Lax, so a top-level navigation would carry it.
+   */
+  private sameOriginFetch(req: Request): void {
+    assertSameOriginFetch(req, this.config.WEB_ORIGIN);
   }
 
   /* ---------------- The organisation ---------------- */
@@ -70,6 +78,8 @@ export class OrgController {
   @Patch("org")
   @RequirePermission("org:admin")
   @FreshSession()
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   update(@Body(ZodBody(orgUpdateSchema)) body: OrgUpdate, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<OrgSummary> {
     this.firstParty(req);
     return this.org.update(me, body, clientIp(req) ?? null);
@@ -86,6 +96,8 @@ export class OrgController {
   @RequirePermission("me:read")
   @FreshSession()
   @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60 * 60_000 } })
   leave(@Req() req: Request, @CurrentPrincipal() me: Principal): Promise<{ left: true }> {
     this.firstParty(req);
     return this.org.leave(me, clientIp(req) ?? null);
@@ -104,7 +116,10 @@ export class OrgController {
   @RequirePermission("org:read")
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", 'attachment; filename="threatready-organisation-members.csv"')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } })
   async exportMembers(@Req() req: Request, @CurrentPrincipal() me: Principal): Promise<string> {
+    this.sameOriginFetch(req);
     const { members } = await this.org.members(me);
     await this.org.recordExport(me, members.length, clientIp(req) ?? null);
     const head = ["Name", "Email", "Username", "Role", "Status", "Joined", "Last seen", "Interviews (month)", "Simulations (month)", "Reasoning (month)", "Hours (month)", "Last active in"];
@@ -118,6 +133,8 @@ export class OrgController {
 
   @Get("org/members/:userId/summary")
   @RequirePermission("org:read")
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   memberDetail(@Param("userId") userId: string, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<OrgMemberDetail> {
     return this.org.memberDetail(me, userId, clientIp(req) ?? null);
   }
@@ -183,6 +200,8 @@ export class OrgController {
   @RequirePermission("org:write")
   @FreshSession()
   @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   revoke(@Param("id") id: string, @Req() req: Request, @CurrentPrincipal() me: Principal): Promise<{ revoked: true }> {
     this.firstParty(req);
     return this.org.revoke(me, id, clientIp(req) ?? null);

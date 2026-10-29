@@ -4,7 +4,7 @@
 |---|---|
 | **Repository** | `Ricky-Hacker001/Threat_Ready`, branch `main`, commit `93cc4bf` |
 | **Audit date** | 23 October 2026 |
-| **Type** | Audit only. No application source, styles, configuration or dependencies were changed. This document and the screenshots in `docs/audit-evidence/` are the only additions to the repository. |
+| **Type** | Audit only. No application source, styles, configuration or dependencies were changed. This document and the screenshots in `audit/docs/audit-evidence/` are the only additions to the repository. |
 | **Covers** | UI/UX, overflow, usability and cognitive load, learning and simulation workflows, responsive layout, accessibility, functional UI, visual consistency, browser console, and a prioritised fix plan |
 | **Status** | **Fixes applied** on local branch `ui-ux-audit-fixes` (not committed, not pushed). 86 of 96 findings are fixed, 6 are partly fixed and 4 are left open on purpose. See [§17 Fix status](#17-fix-status-23-oct-2026). Sections 1–16 are the original audit, kept as the baseline. |
 
@@ -100,7 +100,7 @@ Every finding carries one of these labels:
 | **RC**: runtime confirmed | Reproduced in a real browser (Google Chrome, driven by `playwright-core` 1.53.2). Measurements come from DOM geometry or from axe-core 4.10.3. |
 | **SC**: source confirmed | The code or CSS clearly produces the behaviour. Not observed in a browser, usually because the app could not run here. |
 | **SI**: source-inferred risk | Likely from reading the code, but needs a browser check before anyone fixes it. |
-| **PA**: prior audit | Taken from `docs/UX_AUDIT.md` (14 Oct) or `docs/AUDIT_REPORT_2026-10-15.md` and re-checked against the current source. |
+| **PA**: prior audit | Taken from `docs/UX_AUDIT.md` (14 Oct) or `audit/docs/AUDIT_REPORT_2026-10-15.md` and re-checked against the current source. |
 
 ### 2.2 Severity scale
 
@@ -310,7 +310,7 @@ Only the Red Team report tab and the ThreatWall record were rendered.
 
 | ID | Sev | Finding | Impact | Evidence |
 |---|---|---|---|---|
-| UX-02 | Medium | Red Team, Beginner mode, at 1366×768: the guidance banner and step list fill the viewport, so the tool tab bar starts at about y = 580 and the Proxy request/response panes sit below the fold | Learners keep scrolling between the instructions and the tool they are told to use | RC: `docs/audit-evidence/light-redteam-proxy.png` |
+| UX-02 | Medium | Red Team, Beginner mode, at 1366×768: the guidance banner and step list fill the viewport, so the tool tab bar starts at about y = 580 and the Proxy request/response panes sit below the fold | Learners keep scrolling between the instructions and the tool they are told to use | RC: `audit/docs/audit-evidence/light-redteam-proxy.png` |
 | UX-03 | Medium | SOC case console below 960 px: the workflow panel moves *above* the log feed, with nested `max-height:75vh` scroll areas | On phones and tablets the logs sit under a long form, and the inner scroll areas fight the page scroll | RC: `flow-soc-case-after-4s-375x812.png`; SC `soc/client/src/styles.css:442-444` |
 | UX-04 | Medium | Attack Reasoning attempt page is one long column: prose → narrative → diagram (up to 680 px) → question | Learners scroll between the diagram and the options while writing a justification | SC `attack-reasoning/client/src/reasoning/pages.tsx:259-275`, `app.css:42` |
 | UX-05 | Medium | InterviewPrep room shows about 20 controls and badges at once (4 header badges, timer, mute/pause/end, Repeat/Skip/Ask, voice panel, auto-submit, Tips, word count, voice settings, "Type instead", transcript) | High cognitive load during a stressful timed task | SC `InterviewPrep/.../InterviewRoom.tsx:360-690` |
@@ -839,7 +839,7 @@ flowchart LR
 
 ## 16. Appendix: evidence index and how to reproduce
 
-### 16.1 Screenshots (`docs/audit-evidence/`)
+### 16.1 Screenshots (`audit/docs/audit-evidence/`)
 
 | File | Shows | Findings |
 |---|---|---|
@@ -976,7 +976,7 @@ The fixes are in the working tree on branch `ui-ux-audit-fixes`. Nothing is comm
 | A11Y-07 | Fixed | SC | Keyboard-operable AI Security map and Labs architecture nodes |
 | A11Y-08 | Fixed; one exception by design | SC | Live regions for async states. InterviewPrep's live dictation transcript is deliberately not read aloud, so it doesn't talk over the speaker |
 | A11Y-09 to A11Y-17 | Fixed | RC (11, 12 via axe) / SC | Tab and radio patterns, titles and `h1`s, underlined links, landmarks, skip link, diagram and chart alternatives, non-colour status, reduced motion, emoji |
-| UX-01 | Fixed | **RC** | The Blue Team track lists SOC Simulation (`docs/audit-evidence/after-labs-track-blue-1440x900.png`) |
+| UX-01 | Fixed | **RC** | The Blue Team track lists SOC Simulation (`audit/docs/audit-evidence/after-labs-track-blue-1440x900.png`) |
 | UX-02 | Fixed | SC | Red Team beginner guidance can be collapsed, and the choice is remembered |
 | UX-03 | Fixed | RC (layout) | SOC narrow layout: one page scroll and jump links |
 | UX-04 | Fixed | SC | AR diagram and question side by side at ≥1200 px |
@@ -1024,7 +1024,7 @@ The fixes are in the working tree on branch `ui-ux-audit-fixes`. Nothing is comm
   - The TR-CLOUD-001 Help dialog closed on any click, and the "/" search shortcut didn't work.
   - Hidden live-region text added extra page height or width in DevSecOps and SOC.
 
-### 17.4 After-fix evidence (`docs/audit-evidence/after-*.png`)
+### 17.4 After-fix evidence (`audit/docs/audit-evidence/after-*.png`)
 
 | File | Shows |
 |---|---|

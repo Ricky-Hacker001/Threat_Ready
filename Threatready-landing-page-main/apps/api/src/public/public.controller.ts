@@ -1,7 +1,9 @@
-import { Controller, Get, Inject } from "@nestjs/common";
+import { Controller, Get, Inject, UseGuards } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { APP_KEYS } from "@threatready/contracts";
 import { sql } from "drizzle-orm";
 import { Public } from "../authz/authz.js";
+import { ClientIpThrottlerGuard } from "../common/throttle.js";
 import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
 
@@ -31,9 +33,11 @@ export class PublicController {
     };
   }
 
-  /** ALB health check. */
+  /** ALB health check: a probe from the load balancer or loopback, not a public database ping. */
   @Get("health")
   @Public()
+  @UseGuards(ClientIpThrottlerGuard)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
   async health() {
     await this.db.execute(sql`select 1`);
     return { ok: true };

@@ -11,6 +11,17 @@ export const TURN_EVAL_PROMPT_VERSION = 'turn-eval.v2';
 export const CLARIFY_PROMPT_VERSION = 'clarify.v2';
 export const FINAL_SCORING_PROMPT_VERSION = 'final-scoring.v3';
 
+/**
+ * The role as the interviewer's *system* prompt may name it. `job.title` and `job.seniority` are
+ * model-derived from the candidate's job description (untrusted text, up to 160 characters), so only
+ * plain role words reach the instruction half of a prompt: letters, digits, spaces and `,.&/()+-`, at
+ * most 80 characters (audit 2026-10-29 I2). The seniority is a closed enum and passes as is.
+ */
+export function roleLabel(job: Pick<JobProfile, 'title' | 'seniority'>): { title: string; seniority: string } {
+  const title = (job.title ?? '').replace(/[^A-Za-z0-9 ,.&/()+-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80).trim();
+  return { title: title || 'the advertised role', seniority: job.seniority ?? 'mid' };
+}
+
 export interface TurnWindowEntry {
   question: string;
   answer: string | null;
@@ -90,6 +101,7 @@ export function questionRequest(args: {
   previousSection?: InterviewSection;
 }): LlmRequest {
   const { c, config, job, candidate, item } = args;
+  const role = roleLabel(job);
   const skill = c.skills.get(item.skillId);
   const conversation = args.window
     .map((t, i) => `Interviewer: ${t.question}\nCandidate: ${t.answer ? untrusted('untrusted_answer', t.answer.slice(0, 1200)) : '(no answer yet)'}${i === args.window.length - 1 ? '\n(This is the most recent exchange.)' : ''}`)
@@ -116,7 +128,7 @@ Concepts a strong answer would cover (never list them to the candidate): ${(skil
     tier: 'SMALL',
     promptVersion: QUESTION_PROMPT_VERSION,
     maxOutputTokens: 350,
-    system: `You are Alex, an experienced hiring manager running a live, one-to-one interview for the role of ${job.title} (${job.seniority} level). You are calm, friendly and professional, and you sound like a real person talking, not a questionnaire.
+    system: `You are Alex, an experienced hiring manager running a live, one-to-one interview for the role of ${role.title} (${role.seniority} level). You are calm, friendly and professional, and you sound like a real person talking, not a questionnaire.
 Interview format: ${config.interviewType.replace(/_/g, ' ')}. ${DIFFICULTY_GUIDE[config.difficulty]}
 
 ${INJECTION_RULES}
@@ -344,7 +356,7 @@ Assessment rules:
 - ${SECOND_PERSON}
 
 ${rubricText(c, [...CRITERIA])}`,
-    messages: [{ role: 'user', content: `Role: ${args.job.title} (${args.job.seniority}).\n\nTurns to assess:\n\n${body}` }],
+    messages: [{ role: 'user', content: `Role: ${roleLabel(args.job).title} (${roleLabel(args.job).seniority}).\n\nTurns to assess:\n\n${body}` }],
   };
 }
 
@@ -381,7 +393,7 @@ Missing: ${t.missing.join('; ') || 'none noted'}${t.inaccuracies.length ? `\nIna
 ${INJECTION_RULES}
 
 Write:
-- summary: 3-5 sentences on overall performance against the ${args.job.title} role at ${args.difficulty} difficulty: what went well, what held the candidate back, and the single most useful next step. Balanced, specific and encouraging where earned.
+- summary: 3-5 sentences on overall performance against the ${roleLabel(args.job).title} role at ${args.difficulty} difficulty: what went well, what held the candidate back, and the single most useful next step. Balanced, specific and encouraging where earned.
 - high_priority: up to 3 topics to study first, each with why (tied to what happened in the interview).
 - secondary: up to 3 further topics, each with why.
 - practice_questions: 3-6 interview questions to practise next, aimed at the weakest areas.
@@ -390,7 +402,7 @@ Write:
 
 Skill ids you may use:
 ${skills}`,
-    messages: [{ role: 'user', content: `Role: ${args.job.title} (${args.job.seniority}).\n\nAssessed turns:\n\n${body}` }],
+    messages: [{ role: 'user', content: `Role: ${roleLabel(args.job).title} (${roleLabel(args.job).seniority}).\n\nAssessed turns:\n\n${body}` }],
   };
 }
 
@@ -407,7 +419,7 @@ export function clarifyRequest(args: { job: JobProfile; question: string; messag
     tier: 'SMALL',
     promptVersion: CLARIFY_PROMPT_VERSION,
     maxOutputTokens: 250,
-    system: `You are Alex, an experienced hiring manager interviewing a candidate for ${args.job.title}. The candidate has asked you something about the question you just asked. Reply as you would out loud in a real interview.
+    system: `You are Alex, an experienced hiring manager interviewing a candidate for ${roleLabel(args.job).title}. The candidate has asked you something about the question you just asked. Reply as you would out loud in a real interview.
 
 ${INJECTION_RULES}
 

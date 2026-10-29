@@ -66,6 +66,11 @@ const envSchema = z
      */
     AUTH_GET_SESSION_PER_IP_PER_MINUTE: z.coerce.number().int().min(0).default(0),
     /**
+     * Absolute lifetime of a session in days, on top of the seven-day sliding expiry: a browser used
+     * every day signs in again at least this often. 0 turns the ceiling off.
+     */
+    AUTH_SESSION_MAX_AGE_DAYS: z.coerce.number().int().min(0).max(365).default(30),
+    /**
      * Clean-up of expired sessions, codes, stale guests and never-verified sign-ups. 0 hours turns the
      * job off. At most 24 days: a longer timer would overflow and fire continuously.
      */

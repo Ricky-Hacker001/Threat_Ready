@@ -1,26 +1,34 @@
 #!/usr/bin/env node
 // Publish guard for the ThreatReady repository (TR-34). Run it on the tree that is about to be pushed
-// (the rsync destination, see scripts/publish.rsync-filter) and in CI:
-//   node scripts/publish-check.mjs [dir]        (default: the current directory)
+// (the rsync destination, see scripts/publish.rsync-filter), on an extracted zip, and in CI:
+//   node scripts/publish-check.mjs [--published] [dir]        (default: the current directory)
 // In a git checkout it checks exactly what git would publish: tracked files plus untracked files
 // that are not ignored. Elsewhere it walks the folder (skipping node_modules). Exit 1 on a problem.
 //
 // Never published: nested repositories / gitlinks (the six sub-apps are separate clones), the
-// licensed 3D interviewer (any .glb), real environment files, private keys, the internal audit folder.
+// licensed 3D interviewer (any .glb), real environment files, private keys.
+//
+// The internal audit folder (audit/, see audit/README.md) is tracked in the source repository but must
+// not leave it: a folder/zip check always refuses it, and a git checkout refuses it with --published
+// (the rsync destination). Without --published a git checkout is the source repository and audit/ is
+// expected there (this is what CI runs on every push).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const root = path.resolve(process.argv[2] ?? '.');
+const args = process.argv.slice(2);
+const published = args.includes('--published');
+const dirArg = args.find((a) => !a.startsWith('--'));
+const root = path.resolve(dirArg ?? '.');
 const BIG_FILE_BYTES = 25 * 1024 * 1024;
 
-/** Why a path must not be published, or null. Paths are relative, with forward slashes. */
-export function problemWith(rel) {
+/** Why a path must not be published, or null. Paths are relative, with forward slashes. `audit/` only when `strict`. */
+export function problemWith(rel, strict = true) {
   const base = rel.split('/').pop() ?? '';
   if (/\.glb$/i.test(base)) return 'licensed 3D model (deploy it as a Render Secret File, never commit it)';
   if (base === '.env' || (base.startsWith('.env.') && base !== '.env.example')) return 'environment file (only .env.example templates are published)';
   if (/\.(pem|p12|pfx)$/i.test(base) || /^id_(rsa|ed25519|ecdsa)/.test(base)) return 'private key or certificate bundle';
-  if (rel === 'audit' || rel.startsWith('audit/')) return 'internal audit report (describes unfixed vulnerabilities)';
+  if (strict && (rel === 'audit' || rel.startsWith('audit/'))) return 'internal audit report (describes unfixed vulnerabilities; scripts/publish.rsync-filter drops audit/)';
   return null;
 }
 
@@ -51,7 +59,7 @@ function checkGit(report) {
       report(rel, 'nested git repository: `git add` would record it as an empty gitlink');
       continue;
     }
-    const why = problemWith(rel);
+    const why = problemWith(rel, published);
     if (why) report(rel, why);
     else if (!entry.endsWith('/')) {
       try { if (fs.statSync(abs).size > BIG_FILE_BYTES) report(rel, `larger than ${BIG_FILE_BYTES / 1024 / 1024} MB`); } catch { /* deleted in the work tree */ }
@@ -89,4 +97,4 @@ if (unique.length) {
   console.error('Fix: publish with scripts/publish.rsync-filter (README.md, "Publishing to GitHub").');
   process.exit(1);
 }
-console.log(`publish-check: OK (${mode} mode, ${root})`);
+console.log(`publish-check: OK (${mode}${mode === 'git' && published ? ', published' : ''} mode, ${root})`);

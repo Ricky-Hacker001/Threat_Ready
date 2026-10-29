@@ -52,6 +52,13 @@ import {
 } from "./org-rules.js";
 
 const DAY = 24 * 60 * 60 * 1000;
+/**
+ * Plan-history rows read per console page. Plan changes are rare (a few per organisation per year);
+ * the bound keeps one busy organisation's log from slowing every page that reads it.
+ */
+const PLAN_HISTORY_MAX_ROWS = 2000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v: string): boolean => UUID.test(v);
 const MAX_MEMBERS_LISTED = 2_000;
 
 /** UTC month start: the organisation console counts launches and time per calendar month, like plan limits. */
@@ -110,6 +117,16 @@ export class OrgService {
   private orgOf(p: Principal): string {
     if (!p.org) throw new ForbiddenException({ code: "ORG_REQUIRED", message: "You're not part of an organisation." });
     return p.org.id;
+  }
+
+  /** Whether the same actor already logged `action` on `targetId` within `withinMs` (collapses page reloads). */
+  private async recentlyAudited(orgId: string, action: string, actorId: string, targetId: string, withinMs: number): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: orgAuditLog.id })
+      .from(orgAuditLog)
+      .where(and(eq(orgAuditLog.orgId, orgId), eq(orgAuditLog.action, action), eq(orgAuditLog.actorId, actorId), eq(orgAuditLog.targetId, targetId), gt(orgAuditLog.at, new Date(Date.now() - withinMs))))
+      .limit(1);
+    return !!row;
   }
 
   async audit(
@@ -297,7 +314,8 @@ export class OrgService {
       .select({ at: orgAuditLog.at, action: orgAuditLog.action, targetId: orgAuditLog.targetId, detail: orgAuditLog.detail })
       .from(orgAuditLog)
       .where(and(eq(orgAuditLog.orgId, orgId), inArray(orgAuditLog.action, [...PLAN_HISTORY_ACTIONS])))
-      .orderBy(orgAuditLog.at, orgAuditLog.id);
+      .orderBy(orgAuditLog.at, orgAuditLog.id)
+      .limit(PLAN_HISTORY_MAX_ROWS);
     const orgWide: PlanHistoryEvent[] = [];
     const own = new Map<string, PlanHistoryEvent[]>();
     for (const r of rows) {
@@ -416,7 +434,10 @@ export class OrgService {
     if (!member) throw notFound();
     const onPlan = windows.get(userId) ?? [];
     const [apps, time] = await Promise.all([this.apps.overviewApps(userId), this.activityOnPlan(new Map([[userId, onPlan]]), monthStart())]);
-    if (userId !== p.userId) await this.audit(this.db, orgId, "member.view", { userId: p.userId, email: p.email }, { id: member.userId, email: member.email }, {}, ip);
+    // One view row per viewer, member and quarter hour: reloading a page is not a new read of the member's data.
+    if (userId !== p.userId && !(await this.recentlyAudited(orgId, "member.view", p.userId, member.userId, 15 * 60_000))) {
+      await this.audit(this.db, orgId, "member.view", { userId: p.userId, email: p.email }, { id: member.userId, email: member.email }, {}, ip);
+    }
     const byArea = new Map<string, OrgMemberDetail["time"][number]>();
     for (const r of time) {
       const key = `${r.app}\u0000${r.area}`;
@@ -471,9 +492,15 @@ export class OrgService {
     return `${this.config.WEB_ORIGIN}/invite/${token}`;
   }
 
+  /** Managers act on members only (org-rules.ts): inviting, resending or withdrawing a manager's invitation takes an org admin. */
+  private managerScope(p: Principal, role: string): void {
+    if (role === "manager" && p.org!.role !== "org_admin") throw new ForbiddenException({ code: "ORG_ROLE_FORBIDDEN", message: "Only an org admin can invite or manage managers." });
+  }
+
   async invite(p: Principal, body: OrgInviteCreate, ip: string | null): Promise<OrgInviteResult> {
     const orgId = this.orgOf(p);
     if (p.org!.status === "suspended") throw new ForbiddenException({ code: "ORG_SUSPENDED", message: "The organisation is suspended; invitations are paused." });
+    this.managerScope(p, body.role);
     const left = await this.inviteLimitLeft(orgId);
     const today = await this.emailsToday([...new Set(body.emails.map((e) => e.trim().toLowerCase()))]);
     const overEmailed = new Set([...today].filter(([, n]) => n >= INVITE_EMAILS_PER_ADDRESS_PER_DAY).map(([e]) => e));
@@ -530,7 +557,7 @@ export class OrgService {
   }
 
   private async openInvitation(orgId: string, id: string) {
-    if (!/^[0-9a-f-]{36}$/i.test(id)) throw notFound();
+    if (!isUuid(id)) throw notFound();
     const [inv] = await this.db
       .select()
       .from(orgInvitations)
@@ -545,6 +572,7 @@ export class OrgService {
     if (p.org!.status === "suspended") throw new ForbiddenException({ code: "ORG_SUSPENDED", message: "The organisation is suspended; invitations are paused." });
     await this.inviteLimitLeft(orgId);
     const inv = await this.openInvitation(orgId, id);
+    this.managerScope(p, inv.role);
     if (((await this.emailsToday([inv.email])).get(inv.email) ?? 0) >= INVITE_EMAILS_PER_ADDRESS_PER_DAY) {
       throw new HttpException({ code: "ORG_INVITE_ADDRESS_LIMIT", message: `This address has had ${INVITE_EMAILS_PER_ADDRESS_PER_DAY} invitation emails today. Resend it tomorrow.` }, 429);
     }
@@ -569,8 +597,16 @@ export class OrgService {
   async revoke(p: Principal, id: string, ip: string | null): Promise<{ revoked: true }> {
     const orgId = this.orgOf(p);
     const inv = await this.openInvitation(orgId, id);
+    this.managerScope(p, inv.role);
     await this.db.transaction(async (tx) => {
-      await tx.update(orgInvitations).set({ revokedAt: new Date() }).where(eq(orgInvitations.id, inv.id));
+      // Serialised with accept: an invitation accepted a moment ago is not revoked underneath the new member.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`org-seats:${orgId}`}, 0))`);
+      const changed = await tx
+        .update(orgInvitations)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(orgInvitations.id, inv.id), eq(orgInvitations.orgId, orgId), isNull(orgInvitations.acceptedAt), isNull(orgInvitations.revokedAt)))
+        .returning({ id: orgInvitations.id });
+      if (!changed.length) throw notFound();
       await this.audit(tx, orgId, "invite.revoke", { userId: p.userId, email: p.email }, null, { email: inv.email, invitationId: inv.id }, ip);
     });
     return { revoked: true };
@@ -662,8 +698,13 @@ export class OrgService {
   async update(p: Principal, body: OrgUpdate, ip: string | null): Promise<OrgSummary> {
     const orgId = this.orgOf(p);
     await this.db.transaction(async (tx) => {
-      await tx.update(organizations).set({ name: body.name, updatedAt: new Date() }).where(eq(organizations.id, orgId));
-      await this.audit(tx, orgId, "org.update", { userId: p.userId, email: p.email }, null, { name: body.name }, ip);
+      // A rename to the same name is a no-op: no row, no audit entry (the log is append-only and read on every console page).
+      const changed = await tx
+        .update(organizations)
+        .set({ name: body.name, updatedAt: new Date() })
+        .where(and(eq(organizations.id, orgId), sql`${organizations.name} is distinct from ${body.name}`))
+        .returning({ id: organizations.id });
+      if (changed.length) await this.audit(tx, orgId, "org.update", { userId: p.userId, email: p.email }, null, { name: body.name }, ip);
     });
     return this.summary(orgId);
   }
@@ -756,8 +797,19 @@ export class OrgService {
         if (plan.status === 403) throw new ForbiddenException(body);
         throw new BadRequestException(body);
       }
-      await tx.insert(memberships).values({ orgId: inv.orgId, userId: p.userId, role, status: "active", invitedBy: fresh.invitedBy });
-      await tx.update(orgInvitations).set({ acceptedAt: new Date(), acceptedBy: p.userId }).where(eq(orgInvitations.id, inv.id));
+      try {
+        await tx.insert(memberships).values({ orgId: inv.orgId, userId: p.userId, role, status: "active", invitedBy: fresh.invitedBy });
+      } catch (err) {
+        // Two accepts into different organisations at once: the second meets the one-membership index.
+        if ((err as { code?: string }).code === "23505") throw new ConflictException({ code: "INVITE_OTHER_ORG", message: "This account already belongs to an organisation. Leave it first." });
+        throw err;
+      }
+      const accepted = await tx
+        .update(orgInvitations)
+        .set({ acceptedAt: new Date(), acceptedBy: p.userId })
+        .where(and(eq(orgInvitations.id, inv.id), isNull(orgInvitations.acceptedAt), isNull(orgInvitations.revokedAt)))
+        .returning({ id: orgInvitations.id });
+      if (!accepted.length) throw new GoneException({ code: "INVITE_REVOKED", message: "This invitation was withdrawn." });
       await this.audit(tx, inv.orgId, "invite.accept", { userId: p.userId, email: p.email }, { id: p.userId, email: p.email }, { role, invitationId: inv.id }, ip);
     });
     return { org: { id: org.id, name: org.name }, role };

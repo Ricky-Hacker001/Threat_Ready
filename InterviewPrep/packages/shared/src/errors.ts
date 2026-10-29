@@ -49,6 +49,7 @@ export const ERROR_CATALOGUE = {
   REASONING_ANSWER_TOO_LONG: { http: 422, retryable: false, message: 'Justifications are limited to 4,000 characters' },
   REASONING_GENERATION_FAILED: { http: 502, retryable: true, message: 'We could not generate a valid scenario this time; retry to generate another' },
   REASONING_EVALUATION_FAILED: { http: 502, retryable: true, message: 'Your answer is saved but could not be evaluated yet; retry the evaluation' },
+  REASONING_EVALUATION_DECLINED: { http: 422, retryable: false, message: 'The AI grader declined to evaluate this answer; it is saved, and you can retry or start a new question' },
   REASONING_DAILY_LIMIT_REACHED: { http: 429, retryable: false, message: 'You have used today’s evaluations; your answer is kept, submit it after the daily reset' },
   REASONING_DAILY_QUESTIONS_REACHED: { http: 429, retryable: false, message: 'You have opened today’s questions; new ones are available after the daily reset' },
   REASONING_RETRY_LIMIT_REACHED: { http: 409, retryable: false, message: 'This step has already been retried the maximum number of times; start a new question' },

@@ -63,7 +63,9 @@ export interface StoredFeedback {
  * button. That manual retry runs under the normal escalation rules (no stage-1 grade existed to
  * dispute, review COST-6); `escalate` remains for an operator's forced second review. When the SMALL
  * model declines stage 1 (stop_reason refusal, billed and recorded), stage 1 runs again on LARGE and the
- * answer escalates (`small_refused`): the learner's evaluation neither fails nor degrades.
+ * answer escalates (`small_refused`): the learner's evaluation neither fails nor degrades. When LARGE
+ * declines (full mode, or after SMALL did) the attempt fails at once with `REASONING_EVALUATION_DECLINED`:
+ * never a queue retry, and a manual retry is not counted (audit 2026-10-29 M1).
  */
 @Injectable()
 export class EvaluationService {
@@ -132,6 +134,17 @@ export class EvaluationService {
       evaluator = r.value;
       last = { model: r.usage.model, tier: stage1Tier };
     } catch (err) {
+      // A refusal on LARGE (full mode's stage 1, or the re-run after SMALL declined) is terminal: the
+      // same answer would be declined again, so neither the queue nor a counted manual retry repeats
+      // the billed call (audit 2026-10-29 M1). The attempt fails as `evaluation_declined`, which the
+      // learner may retry without it counting (reasoning.service.ts FREE_RETRY_CODES).
+      const refusal = refusalOf(err);
+      if (refusal) {
+        const model = this.llm.modelFor(stage1Tier, 'reasoning');
+        emitMetric('ReasoningRefusal', 1, 'Count', { Stage: 'evaluator', Model: model, Category: refusal.category ?? 'unknown' });
+        logger.warn({ attempt_id: attemptId, model, tier: stage1Tier, category: refusal.category }, 'reasoning evaluator declined; evaluation declined');
+        return this.markFailed(attemptId, 'REASONING_EVALUATION_DECLINED');
+      }
       if (err instanceof DomainError && TERMINAL_CODES.has(err.code)) return this.markFailed(attemptId, err.code);
       throw err; // retried by the queue; dead-lettered after the policy's attempts
     }

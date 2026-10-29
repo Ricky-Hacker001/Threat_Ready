@@ -194,7 +194,9 @@ export function scoreAttempt(input: ScoringInput): ScoreOutcome {
       j.status = 'missed';
       j.quote = null;
     }
-    notes.push(input.integrity.instructsGrader ? 'The justification tried to instruct the grader; reasoning dimensions scored 0 and the result is flagged for review.' : 'The justification did not address the question; reasoning dimensions scored 0.');
+    // The grader-instruction screen is not named to the learner (an oracle for tuning injections, audit
+    // 2026-10-29 L15): the reason stays in the stored `stages` (integrity.instructs_grader) for the reviewer.
+    notes.push(input.integrity.instructsGrader ? 'This answer was flagged for review.' : 'The justification did not address the question; reasoning dimensions scored 0.');
   }
 
   // 5. Per-dimension fraction from weighted point credit.

@@ -41,6 +41,11 @@ export function poolBucket(difficulty: string): ReasoningDifficulty {
 
 /** Budget codes that a job retry cannot fix: the attempt is marked failed with the code instead of retried. */
 const TERMINAL_CODES = new Set(['LLM_BUDGET_EXCEEDED', 'AI_SERVICE_PAUSED', 'REASONING_DOMAIN_UNAVAILABLE']);
+/**
+ * Result code of an on-demand ladder stopped because the learner skipped the attempt while it was
+ * generating (audit 2026-10-29 L16): internal to this service, never a stored failure code.
+ */
+export const GENERATION_ABANDONED = 'REASONING_GENERATION_ABANDONED';
 
 /** A line of the avoid list in the writer's prompt: a question already written on the architecture for the domain. */
 interface AvoidLine {
@@ -338,13 +343,38 @@ export class GenerationService {
       sourceId: a.id,
       owner,
       keepFreeUsd,
-      onTry: (n) => this.db.system(({ db }) => db.update(reasoningAttempts).set({ generationTries: n, updatedAt: new Date() }).where(eq(reasoningAttempts.id, attemptId))),
+      // Before every billed call: the try counter, and whether the learner still wants the question. A
+      // skip (`abandoned`) while the ladder runs stops it before the next call (audit 2026-10-29 L16).
+      onTry: async (n) => {
+        const rows = await this.db.system(({ db }) =>
+          db
+            .update(reasoningAttempts)
+            .set({ generationTries: n, updatedAt: new Date() })
+            .where(and(eq(reasoningAttempts.id, attemptId), eq(reasoningAttempts.state, 'generating')))
+            .returning({ id: reasoningAttempts.id }),
+        );
+        return rows.length > 0;
+      },
     });
-    if (!r.ok) return this.markFailed(attemptId, r.code);
+    if (!r.ok) {
+      if (r.code === GENERATION_ABANDONED) {
+        logger.info({ attempt_id: attemptId, tries: r.tries }, 'on-demand generation stopped: the attempt was skipped while generating');
+        emitMetric('ReasoningGenerationAbandoned', 1, 'Count', { Domain: domain.key });
+        return;
+      }
+      return this.markFailed(attemptId, r.code);
+    }
     // The new question joins the pool for everyone else, and is recorded as served to this learner (its
     // first serve: one seat is left under the 2-serve rule; the cap setting is not set here, so the
-    // trigger only counts).
+    // trigger only counts). Only while the attempt is still generating: one skipped during the last
+    // call gets neither the question nor a served row (the row is locked so a concurrent skip waits).
     await this.db.system(async ({ db }) => {
+      const [current] = await db.select({ state: reasoningAttempts.state }).from(reasoningAttempts).where(eq(reasoningAttempts.id, attemptId)).for('update');
+      if (current?.state !== 'generating') {
+        logger.info({ attempt_id: attemptId, state: current?.state ?? null }, 'on-demand generation discarded: the attempt was skipped while generating');
+        emitMetric('ReasoningGenerationAbandoned', 1, 'Count', { Domain: domain.key });
+        return;
+      }
       const [row] = await db.insert(reasoningItems).values(this.itemRow(r.item, r.model, r.tier)).returning({ id: reasoningItems.id });
       await db.insert(reasoningServed).values({ orgId: a.orgId, userId: a.userId, itemId: row!.id, attemptId: a.id }).onConflictDoNothing();
       await db
@@ -442,7 +472,14 @@ export class GenerationService {
     domain: ReasoningDomain,
     difficulty: ReasoningDifficulty,
     bank: Bank,
-    opts: { sourceId?: string; firstSeed?: VariationSeed; owner?: { userId: string; orgId: string }; keepFreeUsd?: number; onTry?: (n: number) => Promise<unknown> },
+    opts: {
+      sourceId?: string;
+      firstSeed?: VariationSeed;
+      owner?: { userId: string; orgId: string };
+      keepFreeUsd?: number;
+      /** Called before each try's model call; `false` means the requester is gone and the ladder stops (GENERATION_ABANDONED). */
+      onTry?: (n: number) => Promise<boolean | void>;
+    },
   ): Promise<Generated> {
     const meta: CallMeta = opts.owner
       ? { feature: 'reasoning.generate', owner: opts.owner, sourceId: opts.sourceId, budget: 'reasoning', keepFreeUsd: opts.keepFreeUsd }
@@ -460,7 +497,7 @@ export class GenerationService {
       const arch: ArchitectureDef | undefined = getArchitecture(seed.topology);
       const surface = arch && surfacesFor(arch, domain.key).find((x) => x.id === seed.entryPoint);
       if (!arch || !surface) throw new Error(`generation seed names no library surface: ${seed.topology}/${seed.entryPoint}`);
-      await opts.onTry?.(tryNumber);
+      if ((await opts.onTry?.(tryNumber)) === false) return { ok: false, code: GENERATION_ABANDONED, tries: tryNumber - 1 };
       emitMetric('ReasoningGenerationAttempt', 1, 'Count', { Tier: tier, Model: model });
       const reject = (reason: string) => emitMetric('ReasoningGenerationRejected', 1, 'Count', { Reason: reason, Tier: tier, Model: model });
 

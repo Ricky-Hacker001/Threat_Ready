@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL } from "../components/Overview";
-import { Button, Notice, usePageTitle } from "../components/ui";
+import { Button, DownloadButton, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
@@ -190,13 +190,12 @@ export function AdminPage() {
           <Link className="btn btn-secondary" to={`/app/admin/orgs?range=${range.key}`}>
             Organisations{overview?.organisations.pending ? ` (${overview.organisations.pending} pending)` : ""}
           </Link>
-          <a
-            className="btn btn-secondary"
-            href={`${API_ORIGIN}/api/admin/export/users.csv?${new URLSearchParams({ from: range.from, to: range.to, sort, includeTrial: String(includeTrial), ...(params.get("q") ? { q: params.get("q")! } : {}) })}`}
-            download
+          <DownloadButton
+            path={`/admin/export/users.csv?${new URLSearchParams({ from: range.from, to: range.to, sort, includeTrial: String(includeTrial), ...(params.get("q") ? { q: params.get("q")! } : {}) })}`}
+            filename="threatready-users.csv"
           >
             Download users (CSV)
-          </a>
+          </DownloadButton>
         </div>
       </div>
 

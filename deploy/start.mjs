@@ -26,7 +26,7 @@ import pg from 'pg';
 import { childEnv, interviewChildEnv, labsChildEnv, onboardChildEnv, testHooksSet, tunables } from './child-env.mjs';
 import { MIGRATION_LOCK_KEY, recordBoot, releaseBooted, strictSsl, withAdvisoryLock, withUser } from './db.mjs';
 import { CLIENT_IP_HEADER, createGateway, gatewayConfig } from './gateway.mjs';
-import { ROLE_PASSWORD_STATE_KEY, boolEnv, childExitLine, heapUsedOf, internalTokenEnv, passwordDigest, roleSyncNeeded } from './launcher-lib.mjs';
+import { ROLE_PASSWORD_STATE_KEY, boolEnv, captchaCheck, childExitLine, heapUsedOf, internalTokenEnv, passwordDigest, roleSyncNeeded } from './launcher-lib.mjs';
 import { createStateMirror, stateMirrorConfig } from './state-mirror.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -80,15 +80,17 @@ const TOKENS = internalTokenEnv(INTERNAL_TOKEN);
 const LEGACY_ACCEPT = boolEnv(process.env.INTERNAL_TOKEN_LEGACY_ACCEPT, !PRODUCTION);
 if (LEGACY_ACCEPT && PRODUCTION) log('WARNING: INTERNAL_TOKEN_LEGACY_ACCEPT=true in production: the raw INTERNAL_API_TOKEN opens every internal API.');
 
-/** Cloudflare Turnstile: both keys or none. With exactly one, onboard would refuse to boot. */
+/**
+ * Cloudflare Turnstile: both keys or none (with exactly one, onboard would refuse to boot). Production
+ * without both keys fails here, before anything starts, unless the operator set ALLOW_NO_CAPTCHA=true in
+ * the service environment (onboard's own explicit opt-in, audit H4); the launcher never sets it for them.
+ */
 const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || '';
 const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || '';
-const captchaOn = !!(TURNSTILE_SITE_KEY && TURNSTILE_SECRET_KEY);
-if (!captchaOn && (TURNSTILE_SITE_KEY || TURNSTILE_SECRET_KEY)) {
-  log(`WARNING: ${TURNSTILE_SITE_KEY ? 'TURNSTILE_SECRET_KEY' : 'TURNSTILE_SITE_KEY'} is missing; CAPTCHA is OFF until both Turnstile keys are set.`);
-} else if (!captchaOn) {
-  log('WARNING: production is running without CAPTCHA (set TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY); sign-up relies on rate limits alone.');
-}
+const captcha = captchaCheck({ siteKey: TURNSTILE_SITE_KEY, secretKey: TURNSTILE_SECRET_KEY, allowNoCaptcha: process.env.ALLOW_NO_CAPTCHA, production: PRODUCTION });
+if (captcha.fatal) { console.error(`[launcher] ${captcha.fatal} (see deploy/README.md, "CAPTCHA").`); process.exit(1); }
+if (captcha.warning) log(`WARNING: ${captcha.warning}`);
+const captchaOn = captcha.on;
 if (!process.env.SENTRY_DSN) log('WARNING: SENTRY_DSN is not set; errors are only in these logs (no error tracking).');
 
 const ONBOARD_APP_DB = withUser(ONBOARD_DB, 'threatready_app', APP_DB_PASSWORD);
@@ -217,7 +219,7 @@ function checkBoot() {
 }
 
 /* ---------------- Gateway first: Render needs the port bound quickly ---------------- */
-const gateway = await createGateway({ onboardPort: ONBOARD_PORT, interviewPort: INTERVIEW_PORT, labsPort: LABS_PORT, ready: readiness, config: SETTINGS.gateway });
+const gateway = await createGateway({ onboardPort: ONBOARD_PORT, interviewPort: INTERVIEW_PORT, labsPort: LABS_PORT, ready: readiness, publicUrl: PUBLIC_URL, config: SETTINGS.gateway });
 server = gateway.listen(PORT, () => log(`gateway listening on :${PORT} for ${PUBLIC_URL} (client IP: ${SETTINGS.gateway.clientIp.source}${SETTINGS.gateway.clientIp.source === 'xff-rightmost' ? `, ${SETTINGS.gateway.clientIp.hops} trusted hops` : ''})`));
 server.on('error', (err) => { console.error(`[launcher] cannot listen on :${PORT} (${reason(err)})`); process.exit(1); });
 

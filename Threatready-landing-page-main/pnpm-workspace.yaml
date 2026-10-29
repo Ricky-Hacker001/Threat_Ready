@@ -12,3 +12,7 @@ onlyBuiltDependencies:
 overrides:
   "body-parser@>=2.0.0 <2.4.0": "^2.4.0"
   "multer@>=2.0.0 <2.5.0": "^2.5.0"
+  # GHSA-6pq8-jhm2-2vcw (qs DoS) and GHSA-67mh-4wv8-2f99 (esbuild dev server): the old copies arrive
+  # through express and better-auth's drizzle-kit peer; neither is reachable at runtime but both fail audit.
+  "qs@<6.16.1": "^6.16.1"
+  "esbuild@<0.25.0": "^0.25.0"

@@ -7,6 +7,11 @@ on:
 permissions:
   contents: read
 
+# One run per ref: a newer push to the same branch/PR cancels the run still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # Node 24 everywhere: matches render.yaml NODE_VERSION and engines.node (">=24") in every package.json.
 env:
   NODE_VERSION: "24"
@@ -16,9 +21,10 @@ jobs:
   # hash-based CSP on every static landing page. All dependency-free (node only).
   tooling:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
-      - uses: actions/setup-node@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: tools self-test
@@ -32,11 +38,12 @@ jobs:
 
   gitleaks:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2 # TODO: pin SHA
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         # Uses the repo .gitleaks.toml (allowlists the fake training keys). GITLEAKS_LICENSE is only needed for
         # organisation repos; add it as a secret if the action asks for one.
         env:
@@ -46,9 +53,10 @@ jobs:
           GITLEAKS_ENABLE_SUMMARY: "true"
 
   # Every npm package with a lockfile: clean install, typecheck, lint (incl. the regexp scanner), unit tests,
-  # production build with the same --base deploy/build.sh uses, and zero high/critical RUNTIME advisories.
+  # production build with the same --base deploy/build.sh uses, and zero moderate+ RUNTIME advisories.
   npm:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -97,8 +105,8 @@ jobs:
     env:
       VITE_ONBOARD_URL: ""
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
-      - uses: actions/setup-node@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -120,12 +128,13 @@ jobs:
       - name: build (as deploy/build.sh does)
         if: matrix.build
         run: npm run ${{ matrix.build }} -- ${{ matrix.base && format('--base {0}', matrix.base) || '' }}
-      - name: npm audit (runtime deps, high+)
-        run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (runtime deps, moderate+)
+        run: npm audit --omit=dev --audit-level=moderate
 
   # Onboard (pnpm workspace): typecheck, routes test, migrations and the e2e suite against a live API.
   onboard:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: Threatready-landing-page-main
@@ -146,7 +155,7 @@ jobs:
       BETTER_AUTH_URL: http://localhost:5173
       WEB_ORIGIN: http://localhost:5173
       # CI-only value (64 hex chars); the API refuses to boot without one.
-      INTERNAL_API_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      INTERNAL_API_TOKEN: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef # gitleaks:allow
       EMAIL_DRIVER: log
       RATE_LIMIT_MULTIPLIER: "10"
       # The e2e suite stands in for the production gateway: each test client sends its own address in
@@ -155,11 +164,11 @@ jobs:
       # Runs the guest-session suite too (production keeps guests off by default).
       TRIAL_ENABLED: "true"
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
-      - uses: pnpm/action-setup@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: Threatready-landing-page-main/package.json
-      - uses: actions/setup-node@v4 # TODO: pin SHA
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
@@ -190,12 +199,13 @@ jobs:
           pnpm test:e2e
       - if: failure()
         run: cat api.log
-      - name: pnpm audit (runtime deps, high+)
-        run: pnpm audit --prod --audit-level high
+      - name: pnpm audit (runtime deps, moderate+)
+        run: pnpm audit --prod --audit-level moderate
 
   # Single-origin gateway and launcher (deploy/), publish guard (scripts/), marketing site checks.
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
@@ -208,13 +218,13 @@ jobs:
       # CI-only disposable database for the lab-state mirror and migration-lock tests.
       STATE_MIRROR_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
-      - uses: actions/setup-node@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: deploy/package-lock.json
-      - name: Nothing unpublishable is tracked (nested repos, licensed model, env files, audit notes)
+      - name: Nothing unpublishable is tracked (nested repos, licensed model, env files; audit/ is expected in the source tree)
         run: node scripts/publish-check.mjs .
       - run: node --test scripts/test/*.test.mjs
       - run: npm ci --no-audit --no-fund
@@ -234,6 +244,7 @@ jobs:
   # /labs/<slug>/ path and audited in the npm matrix above.)
   render-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:16-alpine
@@ -245,8 +256,8 @@ jobs:
     env:
       STATE_MIRROR_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
     steps:
-      - uses: actions/checkout@v4 # TODO: pin SHA
-      - uses: actions/setup-node@v4 # TODO: pin SHA
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: bash deploy/build.sh

@@ -73,13 +73,20 @@ export function tunables(child, env = process.env) {
 export const testHooksSet = (child, env = process.env) => TEST_HOOKS[child].filter((k) => env[k] !== undefined && env[k] !== '');
 
 /**
- * A child's full environment: base keys, Render's own RENDER* metadata, then `extra` (already merged
- * by the caller as defaults < tunables < forced values). Unset or empty values are left out.
+ * Render's own service metadata every child gets, by name (never by prefix: an operator variable that
+ * happens to start with RENDER, such as a RENDER_DEPLOY_HOOK URL, is not Render metadata and stays in the
+ * launcher). Read by the children: RENDER_GIT_COMMIT (onboard's Sentry release; InterviewPrep gets it as
+ * RELEASE); the rest is for logs and diagnostics.
+ */
+export const RENDER_KEYS = ['RENDER', 'RENDER_EXTERNAL_URL', 'RENDER_EXTERNAL_HOSTNAME', 'RENDER_GIT_COMMIT', 'RENDER_GIT_BRANCH', 'RENDER_SERVICE_ID', 'RENDER_SERVICE_NAME', 'RENDER_INSTANCE_ID'];
+
+/**
+ * A child's full environment: base keys, Render's listed metadata (RENDER_KEYS), then `extra` (already
+ * merged by the caller as defaults < tunables < forced values). Unset or empty values are left out.
  */
 export function childEnv(extra, env = process.env) {
   const out = {};
-  for (const k of BASE_KEYS) if (env[k] !== undefined) out[k] = env[k];
-  for (const k of Object.keys(env)) if (k.startsWith('RENDER')) out[k] = env[k];
+  for (const k of [...BASE_KEYS, ...RENDER_KEYS]) if (env[k] !== undefined) out[k] = env[k];
   for (const [k, v] of Object.entries(extra)) if (v !== undefined && v !== '') out[k] = String(v);
   return out;
 }
@@ -134,7 +141,10 @@ export function onboardChildEnv(ctx, env = process.env) {
     // Both Turnstile keys or none (undefined drops a forwarded one): with one, onboard refuses to boot.
     TURNSTILE_SITE_KEY: ctx.turnstile?.siteKey,
     TURNSTILE_SECRET_KEY: ctx.turnstile?.secretKey,
-    ALLOW_NO_CAPTCHA: ctx.turnstile ? 'false' : 'true',
+    // Onboard's explicit opt-in to booting without CAPTCHA in production: only the operator's own
+    // ALLOW_NO_CAPTCHA=true, never derived from the keys being absent (audit H4; the launcher already
+    // refuses to start production without both keys unless it is set, deploy/start.mjs).
+    ALLOW_NO_CAPTCHA: env.ALLOW_NO_CAPTCHA === 'true' ? 'true' : 'false',
   };
 }
 

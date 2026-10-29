@@ -146,8 +146,7 @@ export class ReasoningInternalController {
   summary(@Req() req: Request, @Param('userId') userId: string, @Query('appOrigin') appOrigin?: string) {
     assertInternalCaller(req, this.cfg.internalTokensAccept);
     if (!userId || userId.length > 100) throw new DomainError('VALIDATION_FAILED');
-    const origin = typeof appOrigin === 'string' && /^https?:\/\//.test(appOrigin) && appOrigin.length < 200 ? appOrigin : `${this.cfg.APP_ORIGIN}/ar`;
-    return this.reasoning.platformSummary(userId, origin);
+    return this.reasoning.platformSummary(userId, appOrigin === undefined ? `${this.cfg.APP_ORIGIN}/ar` : summaryOrigin(appOrigin, this.cfg.allowedOrigins));
   }
 
   @Get('ai-usage')
@@ -161,4 +160,19 @@ export class ReasoningInternalController {
     if (from >= to || to.getTime() - from.getTime() > 400 * DAY) throw new DomainError('VALIDATION_FAILED', { message: 'Invalid range' });
     return this.platform.aiUsage(from, to, q.data.userId ?? null, 'reasoning');
   }
+}
+
+/**
+ * The base the summary's links are built on: an absolute http(s) URL whose origin is one of this
+ * app's (APP_ORIGIN or ALLOWED_APP_ORIGINS), with at most a plain path (the gateway passes
+ * `<origin>/ar`), no query, hash or credentials. Anything else is refused (audit 2026-10-29 I3): the
+ * caller holds the internal token, but links to an unknown host must not come out of this API.
+ */
+export function summaryOrigin(appOrigin: unknown, allowedOrigins: readonly string[]): string {
+  if (typeof appOrigin !== 'string' || appOrigin.length > 200 || !/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9._~\/-]*)?$/.test(appOrigin)) {
+    throw new DomainError('VALIDATION_FAILED', { details: [{ path: 'appOrigin', message: 'must be an absolute http(s) URL with a plain path' }] });
+  }
+  const url = new URL(appOrigin);
+  if (!allowedOrigins.includes(url.origin)) throw new DomainError('VALIDATION_FAILED', { details: [{ path: 'appOrigin', message: 'origin is not one of this app\'s origins' }] });
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
 }

@@ -18,7 +18,7 @@ export const GATEWAY = path.join(REPO_ROOT, 'deploy', 'gateway.mjs');
 export const HEADERS_FILE = path.join(REPO_ROOT, 'Threatready-landing-page-main', 'apps', 'web', 'public', '_headers');
 
 /** The gateway's response headers that the static host must mirror, in the order they appear in `_headers`. */
-const MIRRORED = ['Strict-Transport-Security', 'X-Content-Type-Options', 'Referrer-Policy', 'Permissions-Policy', 'X-Robots-Tag'];
+const MIRRORED = ['Strict-Transport-Security', 'X-Content-Type-Options', 'X-Frame-Options', 'Referrer-Policy', 'Permissions-Policy', 'X-Robots-Tag'];
 /** Static-host-only headers the gateway does not send (kept verbatim). */
 const EXTRA = ['Cross-Origin-Opener-Policy: same-origin-allow-popups'];
 

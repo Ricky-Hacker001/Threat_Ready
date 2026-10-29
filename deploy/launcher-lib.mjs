@@ -103,3 +103,39 @@ export function gatewayIpToForwardedFor(headerName) {
 
 /** `true`/`false` strings from the environment with a default. */
 export const boolEnv = (v, dflt) => (v === undefined || v === '' ? dflt : /^(1|true|yes)$/i.test(v));
+
+/* ---------------- CAPTCHA at boot (audit H4) ---------------- */
+
+/**
+ * Whether production may boot without Turnstile. Onboard requires both keys in production unless
+ * ALLOW_NO_CAPTCHA=true is an explicit opt-in; the launcher used to set that for it whenever the keys
+ * were missing, which turned onboard's boot check into a warning. Now: `on` when both keys are set;
+ * `fatal` (the deploy must fail) in production without both keys unless the operator set
+ * ALLOW_NO_CAPTCHA=true themselves; `warning` otherwise when CAPTCHA is off.
+ */
+export function captchaCheck({ siteKey = '', secretKey = '', allowNoCaptcha, production }) {
+  const on = !!(siteKey && secretKey);
+  const optedOut = allowNoCaptcha === 'true';
+  if (on) return { on, fatal: null, warning: null };
+  const missing = siteKey || secretKey ? `${siteKey ? 'TURNSTILE_SECRET_KEY' : 'TURNSTILE_SITE_KEY'} is missing` : 'TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY are not set';
+  if (production && !optedOut) {
+    return { on, fatal: `${missing}: production needs Cloudflare Turnstile (both keys), or ALLOW_NO_CAPTCHA=true set in the service environment to run sign-up on rate limits alone (a demo deployment).`, warning: null };
+  }
+  return { on, fatal: null, warning: `${missing}; CAPTCHA is OFF${optedOut ? ' (ALLOW_NO_CAPTCHA=true)' : ''}: sign-up relies on rate limits alone until both Turnstile keys are set.` };
+}
+
+/* ---------------- Labs child: identity cache ---------------- */
+
+/** The largest identity cache the labs child accepts (seconds): a sign-out is seen within this long. Same bound as InterviewPrep's IDENTITY_CACHE_SECONDS. */
+export const IDENTITY_CACHE_MAX_SECONDS = 300;
+/**
+ * IDENTITY_CACHE_SECONDS for the labs child's resolvers: a whole number of seconds, 0..300 (clamped: a
+ * larger value is 300, a negative one 0), 30 when unset or not a number. InterviewPrep refuses to boot on
+ * an out-of-range value; the labs child, whose boot the launcher would retry forever, clamps and logs.
+ */
+export function identityCacheSeconds(raw, fallback = 30) {
+  if (raw === undefined || raw === null || String(raw).trim() === '') return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(IDENTITY_CACHE_MAX_SECONDS, Math.max(0, Math.floor(n)));
+}

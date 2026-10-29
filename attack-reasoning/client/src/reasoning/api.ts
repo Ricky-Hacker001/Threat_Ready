@@ -68,6 +68,7 @@ const MESSAGES: Record<string, string> = {
   REASONING_DOMAIN_UNAVAILABLE: 'This domain is not available yet.',
   REASONING_GENERATION_FAILED: 'We could not generate a valid scenario this time. Retry to generate another.',
   REASONING_EVALUATION_FAILED: 'Your answer is saved but could not be evaluated yet. Retry the evaluation.',
+  REASONING_EVALUATION_DECLINED: 'The AI grader declined to evaluate this answer. It is saved; you can retry (it does not count against the retry limit) or start a new question.',
   LLM_PROVIDER_UNAVAILABLE: 'The AI service is temporarily unavailable. Your progress is saved.',
   REASONING_ENGINE_UNAVAILABLE: 'The reasoning engine is not available right now. Try again in a few minutes.',
   UPSTREAM_UNAVAILABLE: 'The assessment service is restarting. Try again shortly.',

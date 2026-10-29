@@ -700,3 +700,88 @@ describe("business accounts: platform admin", () => {
     assert.equal(cross.status, 403);
   });
 });
+
+describe("business accounts: audit fixes of 29 Oct 2026", () => {
+  async function orgWithManager() {
+    const admin = await orgWithAdmin();
+    const email = `mgr_${uid()}@example.test`;
+    const { token } = await inviteAndToken(admin.c, email, "manager");
+    const manager = await registerVerified(new Client(), email);
+    assert.equal((await manager.c.post(`/api/invitations/${token}/accept`)).status, 200);
+    return { admin, manager };
+  }
+
+  test("managers invite, resend and withdraw members only; org admins handle managers", async () => {
+    const { admin, manager } = await orgWithManager();
+    const asManager = await manager.c.post("/api/org/invitations", { emails: [`peer_${uid()}@example.test`], role: "manager" });
+    assert.equal(asManager.status, 403, asManager.text);
+    assert.equal(asManager.json.code, "ORG_ROLE_FORBIDDEN");
+    const member = await manager.c.post("/api/org/invitations", { emails: [`mem_${uid()}@example.test`], role: "member" });
+    assert.equal(member.status, 201, member.text);
+    const { id } = await inviteAndToken(admin.c, `mgr2_${uid()}@example.test`, "manager");
+    assert.equal((await manager.c.post(`/api/org/invitations/${id}/resend`)).status, 403);
+    assert.equal((await manager.c.del(`/api/org/invitations/${id}`)).status, 403);
+    assert.equal((await admin.c.del(`/api/org/invitations/${id}`)).status, 200);
+  });
+
+  test("an accepted invitation cannot be withdrawn afterwards; a non-UUID id is 404, not 500", async () => {
+    const admin = await orgWithAdmin();
+    const email = `late_${uid()}@example.test`;
+    const { token, id } = await inviteAndToken(admin.c, email);
+    const invitee = await registerVerified(new Client(), email);
+    assert.equal((await invitee.c.post(`/api/invitations/${token}/accept`)).status, 200);
+    assert.equal((await admin.c.del(`/api/org/invitations/${id}`)).status, 404);
+    assert.equal((await admin.c.del(`/api/org/invitations/${"-".repeat(36)}`)).status, 404);
+    assert.equal((await admin.c.post(`/api/org/invitations/${"-".repeat(36)}/resend`)).status, 404);
+    const members = await admin.c.get("/api/org/members");
+    assert.equal(members.json.members.length, 2, "the accepted member stays");
+  });
+
+  test("renaming to the same name writes no audit row", async () => {
+    const admin = await orgWithAdmin();
+    const before = (await admin.c.get("/api/org/audit")).json.length;
+    assert.equal((await admin.c.patch("/api/org", { name: admin.org.name })).status, 200);
+    assert.equal((await admin.c.get("/api/org/audit")).json.length, before);
+    assert.equal((await admin.c.patch("/api/org", { name: `${admin.org.name} Ltd` })).status, 200);
+    assert.equal((await admin.c.get("/api/org/audit")).json.length, before + 1);
+  });
+
+  test("the CSV export is the console's own fetch, never a navigation from another site", async () => {
+    const admin = await orgWithAdmin();
+    const own = await admin.c.get("/api/org/export/members.csv", { "sec-fetch-site": "same-origin", "sec-fetch-dest": "empty" });
+    assert.equal(own.status, 200, own.text);
+    assert.match(own.text, /^# /);
+    const nav = await admin.c.get("/api/org/export/members.csv", { "sec-fetch-site": "cross-site", "sec-fetch-dest": "document", origin: "" });
+    assert.equal(nav.status, 403);
+    const legacy = await admin.c.get("/api/org/export/members.csv", { origin: "https://evil.example" });
+    assert.equal(legacy.status, 403, "no Fetch Metadata: the Origin must be the console's");
+    const audit = (await admin.c.get("/api/org/audit")).json.filter((r) => r.action === "members.export");
+    assert.equal(audit.length, 1, "only the real export was recorded");
+  });
+
+  test("opening a member's page twice in a quarter hour records one view", async () => {
+    const { admin, manager } = await orgWithManager();
+    const me = (await manager.c.get("/api/me")).json.user.id;
+    for (let i = 0; i < 3; i++) assert.equal((await admin.c.get(`/api/org/members/${encodeURIComponent(me)}/summary`)).status, 200);
+    const views = (await admin.c.get("/api/org/audit")).json.filter((r) => r.action === "member.view");
+    assert.equal(views.length, 1);
+  });
+
+  test("the session read never returns the session token; a sign-in code cannot be requested", async () => {
+    const { c } = await registerVerified();
+    const s = await c.get("/api/auth/get-session");
+    assert.equal(s.status, 200);
+    assert.ok(s.json.session && !("token" in s.json.session), JSON.stringify(s.json.session));
+    const code = await c.post("/api/auth/email-otp/send-verification-otp", { email: "someone@example.test", type: "sign-in" });
+    assert.equal(code.status, 400, code.text);
+  });
+
+  test("a malformed or oversized body is the client's error, not a 500", async () => {
+    const { c } = await registerVerified();
+    const res = await fetch(`${API}/api/activity/ping`, { method: "POST", headers: { origin: ORIGIN, cookie: c.cookieHeader(), "content-type": "application/json" }, body: "{bad" });
+    assert.equal(res.status, 400);
+    const big = await fetch(`${API}/api/activity/ping`, { method: "POST", headers: { origin: ORIGIN, cookie: c.cookieHeader(), "content-type": "application/json" }, body: JSON.stringify({ pad: "a".repeat(70_000) }) });
+    assert.equal(big.status, 413);
+    assert.equal((await big.json()).code, "PAYLOAD_TOO_LARGE");
+  });
+});

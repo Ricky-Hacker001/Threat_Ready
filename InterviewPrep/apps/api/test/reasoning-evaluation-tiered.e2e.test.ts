@@ -120,7 +120,7 @@ describe('attack reasoning: tiered evaluation', () => {
     expect(r.feedback.improve).toEqual(expect.arrayContaining(s.stages.evaluator.improve));
     expect(r.feedback.whyAlternatives).toHaveLength(3);
     expect(r.feedback.whyBest.length).toBeGreaterThan(20);
-    expect(r.feedback.decision).toMatch(new RegExp(`option ${key.private.correctOption}`));
+    expect(r.feedback.decision).toContain(`option ${key.private.correctOption}`);
     const raw = JSON.stringify(r.feedback);
     for (const p of key.private.rubric) expect(raw).not.toContain(`[${p.id}]`);
   });

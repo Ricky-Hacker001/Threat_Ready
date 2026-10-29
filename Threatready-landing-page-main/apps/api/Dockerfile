@@ -2,7 +2,7 @@
 #   docker build -f apps/api/Dockerfile -t threatready-api .
 # Run:      node dist/main.js
 # Migrate:  node dist/db/migrate.js   (one-off ECS task before each deploy)
-FROM node:22-bookworm-slim AS build
+FROM node:24-bookworm-slim AS build
 WORKDIR /repo
 RUN corepack enable
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json tsconfig.base.json ./
@@ -15,7 +15,7 @@ RUN pnpm --filter @threatready/contracts build && pnpm --filter @threatready/api
  && pnpm --filter @threatready/api deploy --prod --legacy /out \
  && cp -r apps/api/dist apps/api/drizzle /out/
 
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out /app

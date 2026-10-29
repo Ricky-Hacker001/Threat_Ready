@@ -620,7 +620,8 @@ describe('attack reasoning: questions on the architecture library', () => {
       await c.query('COMMIT');
       expect(await count()).toBe(2);
 
-      // The API role: every public column including architecture_id, never the answer key.
+      // The API role: every public column including architecture_id, never the answer key nor the
+      // generation metadata (seed, fingerprint; migration 0018), which the shape check reads for it.
       const as = async (text: string) => {
         await c.query('BEGIN');
         await c.query('SET LOCAL ROLE tr_app_user');
@@ -631,10 +632,15 @@ describe('attack reasoning: questions on the architecture library', () => {
           await c.query('ROLLBACK');
         }
       };
-      const ok = await as(`SELECT id, architecture_id, fingerprint, public, serve_count FROM reasoning_items WHERE pool`);
+      const ok = await as(`SELECT id, architecture_id, public, serve_count, reasoning_item_shape_served(id) AS shape_served FROM reasoning_items WHERE pool`);
       expect(ok.rows.length).toBeGreaterThan(0);
+      expect(ok.rows.every((r: { shape_served: unknown }) => typeof r.shape_served === 'boolean')).toBe(true);
       await expect(as('SELECT private FROM reasoning_items')).rejects.toMatchObject({ code: '42501' });
+      await expect(as('SELECT fingerprint FROM reasoning_items')).rejects.toMatchObject({ code: '42501' });
+      await expect(as('SELECT seed FROM reasoning_items')).rejects.toMatchObject({ code: '42501' });
       await expect(as('SELECT * FROM reasoning_items')).rejects.toMatchObject({ code: '42501' });
+      await expect(as('SELECT id FROM users')).rejects.toMatchObject({ code: '42501' });
+      await expect(as(`SELECT * FROM platform_llm_usage(now() - interval '1 day', now(), NULL)`)).rejects.toMatchObject({ code: '42501' });
     } finally {
       await c.query('ROLLBACK').catch(() => undefined);
       c.release();

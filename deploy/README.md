@@ -117,7 +117,8 @@ barrier against a compromised child. To make it one, the owner can choose one of
    | `RESEND_API_KEY` | Resend API key |
    | `EMAIL_FROM` | e.g. `ThreatReady <onboarding@resend.dev>` (or an address on your verified domain) |
    | `ANTHROPIC_API_KEY` | Anthropic key |
-   | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile (free) — set **both** to turn CAPTCHA on; with only one, CAPTCHA stays off and the launcher says which key is missing |
+   | `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile (free) — set **both** to turn CAPTCHA on. Without both, production refuses to start unless `ALLOW_NO_CAPTCHA=true` (below) |
+   | `ALLOW_NO_CAPTCHA` | leave empty. `true` is the explicit opt-in to a production deployment without CAPTCHA (a demo): the launcher and onboard then boot without the Turnstile keys and sign-up relies on rate limits alone (see "CAPTCHA") |
    | `GOOGLE_*`, `GITHUB_*` | optional; leave empty to hide those buttons |
    | `ADMIN_EMAILS` | your email, to get the admin console after you sign up and verify |
    | `SENTRY_DSN` | optional; a Sentry project DSN for error tracking (leave empty to run without) |
@@ -179,8 +180,12 @@ barrier against a compromised child. To make it one, the owner can choose one of
   Choosing and paying for one is an owner decision.
 - The DevSecOps lab, ThreatReady Firewall and AI Security Lab keep progress in the learner's browser.
   Accounts, interviews, scores and AI usage are in Neon and are kept.
-- **No captcha** unless you add both Cloudflare Turnstile keys (`TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`);
-  sign-up then relies on rate limits and the launcher logs `WARNING: production is running without CAPTCHA`.
+- **CAPTCHA is required in production.** Without both Cloudflare Turnstile keys (`TURNSTILE_SITE_KEY`,
+  `TURNSTILE_SECRET_KEY`) the launcher exits before anything starts and the deploy fails (Render keeps
+  the old instance), unless `ALLOW_NO_CAPTCHA=true` is set in the service environment: then sign-up
+  relies on rate limits alone and the launcher logs `WARNING: ... CAPTCHA is OFF (ALLOW_NO_CAPTCHA=true)`.
+  The launcher never sets that opt-in for onboard itself (it used to, whenever the keys were missing,
+  which made onboard's own production check a warning); it forwards it only when you set it to `true`.
 - `/healthz` turns 503 once any child (onboard, InterviewPrep or labs) has been down for over a minute
   after having been up (crash loop), or has not started five minutes after the migrations (stuck), so
   Render shows it and restarts the instance. While the labs child restarts, `/labs/*` and `/ar/*`
@@ -227,13 +232,33 @@ the boot with a message naming the variable (rather than being ignored).
 app ever receives the other's secrets or the launcher's own (owner database URLs, the role password,
 `BETTER_AUTH_SECRET` for InterviewPrep). The labs child gets `LABS_*` (e.g. `LABS_RATE_PER_MIN`,
 `LABS_MAX_RUNS_PER_LAB`, `LABS_IDENTITY_MAX_IN_FLIGHT`), `AR_*`, `REDTEAM_*`, `SOC_*`,
-`IDENTITY_CACHE_SECONDS` and `DAILY_WIPE`, never an API's key or database; SOC's test switches
+`IDENTITY_CACHE_SECONDS` (how long the labs and Attack Reasoning reuse a positive sign-in lookup, so
+how long a sign-out can lag there: 0–300 s, default 30, values outside the range are clamped and
+logged) and `DAILY_WIPE`, never an API's key or database; SOC's test switches
 (`SOC_SIM_TEST`, `SOC_SIM_FAST`) and its standalone summary token (`SOC_INTERNAL_TOKEN`) are never
 forwarded (logged if set). Values the launcher decides (URLs, database roles, production mode, the LLM
 driver, the internal tokens, the lab state files and `TR_STATE_DURABLE`) cannot be overridden this
 way. Guest ("trial") sessions are off unless
 `TRIAL_ENABLED=true`. Onboard's test hooks `RATE_LIMIT_MULTIPLIER` and `TURNSTILE_VERIFY_URL` are never
 forwarded (onboard refuses to boot in production with them); the launcher logs a warning if one is set.
+`ALLOW_NO_CAPTCHA` reaches onboard as `true` only when you set it to `true` (see "CAPTCHA").
+
+Besides its own settings every child gets the process basics (`NODE_ENV`, `PATH`, `HOME`, `TZ`, `LANG`,
+`NODE_OPTIONS`, `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`) and Render's service metadata by name:
+`RENDER`, `RENDER_EXTERNAL_URL`, `RENDER_EXTERNAL_HOSTNAME`, `RENDER_GIT_COMMIT`, `RENDER_GIT_BRANCH`,
+`RENDER_SERVICE_ID`, `RENDER_SERVICE_NAME` and `RENDER_INSTANCE_ID` (`deploy/child-env.mjs`
+`RENDER_KEYS`). Nothing else that starts with `RENDER` is forwarded: a deploy-hook URL or any other
+operator variable with that prefix stays in the launcher.
+
+### CAPTCHA
+
+Onboard requires both Turnstile keys in production and accepts `ALLOW_NO_CAPTCHA=true` as an explicit
+opt-out for demo deployments. The launcher enforces the same rule before anything starts: with
+`NODE_ENV=production` and a Turnstile key missing it exits with `TURNSTILE_... is missing: production
+needs Cloudflare Turnstile (both keys), or ALLOW_NO_CAPTCHA=true ...` and the deploy fails. Set
+`ALLOW_NO_CAPTCHA=true` in the service environment (declared in `render.yaml`) only for a deployment
+that may run sign-up on rate limits alone; it is forwarded to onboard as `true` only then (otherwise
+onboard gets `false`). With exactly one key set, neither key is forwarded and the same rule applies.
 
 ### Health check
 
@@ -313,6 +338,10 @@ the 3D interviewer's textures, which three.js loads with `fetch(blob:)`). The la
 headers itself and its hosted labs adjust the CSP for their own pages only: `frame-src 'self'` on the
 DevSecOps and Red Team pages, the DevSecOps `sandbox.html` policy and the Red Team
 `target-frame.html` sandbox policy. The gateway keeps a child's CSP for those responses.
+`X-Frame-Options: SAMEORIGIN` (not `DENY`) is the fallback for user agents without `frame-ancestors`:
+those two sandboxed documents are framed by pages of this origin, and a browser that understands
+`frame-ancestors` ignores `X-Frame-Options` when the CSP carries it. Children get `X-Forwarded-Proto`
+from `PUBLIC_URL` (never from the client's header).
 
 ## Troubleshooting
 
@@ -321,7 +350,9 @@ DevSecOps and Red Team pages, the DevSecOps `sandbox.html` policy and the Red Te
 - `/readyz` shows each child (`onboard`, `interview`, `labs`), its status (`ready` / `starting` /
   `down`), exits since it was last ready and its last `heapUsed` sample (bytes; sampled every 30 s
   from onboard's loopback-only `/__health`, the labs child's `/`; InterviewPrep's `/` does not report
-  one, so it reads `null`).
+  one, so it reads `null`) — to internal callers only (loopback peer with no edge header, like the
+  internal routes: `curl http://127.0.0.1:$PORT/readyz` from a shell on the instance). From the
+  internet it answers the status code (200 / 503) and `{ "ready": true|false }`, nothing else.
 - Every response carries an `x-request-id` (always generated by the gateway; a client-sent one is
   replaced); gateway-originated error JSON echoes it as `requestId`, and the children receive and log
   it. Quote it when reporting a problem.

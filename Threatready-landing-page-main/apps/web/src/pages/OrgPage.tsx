@@ -2,7 +2,7 @@ import { PLAN_INFO, PLAN_LIMITS, orgNameSchema, type FeatureKey, type OrgAuditRo
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 import { useMe } from "../components/AppShell";
-import { Button, Field, Notice, usePageTitle } from "../components/ui";
+import { Button, DownloadButton, Field, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
@@ -199,9 +199,9 @@ export function OrgPeoplePage() {
             Members <span className="count">{fmtInt(list.members.length)}</span>
           </h2>
           <div className="filters">
-            <a className="btn btn-secondary" href={`${API_ORIGIN}/api/org/export/members.csv`} download>
+            <DownloadButton path="/org/export/members.csv" filename="threatready-organisation-members.csv">
               Download members (CSV)
-            </a>
+            </DownloadButton>
             <Link className="btn btn-primary" to="/app/org/invite">
               Invite people
             </Link>

@@ -2,7 +2,7 @@ import { Logger } from "@nestjs/common";
 import { OTP_LENGTH, OTP_TTL_SECONDS, PASSWORD_MAX, PASSWORD_MIN, USERNAME_MAX, USERNAME_MIN } from "@threatready/contracts";
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { createAuthMiddleware, getIP, isAPIError } from "better-auth/api";
+import { APIError, createAuthMiddleware, getIP, isAPIError } from "better-auth/api";
 import { anonymous, captcha, emailOTP, username } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { reportError } from "../common/error-report.js";
@@ -221,7 +221,12 @@ export function createAuth(config: Config, db: Db, email: EmailPort) {
         // Per-address cap for verification and reset codes (the rateLimit rules above are per IP alone):
         // a 6-digit code with 3 tries must not be re-requestable without limit (limits.ts).
         if (OTP_ISSUE_PATHS.includes(ctx.path)) {
-          const body = ctx.body as { email?: unknown } | undefined;
+          const body = ctx.body as { email?: unknown; type?: unknown } | undefined;
+          // Only verification codes go out from this path: sign-in by code is off (DISABLED_PATHS), so a
+          // "sign-in" code would be an unusable email to any registered address — a lure for "send me the code".
+          if (ctx.path === "/email-otp/send-verification-otp" && body?.type !== "email-verification") {
+            throw new APIError("BAD_REQUEST", { code: "VALIDATION_FAILED", message: "Unsupported code type." });
+          }
           const to = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
           if (!to) return;
           const ip = (ctx.headers && getIP(ctx.headers, ctx.context.options)) || "unknown";
@@ -252,6 +257,15 @@ export function createAuth(config: Config, db: Db, email: EmailPort) {
       }),
       after: createAuthMiddleware(async (ctx) => {
         const returned = ctx.context.returned;
+        if (ctx.path === "/get-session" && returned && typeof returned === "object" && "session" in returned) {
+          // The SPA reads who is signed in, never the session token: the HttpOnly cookie is the only copy.
+          const r = returned as { session?: Record<string, unknown> | null };
+          if (r.session && typeof r.session === "object" && "token" in r.session) {
+            const { token: _token, ...rest } = r.session;
+            return ctx.json({ ...(returned as Record<string, unknown>), session: rest });
+          }
+          return;
+        }
         if (ctx.path === "/sign-in/username") {
           const name = (ctx.body as { username?: unknown } | undefined)?.username;
           if (typeof name !== "string") return;

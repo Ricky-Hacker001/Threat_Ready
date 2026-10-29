@@ -85,7 +85,7 @@ describe('attack reasoning configuration', () => {
       REASONING_ESCALATION_BAND: 0,
     });
     for (const bad of [{ REASONING_GENERATION_FIRST_TIER: 'MEDIUM' }, { REASONING_EVALUATION_MODE: 'cheap' }, { REASONING_LIBRARY_BANK_SIZE: '10' }, { REASONING_ITEM_MAX_SERVES: '0' }, { REASONING_ESCALATION_BAND: '51' }, { REASONING_ESCALATION_AUDIT_RATE: '1.5' }, { REASONING_LIBRARY_BANK_DAYS: '0' }]) {
-      expect(() => loadConfig({ ...base, ...bad }), JSON.stringify(bad)).toThrow(new RegExp(Object.keys(bad)[0]!));
+      expect(() => loadConfig({ ...base, ...bad }), JSON.stringify(bad)).toThrow(Object.keys(bad)[0]!);
     }
   });
 

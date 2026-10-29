@@ -8,7 +8,7 @@
 | **Working tree** | `ThreatReady/` (local working copy; not a git repository at the root). Baseline = a file snapshot taken before any change in this pass. |
 | **Builds on** | `docs/THREATREADY_COMPREHENSIVE_UI_UX_AUDIT.md` (23 Oct 2026, 96 findings, 86 fixed). That audit is not repeated here; this pass re-measures it, covers the three apps it could not run, and adds SEO and performance. |
 | **Changes** | In the working tree only. **Nothing is committed, pushed or deployed.** |
-| **Evidence** | `reports/evidence/*.webp` (before/after screenshots). Raw tool output stayed in the auditor's scratch space and is summarised here. |
+| **Evidence** | `audit/reports/evidence/*.webp` (before/after screenshots). Raw tool output stayed in the auditor's scratch space and is summarised here. |
 
 **Evidence labels used below:** **M** = measured with a tool in this pass; **RC** = reproduced in a real browser; **SC** = confirmed in source; **LV** = checked against the live site with a read-only request; **J** = expert judgement (not a measurement).
 
@@ -246,7 +246,7 @@ A score is **provisional** when part of the area could not be tested (see B.4) o
 
 ## E. Before-and-after comparison
 
-### E.1 Screenshots (`reports/evidence/`)
+### E.1 Screenshots (`audit/reports/evidence/`)
 
 | Change | Before | After |
 |---|---|---|
@@ -405,7 +405,7 @@ These are changes made by this audit only. Build output (`dist/`) was regenerate
 | `InterviewPrep/apps/web/test/history-page.test.tsx` | asserts the empty-state heading is an h2 | Regression test |
 | `attack-reasoning/client/src/reasoning/pages.tsx`, `client/src/app.css` | `useTabTitle()` on domain, attempt, summary and history pages; `nowrap` score and date cells | SEO-05, UI-03 |
 | `threatready-lab-001/client/src/App.tsx` | console tab title from the lab definition | SEO-05 |
-| `reports/THREATREADY_UI_UX_SEO_AUDIT.md`, `reports/evidence/` (new) | this report and its screenshots | Deliverable |
+| `audit/reports/THREATREADY_UI_UX_SEO_AUDIT.md`, `audit/reports/evidence/` (new) | this report and its screenshots | Deliverable |
 
 **Local environment (not a source change):** InterviewPrep migrations 0016 and 0017 were applied to the local development database (ENV-01).
 

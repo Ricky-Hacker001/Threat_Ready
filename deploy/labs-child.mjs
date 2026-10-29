@@ -18,7 +18,7 @@ import express from 'express';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CLIENT_IP_HEADER, securityHeaders } from './gateway.mjs';
-import { boolEnv, gatewayIpToForwardedFor } from './launcher-lib.mjs';
+import { IDENTITY_CACHE_MAX_SECONDS, boolEnv, gatewayIpToForwardedFor, identityCacheSeconds } from './launcher-lib.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const PORT = Number(process.env.PORT || process.env.LABS_INTERNAL_PORT || 4000);
@@ -72,10 +72,17 @@ const labsId = await import('./dist/labs/identity.js');
 const arMod = await import('./dist/ar/app.js');
 const arId = await import('./dist/ar/identity.js');
 
+// How long a positive identity lookup is reused (IDENTITY_CACHE_SECONDS, forwarded by the launcher): a
+// sign-out at onboard is seen by the labs and Attack Reasoning within this long. 0..300 s, default 30,
+// the same bound InterviewPrep applies to its own IDENTITY_CACHE_SECONDS.
+const CACHE_SECONDS = identityCacheSeconds(process.env.IDENTITY_CACHE_SECONDS);
+if (process.env.IDENTITY_CACHE_SECONDS !== undefined && String(CACHE_SECONDS) !== String(process.env.IDENTITY_CACHE_SECONDS).trim()) {
+  log(`IDENTITY_CACHE_SECONDS="${process.env.IDENTITY_CACHE_SECONDS}" is not a whole number from 0 to ${IDENTITY_CACHE_MAX_SECONDS}; using ${CACHE_SECONDS}`);
+}
 // One labs resolver for the labs gate and the hosted labs behind it (Red Team): a request makes one
 // onboard lookup, and both share one per-client and one global lookup budget (classroom-safe caps,
 // 12 h known-good). It presents the labs->onboard token.
-const labsIdentity = labsId.onboardIdentity({ identityUrl, internalToken: labsToOnboard, callerToken: labsToOnboard });
+const labsIdentity = labsId.onboardIdentity({ identityUrl, internalToken: labsToOnboard, callerToken: labsToOnboard, cacheSeconds: CACHE_SECONDS });
 // The SOC simulation and the Red Team lab run in this process; DevSecOps, the Firewall and AI Security are
 // static. Each app: the one token it accepts (onboard->app), the token it presents to onboard
 // (app->onboard) and, for Attack Reasoning, the token it presents to the reasoning engine (ar->interview).
@@ -100,7 +107,7 @@ const labsApp = labsMod.createApp(store, path.join(ROOT, 'threatready-lab-001/di
 });
 log(`hosted labs: ${hosted.map((h) => h.slug).join(', ') || 'none'}`);
 const arApp = arMod.createApp(path.join(ROOT, 'attack-reasoning/dist'), {
-  identity: arId.onboardIdentity({ identityUrl, internalToken: arToOnboard, callerToken: arToOnboard }),
+  identity: arId.onboardIdentity({ identityUrl, internalToken: arToOnboard, callerToken: arToOnboard, cacheSeconds: CACHE_SECONDS }),
   internalToken: arAccept, internalTokensAccept: [arAccept], internalTokenLegacyAccept: LEGACY_ACCEPT,
   appOrigin: APP_ORIGIN, onboardUrl: PUBLIC_URL, apps: arId.onboardApps(identityUrl),
   // The reasoning engine is the InterviewPrep API's `reasoning` module (same origin: the gateway already

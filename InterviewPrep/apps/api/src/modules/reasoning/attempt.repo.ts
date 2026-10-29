@@ -7,16 +7,21 @@ import type { Weights } from './domain.types.js';
 import type { GeneratedItem, ReasoningItemPrivate } from './item.types.js';
 
 export type AttemptRow = typeof reasoningAttempts.$inferSelect;
-/** A question as the API may see it: every column except `private` (A5; the API role has no privilege on it, migration 0016). */
-export type ItemRow = Omit<typeof reasoningItems.$inferSelect, 'private'>;
+/**
+ * A question as the API may see it: every column except `private` (A5; the API role has no privilege on
+ * it, migration 0016) and the generation metadata `seed` and `fingerprint` (no privilege either since
+ * migration 0018, audit 2026-10-29 I1: with the public column they give away how the answer was built).
+ */
+export type ItemRow = Omit<typeof reasoningItems.$inferSelect, 'private' | 'seed' | 'fingerprint'>;
 export type EvaluationRow = typeof reasoningEvaluations.$inferSelect;
 
 /**
  * Projection for every reasoning_items read in a learner's transaction. The answer key column is
  * never listed: since migration 0016 (security patch 2) selecting it as tr_app_user is a privilege
- * error, so a `select()` of the whole row would fail rather than leak.
+ * error, so a `select()` of the whole row would fail rather than leak. Nor are `seed` and `fingerprint`
+ * (0018): the serve path's shape check reads them through reasoning_item_shape_served() instead.
  */
-const { private: _private, ...publicColumns } = getTableColumns(reasoningItems);
+const { private: _private, seed: _seed, fingerprint: _fingerprint, ...publicColumns } = getTableColumns(reasoningItems);
 export const ITEM_COLUMNS = publicColumns;
 
 /** Scoped repository: an attempt is found only by (id, userId). A miss is 404, never 403 (ADD L7). */

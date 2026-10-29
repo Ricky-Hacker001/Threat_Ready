@@ -260,8 +260,18 @@ a:focus-visible{outline:2px solid ${t.accentText};outline-offset:2px}
 /** Answers a lab navigation with that page (503, or 504 for a timeout), Retry-After 5, never cached. */
 const sendLabPage = (req, res, status, code) => res.status(status).set({ 'Retry-After': '5', 'Cache-Control': 'no-store' }).type('html').send(labUnavailablePage(req, code));
 
+/**
+ * The scheme the children are told the visitor used (X-Forwarded-Proto): the configured public URL's,
+ * never the client's header. A client can send `X-Forwarded-Proto: http` (or a second value, which Node
+ * joins into "http, https" and the apps read from the left), and the apps use it for same-origin checks
+ * (the Red Team CSRF check's self origin) and absolute URLs. Unset or unparsable: https.
+ */
+export function forwardedProtoOf(publicUrl) {
+  try { return publicUrl ? new URL(publicUrl).protocol.replace(/:$/, '') || 'https' : 'https'; } catch { return 'https'; }
+}
+
 /** Request headers for a child: hop-by-hop and Connection-nominated names removed, then the gateway's own set last. */
-function forwardHeaders(req) {
+function forwardHeaders(req, proto) {
   const headers = { ...req.headers };
   const nominated = String(req.headers.connection ?? '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   for (const h of [...HOP_BY_HOP, ...nominated, ...IP_HEADERS, 'content-length', 'expect']) delete headers[h];
@@ -270,7 +280,7 @@ function forwardHeaders(req) {
   headers[CLIENT_IP_HEADER] = req.headers[CLIENT_IP_HEADER];
   headers['x-forwarded-for'] = req.headers[CLIENT_IP_HEADER];
   headers['x-forwarded-host'] = req.headers.host ?? '';
-  headers['x-forwarded-proto'] = single(req.headers['x-forwarded-proto']) ?? 'https';
+  headers['x-forwarded-proto'] = proto;
   headers['x-request-id'] = requestIdOf(req);
   return headers;
 }
@@ -291,7 +301,7 @@ const isEventStream = (v) => /text\/event-stream/i.test(String(v ?? ''));
  * get a 503/504 JSON error in their mount's shape (errorBody) and a lab page navigation first waits up
  * to `pageHoldMs` for it, then gets labUnavailablePage, never raw JSON as the document.
  */
-function proxyTo(port, state, cfg) {
+function proxyTo(port, state, cfg, proto = 'https') {
   const stateNow = () => { const st = state(); return st === true ? 'ready' : st === false ? 'starting' : st; };
   const notReady = (req, res, s) => {
     const code = s === 'down' ? 'UPSTREAM_UNAVAILABLE' : 'STARTING';
@@ -320,7 +330,7 @@ function proxyTo(port, state, cfg) {
 
   function forward(req, res) {
     // req.headers[CLIENT_IP_HEADER] was stamped by the gateway's first middleware (never the client's).
-    const headers = forwardHeaders(req);
+    const headers = forwardHeaders(req, proto);
     const chunked = req.headers['transfer-encoding'] !== undefined;
     const length = chunked ? 0 : Number(req.headers['content-length'] ?? 0);
     if (chunked) headers['transfer-encoding'] = 'chunked';
@@ -424,6 +434,10 @@ export const CONTENT_SECURITY_POLICY = CSP_DIRECTIVES.join('; ');
 export function securityHeaders(_req, res, next) {
   res.setHeader('Content-Security-Policy', CONTENT_SECURITY_POLICY);
   res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  // Clickjacking fallback for user agents without frame-ancestors (which, when present, wins). SAMEORIGIN,
+  // not DENY: the labs' sandboxed documents (DevSecOps sandbox.html, the Red Team target frame) are framed
+  // by pages of this origin.
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), microphone=(self)');
@@ -439,14 +453,16 @@ export function securityHeaders(_req, res, next) {
  * `ready()` returns the launcher's readiness summary: `{ onboard, interview, labs, starting, degraded, ... }`
  * and optionally `status.<child>` = 'ready' | 'starting' | 'down'. Labs and Attack Reasoning are proxied to
  * the labs child on `labsPort`; passing `labsApp`/`arApp` instead mounts them in this process (local
- * development and tests only).
+ * development and tests only). `publicUrl` (the launcher's PUBLIC_URL) decides the scheme the children
+ * get in X-Forwarded-Proto; unset, https.
  */
-export async function createGateway({ onboardPort, interviewPort, labsPort, ready, labsApp, arApp, config = gatewayConfig(), log = (m) => console.log(`[gateway] ${m}`) }) {
+export async function createGateway({ onboardPort, interviewPort, labsPort, ready, labsApp, arApp, publicUrl, config = gatewayConfig(), log = (m) => console.log(`[gateway] ${m}`) }) {
   const app = express();
   app.disable('x-powered-by');
   // For req.protocol / req.hostname only; req.ip is pinned to the gateway's decision below.
   app.set('trust proxy', 1);
   const checkHops = hopCheck(config.clientIp, log);
+  const proto = forwardedProtoOf(publicUrl);
   const stateOf = (k) => { const r = ready(); return r.status?.[k] ?? (r[k] ? 'ready' : 'starting'); };
 
   // First thing for every request: the client IP header is ours, never the client's, and every request
@@ -496,13 +512,19 @@ export async function createGateway({ onboardPort, interviewPort, labsPort, read
   // children's first start), so a deploy whose migration fails or whose child never comes up is not
   // marked live and Render keeps the old instance. After that 200, until a child that was up stays down
   // for a minute (crash loop) or one never came up (stuck): 503 again so Render sees it. /readyz has the
-  // detail (each child's status, exits since it was last ready, last heap sample).
+  // detail (each child's status, exits since it was last ready, last heap sample) for internal callers
+  // (loopback, no edge header: an operator on the instance); the internet gets the status code and
+  // `ready` alone, so nobody can watch a child's heap or count its crashes from outside.
   app.get('/healthz', (_req, res) => {
     const r = ready();
     if (r.starting) { res.status(503).set('Retry-After', '5').json({ ok: false, phase: 'starting' }); return; }
     res.status(r.degraded ? 503 : 200).json({ ok: !r.degraded });
   });
-  app.get('/readyz', (_req, res) => { const r = ready(); res.status(r.onboard && r.interview && (labsApp ? true : r.labs) ? 200 : 503).json(r); });
+  app.get('/readyz', (req, res) => {
+    const r = ready();
+    const isReady = !!(r.onboard && r.interview && (labsApp ? true : r.labs));
+    res.status(isReady ? 200 : 503).json(internalCaller(req) ? r : { ready: isReady });
+  });
 
   // Internal APIs are for the apps' server-to-server calls only: loopback peer AND no edge headers
   // (behind Render every peer is loopback). Covers /api/internal, /labs/internal, /ar/internal and
@@ -515,14 +537,14 @@ export async function createGateway({ onboardPort, interviewPort, labsPort, read
   // sendFile ignores dot-segments by default; the directory is .well-known, so allow them here.
   app.get('/.well-known/security.txt', (_req, res) => res.type('text/plain').sendFile(path.join(webPublic, '.well-known/security.txt'), { dotfiles: 'allow', headers: { 'Cache-Control': 'public, max-age=3600' } }));
 
-  app.use('/api', proxyTo(onboardPort, () => stateOf('onboard'), config));
-  app.use('/v1', proxyTo(interviewPort, () => stateOf('interview'), config));
+  app.use('/api', proxyTo(onboardPort, () => stateOf('onboard'), config, proto));
+  app.use('/v1', proxyTo(interviewPort, () => stateOf('interview'), config, proto));
   // Labs, hosted labs and Attack Reasoning run in their own process (deploy/labs-child.mjs): a lab
   // emulator bug cannot read this process's memory or take the gateway down. The child trusts the
   // client-IP header stamped above because its port is loopback-only and the gateway is its only
   // public caller.
-  app.use('/labs', labsApp ?? proxyTo(labsPort, () => stateOf('labs'), config));
-  app.use('/ar', arApp ?? proxyTo(labsPort, () => stateOf('labs'), config));
+  app.use('/labs', labsApp ?? proxyTo(labsPort, () => stateOf('labs'), config, proto));
+  app.use('/ar', arApp ?? proxyTo(labsPort, () => stateOf('labs'), config, proto));
   app.use('/interview-prep', spa(path.join(ROOT, 'InterviewPrep/apps/web/dist')));
   app.use('/', spa(path.join(ROOT, 'Threatready-landing-page-main/apps/web/dist')));
 
