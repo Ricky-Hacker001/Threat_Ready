@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { CaseFile } from "../components/CaseFile";
 import { appAt, nextPrefixes, ThemeToggle } from "../components/Platform";
-import { Brand, Button } from "../components/ui";
+import { Brand, Button, usePageTitle } from "../components/ui";
 import { api, type PublicConfig } from "../lib/api";
 import { authClient } from "../lib/auth-client";
 import { cameFromPlatform, clearNext, rememberNext } from "../lib/platform";
@@ -22,6 +22,7 @@ const NO_CONFIG: PublicConfig = { providers: { google: false, github: false }, t
  * signing out, so a learner who closes a slow tab does not believe they were signed out.
  */
 export function SignOutPage() {
+  usePageTitle("Sign out");
   const navigate = useNavigate();
   const [config, setConfig] = useState<PublicConfig | null>(null);
   // No referrer (typed URL, bookmark, a link from a site that sends none): ask at once. A referrer is

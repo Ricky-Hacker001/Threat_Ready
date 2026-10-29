@@ -1,5 +1,5 @@
 import type { AppInfo, Me } from "@threatready/contracts";
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Component, createContext, Suspense, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
@@ -26,6 +26,50 @@ export function useMe(): MeContext {
 
 /** Set when a 401 sent the browser to sign in; a second one moments later means the local session is stuck. */
 const EXPIRED_KEY = "tr_session_expired_at";
+
+/** Set when a page chunk failed to load and the tab reloaded for it; a second failure moments later shows the notice. */
+const CHUNK_RELOAD_KEY = "tr_chunk_reload_at";
+const CHUNK_ERROR = /dynamically imported module|module script failed|MIME type|Loading chunk|ChunkLoadError/i;
+
+/**
+ * The signed-in pages are lazy chunks (main.tsx). After a deploy an open tab still asks for the old hashed
+ * files, which are gone (the server answers with index.html), and a failed import would unmount the whole app.
+ * A chunk failure reloads the tab once to pick up the new build; anything else, or a second failure within
+ * 10 s, shows a notice with a reload button. The boundary clears when the path changes.
+ */
+class PageBoundary extends Component<{ path: string; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: unknown) {
+    if (!CHUNK_ERROR.test(error instanceof Error ? `${error.name} ${error.message}` : String(error))) return;
+    let last = 0;
+    try {
+      last = Number(sessionStorage.getItem(CHUNK_RELOAD_KEY)) || 0;
+      sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+    } catch {
+      return; // no storage: no loop guard, so no automatic reload
+    }
+    if (Date.now() - last > 10_000) window.location.reload();
+  }
+  componentDidUpdate(prev: { path: string }) {
+    if (prev.path !== this.props.path && this.state.failed) this.setState({ failed: false });
+  }
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <div className="page-loading" role="alert">
+        <Notice tone="error">This page didn't load, usually because ThreatReady was just updated. Reload to continue.</Notice>
+        <div>
+          <Button type="button" variant="secondary" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </div>
+    );
+  }
+}
 
 /** Protected layout: no session → back to the auth page. */
 export function AppShell() {
@@ -205,7 +249,18 @@ export function AppShell() {
                 <Notice tone="info">{flash}</Notice>
               </div>
             ) : null}
-            <Outlet />
+            {/* The pages are separate chunks (main.tsx): a short line, not the full loading screen, while one arrives. */}
+            <PageBoundary path={pathname}>
+              <Suspense
+                fallback={
+                  <p className="page-loading" role="status">
+                    Loading…
+                  </p>
+                }
+              >
+                <Outlet />
+              </Suspense>
+            </PageBoundary>
           </Ctx.Provider>
         ) : null}
       </main>

@@ -2,13 +2,12 @@ import { PLAN_INFO, PLAN_LIMITS, orgNameSchema, type FeatureKey, type OrgAuditRo
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router";
 import { useMe } from "../components/AppShell";
-import { Button, Field, Notice } from "../components/ui";
+import { Button, Field, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
 import { fmtAgo, fmtDate, fmtDateTime, fmtInt } from "../lib/format";
-import { ACTIVITY_APP_LABEL, areaLabel, fmtDuration, fmtHours } from "./adminInsights";
-import { Tile } from "./AdminPage";
+import { ACTIVITY_APP_LABEL, Tile, areaLabel, fmtDuration, fmtHours } from "./adminInsights";
 
 /* ------------------------------------------------------------------ */
 /* The organisation console (business accounts): for org admins and   */
@@ -72,6 +71,7 @@ export function OrgLayout() {
 /* ---------------- Overview ---------------- */
 
 export function OrgOverviewPage() {
+  usePageTitle("Organisation");
   const [data, setData] = useState<OrgOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -146,6 +146,7 @@ function RoleBadge({ role }: { role: OrgRole }) {
 }
 
 export function OrgPeoplePage() {
+  usePageTitle("People · Organisation");
   const { me, refresh } = useMe();
   const navigate = useNavigate();
   const [list, setList] = useState<OrgMemberList | null>(null);
@@ -355,6 +356,7 @@ function InvitationRow({ i, busy, onResend, onRevoke }: { i: OrgInvitationRow; b
 /* ---------------- Invite ---------------- */
 
 export function OrgInvitePage() {
+  usePageTitle("Invite people · Organisation");
   const { me } = useMe();
   const [text, setText] = useState("");
   const [role, setRole] = useState<"member" | "manager">("member");
@@ -461,6 +463,8 @@ export function OrgInvitePage() {
 /* ---------------- One member ---------------- */
 
 export function OrgMemberPage() {
+  // No name or email in the tab title.
+  usePageTitle("Member details · Organisation");
   const { id = "" } = useParams();
   const [data, setData] = useState<OrgMemberDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -575,6 +579,7 @@ export function OrgMemberPage() {
 /* ---------------- Settings ---------------- */
 
 export function OrgSettingsPage() {
+  usePageTitle("Settings · Organisation");
   const { me, refresh } = useMe();
   const navigate = useNavigate();
   const [name, setName] = useState(me.org?.name ?? "");
@@ -677,6 +682,7 @@ const ACTION_LABEL: Record<string, string> = {
 };
 
 export function OrgAuditPage() {
+  usePageTitle("Activity log · Organisation");
   const [rows, setRows] = useState<OrgAuditRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -745,6 +751,7 @@ export function AuditTable({ rows }: { rows: OrgAuditRow[] }) {
 /* ---------------- Create (existing users) ---------------- */
 
 export function OrgNewPage() {
+  usePageTitle("Set up your organisation");
   const { me, refresh } = useMe();
   const navigate = useNavigate();
   const [name, setName] = useState("");

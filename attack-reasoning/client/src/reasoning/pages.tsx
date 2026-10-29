@@ -61,13 +61,17 @@ function Err({ e, onRetry }: { e: unknown; onRetry?: () => void }) {
 const Loading = ({ text }: { text: string }) => <div className="tr-note"><span className="tr-spinner" aria-hidden="true" />{text}</div>;
 
 const APP_TITLE = 'Attack Reasoning Lab · ThreatReady';
+/** The tab title for this screen ("Cloud Security · Attack Reasoning Lab · ThreatReady", WCAG 2.4.2); null until the screen knows its name. */
+function useTabTitle(title: string | null | undefined) {
+  useEffect(() => { if (!title) return undefined; document.title = `${title} · ${APP_TITLE}`; return () => { document.title = APP_TITLE; }; }, [title]);
+}
 
 /**
  * An address that names nothing this learner can open: a heading that says so and the ways back, and
  * "not found" in the tab title. No Retry, since asking again changes nothing (final review UI-5).
  */
 function NotFound({ title, tabTitle, children, links, go }: { title: string; tabTitle: string; children: ReactNode; links: { label: string; to: string }[]; go: (to: string) => void }) {
-  useEffect(() => { document.title = `${tabTitle} · ${APP_TITLE}`; return () => { document.title = APP_TITLE; }; }, [tabTitle]);
+  useTabTitle(tabTitle);
   return <>
     <section className="tr-page-head"><div className="tr-wrap"><Crumbs items={[{ label: 'All domains', to: BASE, go }, { label: 'Not found' }]} />
       <div className="tr-page-head-in"><div>
@@ -173,6 +177,7 @@ export function DomainsPage({ go }: { go: (to: string) => void }) {
 export function DomainPage({ slug, go }: { slug: string; go: (to: string) => void }) {
   const key = slug.replace(/-/g, '_');
   const [domain, setDomain] = useState<DomainView | null | undefined>(undefined);
+  useTabTitle(domain?.title);
   const [history, setHistory] = useState<AttemptSummary[]>([]);
   const [err, setErr] = useState<unknown>(null);
   const [starting, setStarting] = useState(false);
@@ -264,6 +269,7 @@ function useAttempt(id: string) {
 
 export function AttemptPage({ id, go }: { id: string; go: (to: string) => void }) {
   const { attempt, err, refresh, setAttempt } = useAttempt(id);
+  useTabTitle(attempt ? (attempt.item?.title ?? 'Assessment') : null);
   const [selected, setSelected] = useState<OptionId | null>(() => loadDraft(id).selected);
   const [text, setText] = useState(() => loadDraft(id).text);
   const [submitting, setSubmitting] = useState(false);
@@ -483,6 +489,7 @@ function ResultView({ r, item, go, domainSlug, next, nextReady, nextOnDemand, mo
 /* ---------------- Session summary (after End assessment) ---------------- */
 
 export function SummaryPage({ go }: { go: (to: string) => void }) {
+  useTabTitle('Assessment summary');
   const params = new URLSearchParams(location.search);
   const domain = params.get('domain') ?? '';
   const since = params.get('since') ?? new Date(0).toISOString();
@@ -548,6 +555,7 @@ export function SummaryPage({ go }: { go: (to: string) => void }) {
 /* ---------------- History and analytics ---------------- */
 
 export function HistoryPage({ go }: { go: (to: string) => void }) {
+  useTabTitle('Your assessments');
   const titleOf = useDomainTitles();
   const [dash, setDash] = useState<Dashboard | null>(null);
   const [items, setItems] = useState<AttemptSummary[]>([]);

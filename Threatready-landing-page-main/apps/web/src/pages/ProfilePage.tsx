@@ -4,7 +4,7 @@ import { Link } from "react-router";
 import { useMe } from "../components/AppShell";
 import { ActivityList, AppCards, AppCardsSkeleton } from "../components/Overview";
 import { Avatar, displayName } from "../components/ProfileMenu";
-import { Button, GitHubLogo, GoogleLogo, Notice } from "../components/ui";
+import { Button, GitHubLogo, GoogleLogo, Notice, usePageTitle } from "../components/ui";
 import { OrgCard } from "./OrgPage";
 import { api } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
@@ -26,6 +26,7 @@ const dateFmt = new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "long"
 export function ProfilePage() {
   const { me } = useMe();
   const { data: session } = useSession();
+  usePageTitle("Profile");
   const [methods, setMethods] = useState<string[] | null>(null);
   const [methodsError, setMethodsError] = useState(false);
   const [methodsAttempt, setMethodsAttempt] = useState(0);

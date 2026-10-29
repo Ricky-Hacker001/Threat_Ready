@@ -3,12 +3,12 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import { useMe } from "../components/AppShell";
 import { APP_LABEL } from "../components/Overview";
-import { Button, Notice } from "../components/ui";
+import { Button, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { API_ORIGIN } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
 import { fmtAgo, fmtCompact, fmtDate, fmtInt, fmtUsd } from "../lib/format";
-import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
+import { ACTIVITY_APP_LABEL, ActivityChart, ShareBar, Tile, areaLabel, countryName, featureLabel, fmtDuration, fmtHours, regionOf, timeZoneName } from "./adminInsights";
 
 export const RANGES = [
   { key: "1d", label: "24 hours", days: 1 },
@@ -39,15 +39,7 @@ export function RangePicker({ value, onChange }: { value: RangeKey; onChange: (k
   );
 }
 
-export function Tile({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
-  return (
-    <div className="tile">
-      <span className="tile-label">{label}</span>
-      <span className="tile-value">{value}</span>
-      {sub ? <span className="tile-sub">{sub}</span> : null}
-    </div>
-  );
-}
+export { Tile };
 
 /** App identity: a dot in the app's fixed hue, always beside its name (never color alone). */
 export function AppTag({ app }: { app: AppKey }) {
@@ -120,6 +112,7 @@ const errorText = (err: unknown) =>
  * and cost (from each app's own LLM ledger).
  */
 export function AdminPage() {
+  usePageTitle("Admin console");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);

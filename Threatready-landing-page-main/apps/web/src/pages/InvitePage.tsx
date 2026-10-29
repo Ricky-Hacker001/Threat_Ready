@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { CaseFile } from "../components/CaseFile";
 import { ThemeToggle } from "../components/Platform";
-import { Brand, Button, Notice } from "../components/ui";
+import { Brand, Button, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { useSession } from "../lib/auth-client";
 import { messageFor } from "../lib/errors";
@@ -15,6 +15,8 @@ import { rememberNext } from "../lib/platform";
  * brings them back here. Signed in, one button joins. The token is never stored client-side.
  */
 export function InvitePage() {
+  // A token URL: no organisation or inviter name in the tab title (history, tab sync).
+  usePageTitle("Invitation");
   const { token = "" } = useParams();
   const { data: session, isPending } = useSession();
   const navigate = useNavigate();

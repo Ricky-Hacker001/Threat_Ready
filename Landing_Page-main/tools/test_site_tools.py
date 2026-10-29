@@ -93,6 +93,45 @@ class CheckerTest(unittest.TestCase):
         self.assertIn("rubric.html: <table> not inside a scroll region", r.stdout)
         self.assertIn("interviewprep.html: scroll region needs", r.stdout)
 
+    def test_csp_blocking_the_demo_api_fails(self):
+        self.edit("index.html", "connect-src 'self' https://threatready-db.onrender.com;", "connect-src 'self';")
+        r = run_check(self.site, "--offline")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("index.html: CSP connect-src does not allow the demo API https://threatready-db.onrender.com", r.stdout)
+
+    def test_missing_seo_tags_and_google_fonts_fail(self):
+        self.edit("pricing.html", '<link rel="canonical" href="https://threatready.io/pricing.html">\n', "")
+        self.edit("security.html", '<meta name="twitter:card" content="summary">\n', "")
+        self.edit("terms.html", '<link rel="stylesheet" href="assets/css/site.css">',
+                  '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter"><link rel="stylesheet" href="assets/css/site.css">')
+        self.edit("contact.html", '<img src="logo-sm.png" width="26" height="25" alt="">ThreatReady</a>\n    <nav', '<img src="logo-sm.png" alt="">ThreatReady</a>\n    <nav')
+        r = run_check(self.site, "--offline")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("pricing.html: canonical should be exactly https://threatready.io/pricing.html (found none)", r.stdout)
+        self.assertIn("security.html: missing twitter:card", r.stdout)
+        self.assertIn("terms.html: loads Google Fonts", r.stdout)
+        self.assertIn("contact.html: <img> without width/height", r.stdout)
+
+    def test_sitemap_follows_noindex_and_stays_in_sync(self):
+        self.assertEqual(sync_shell.canonical_url("index.html"), "https://threatready.io/")
+        self.assertEqual(sync_shell.canonical_url("pricing.html"), "https://threatready.io/pricing.html")
+        self.assertEqual(run_check(self.site, "--offline").returncode, 0)
+        xml = (self.site / "sitemap.xml").read_text(encoding="utf-8")
+        self.assertIn("<loc>https://threatready.io/</loc>", xml)
+        self.assertIn("<loc>https://threatready.io/dpa.html</loc>", xml)
+        self.assertNotIn("404.html", xml)
+        # A page that opts out of indexing leaves the sitemap once sync_shell.py runs; until then the checker fails.
+        self.edit("dpa.html", '<meta name="robots" content="index, follow">', '<meta name="robots" content="noindex">')
+        self.assertIn("sitemap.xml: out of date", run_check(self.site, "--offline").stdout)
+        subprocess.run([sys.executable, str(self.site / "tools" / "sync_shell.py")], check=True, capture_output=True)
+        self.assertNotIn("dpa.html", (self.site / "sitemap.xml").read_text(encoding="utf-8"))
+        self.assertEqual(run_check(self.site, "--offline").returncode, 0)
+
+    def test_duplicate_id_fails(self):
+        self.edit("pilot.html", 'id="f-org"', 'id="f-company"')
+        r = run_check(self.site, "--offline")
+        self.assertIn('pilot.html: duplicate id="f-company"', r.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

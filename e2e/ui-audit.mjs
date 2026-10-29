@@ -114,11 +114,20 @@ for (const [width, height] of VIEWPORTS) {
           if (b.width && b.height && b.right > de.clientWidth + 1 && !clips(el)) off.push(`${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/)[0] : ''}`);
           if (off.length >= 3) break;
         }
-        return { cw: de.clientWidth, sw, sh: de.scrollHeight, ih: innerHeight, off };
+        const noindex = !!document.querySelector('meta[name="robots"][content*="noindex"]');
+        return { cw: de.clientWidth, sw, sh: de.scrollHeight, ih: innerHeight, off, title: document.title.trim(), noindex };
       });
       checks++;
       if (m.sw > m.cw + 1) fail(r.name, vp, `horizontal overflow ${m.sw}px in ${m.cw}px (${m.off.join(', ') || 'body'})`);
       else if (m.off.length) fail(r.name, vp, `content past the right edge, clipped: ${m.off.join(', ')}`);
+      // Every screen names itself in the tab (WCAG 2.4.2: never the bare "ThreatReady"), and every app shell
+      // asks not to be indexed (the gateway sends X-Robots-Tag too; the meta covers previews and static hosts).
+      checks++;
+      if (!m.title || (!r.name.startsWith('site ') && m.title === 'ThreatReady')) fail(r.name, vp, `generic tab title "${m.title}"`);
+      if (!r.name.startsWith('site ')) {
+        checks++;
+        if (!m.noindex) fail(r.name, vp, 'no <meta name="robots" content="noindex"> in the app shell');
+      }
       if (r.fit && width >= (r.minWidth ?? 0)) {
         checks++;
         if (m.sh > m.ih + 1) fail(r.name, vp, `console taller than the viewport: ${m.sh}px in ${m.ih}px`);

@@ -13,7 +13,7 @@ import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
 import type { ZodType } from "zod";
 import { CaseFile } from "../components/CaseFile";
 import { appAt, ThemeToggle } from "../components/Platform";
-import { Brand, Button, Field, GitHubLogo, GoogleLogo, Notice, PasswordField } from "../components/ui";
+import { Brand, Button, Field, GitHubLogo, GoogleLogo, Notice, PasswordField, usePageTitle } from "../components/ui";
 import { api, ApiError, type PublicConfig } from "../lib/api";
 import { authClient, useSession } from "../lib/auth-client";
 import { messageFor, OAUTH_MESSAGES, type ErrorLike } from "../lib/errors";
@@ -56,6 +56,16 @@ const TABS = [
 ] as const;
 type TabName = (typeof TABS)[number]["name"];
 
+// One title per view; the Record type makes a new view a compile error until it has one.
+const VIEW_TITLES: Record<View["name"], string> = {
+  signin: "Sign in",
+  signup: "Create account",
+  business: "Set up your organisation",
+  verify: "Verify your email",
+  "forgot-username": "Forgot username",
+  "forgot-password": "Reset password",
+};
+
 /* ------------------------------------------------------------------ */
 
 export function AuthPage() {
@@ -77,6 +87,7 @@ export function AuthPage() {
     };
   });
   const headingRef = useRef<HTMLHeadingElement>(null);
+  usePageTitle(VIEW_TITLES[view.name]);
 
   useEffect(() => {
     api

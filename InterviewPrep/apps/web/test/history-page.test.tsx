@@ -75,6 +75,8 @@ describe('history page states', () => {
     );
     renderPage();
     expect(await screen.findByText('No interviews yet')).toBeInTheDocument();
+    // The empty state sits directly under the page's h1, so its title is an h2 (no skipped heading level).
+    expect(screen.getByRole('heading', { level: 2, name: 'No interviews yet' })).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByRole('heading', { name: 'Your documents' })).not.toBeInTheDocument();
   });

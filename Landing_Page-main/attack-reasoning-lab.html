@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wM2BVCYqRJs/hCdC24sAV5XaB4VNetg2JkWL3LCg5XE='; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta http-equiv="Permissions-Policy" content="geolocation=(), camera=(), microphone=(self), payment=(), usb=(), interest-cohort=()">
 <script>try{var m=document.cookie.match(/(?:^|;\s*)tr-theme=(light|dark)/),t=m?m[1]:localStorage.getItem('tr-theme');if(t==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}</script>
@@ -21,9 +21,7 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" href="favicon-48.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="preload" href="assets/fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/css/site.css">
 
 </head>
@@ -118,8 +116,8 @@
       </div>
       <figure class="frame" style="margin:0">
         <div class="frame-bar"><span class="frame-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="frame-url">ar.threatready.io · Lab session</span></div>
-        <img class="shot shot-d" src="assets/img/product/lab-session-dark.webp" width="1600" height="829" alt="Lab session screen: S3 Bucket Misconfiguration Chain, Intermediate, question 1 of 5. Attack chain diagram from attacker through public S3 and API keys to EC2, a threat identification question, and the answer box with copy-paste disabled">
-        <img class="shot shot-l" src="assets/img/product/lab-session-light.webp" width="1600" height="829" alt="Lab session screen in light theme: S3 Bucket Misconfiguration Chain, question 1 of 5" loading="lazy">
+        <img class="shot shot-d" src="assets/img/product/lab-session-dark.webp" srcset="assets/img/product/lab-session-dark-800.webp 800w, assets/img/product/lab-session-dark.webp 1600w" sizes="(min-width: 1000px) 760px, 100vw" width="1600" height="829" alt="Lab session screen: S3 Bucket Misconfiguration Chain, Intermediate, question 1 of 5. Attack chain diagram from attacker through public S3 and API keys to EC2, a threat identification question, and the answer box with copy-paste disabled">
+        <img class="shot shot-l" src="assets/img/product/lab-session-light.webp" srcset="assets/img/product/lab-session-light-800.webp 800w, assets/img/product/lab-session-light.webp 1600w" sizes="(min-width: 1000px) 760px, 100vw" width="1600" height="829" alt="Lab session screen in light theme: S3 Bucket Misconfiguration Chain, question 1 of 5" loading="lazy">
         <figcaption class="caption"><span><b>Product screenshot</b> · question 1 of 5, timer running, copy-paste disabled</span></figcaption>
       </figure>
     </div>
@@ -159,8 +157,8 @@
   <div class="wrap duo rev">
     <figure class="frame" style="margin:0">
       <div class="frame-bar"><span class="frame-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="frame-url">ar.threatready.io · Cloud Security</span></div>
-      <img class="shot shot-d" src="assets/img/product/levels-dark.webp" width="1600" height="579" alt="Difficulty selection for Cloud Security: Beginner 5 adaptive questions 5–8 min with full hints, Intermediate 10–14 min reduced hints, Advanced 12–18 min minimal hints, Expert 15–20 min no hints" loading="lazy">
-      <img class="shot shot-l" src="assets/img/product/levels-light.webp" width="1600" height="579" alt="Difficulty selection in light theme" loading="lazy">
+      <img class="shot shot-d" src="assets/img/product/levels-dark.webp" srcset="assets/img/product/levels-dark-800.webp 800w, assets/img/product/levels-dark.webp 1600w" sizes="(min-width: 1000px) 760px, 100vw" width="1600" height="579" alt="Difficulty selection for Cloud Security: Beginner 5 adaptive questions 5–8 min with full hints, Intermediate 10–14 min reduced hints, Advanced 12–18 min minimal hints, Expert 15–20 min no hints" loading="lazy">
+      <img class="shot shot-l" src="assets/img/product/levels-light.webp" srcset="assets/img/product/levels-light-800.webp 800w, assets/img/product/levels-light.webp 1600w" sizes="(min-width: 1000px) 760px, 100vw" width="1600" height="579" alt="Difficulty selection in light theme" loading="lazy">
       <figcaption class="caption"><span><b>Product screenshot</b> · difficulty selection</span></figcaption>
     </figure>
     <div>

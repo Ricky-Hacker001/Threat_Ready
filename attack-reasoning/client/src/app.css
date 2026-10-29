@@ -39,6 +39,9 @@ html[data-theme="light"] .trp { --ar-teal: #17766d; --ar-teal-soft: rgba(23, 118
 .ar-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .ar-table th { text-align: left; font-size: 12px; font-weight: 600; color: var(--text-3); padding: 6px 8px 6px 0; }
 .ar-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); color: var(--text-2); vertical-align: middle; }
+/* Scores ("83 · correct") and dates stay on one line at every width; the scenario title is the cell that wraps. */
+.ar-table td.tr-mono, .ar-table td.tr-small { white-space: nowrap; }
+.ar-table td.ar-cell-title { overflow-wrap: anywhere; }
 /* Phones: each attempt becomes one block, the title on its own line and the rest beside each other with
    their column names, instead of five columns crushed to one word per line. Headers stay for screen readers. */
 @media (max-width: 640px) {

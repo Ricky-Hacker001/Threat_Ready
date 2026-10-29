@@ -1,7 +1,7 @@
 import { PLAN_INFO, type AdminOrgDetail, type AdminOrgList, type AdminOrgRow, type AppKey, type AiUsageTotals } from "@threatready/contracts";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { Button, Field, Notice } from "../components/ui";
+import { Button, Field, Notice, usePageTitle } from "../components/ui";
 import { api, ApiError } from "../lib/api";
 import { messageFor } from "../lib/errors";
 import { fmtAgo, fmtDate, fmtInt, fmtUsd } from "../lib/format";
@@ -21,6 +21,7 @@ function StatusBadge({ status }: { status: AdminOrgRow["status"] }) {
 }
 
 export function AdminOrgsPage() {
+  usePageTitle("Organisations · Admin");
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);
@@ -188,6 +189,8 @@ export function AdminOrgsPage() {
 /* ---------------- One organisation ---------------- */
 
 export function AdminOrgPage() {
+  // No organisation name in the tab title.
+  usePageTitle("Organisation details · Admin");
   const { id = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const range = useMemo(() => rangeFor(params.get("range")), [params]);

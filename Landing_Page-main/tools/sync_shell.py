@@ -29,6 +29,23 @@ APP_LINKS = {"signin": APP, "signup": SIGNUP, "labs": LABS}
 # Hosts that have meant "the app" on this site; links to them are rewritten to PLATFORM_URL.
 LEGACY_APP_HOSTS = {"onboard.threatready.io", "labs.threatready.io", "app.threatready.io", "threatready.onrender.com", urlparse(PLATFORM_URL).hostname}
 SCROLL_WRAPS = ("cmp-wrap", "heat-wrap", "tscroll")
+# The public site's own origin: canonical URLs, Open Graph URLs and the sitemap all use it.
+SITE_URL = "https://threatready.io"
+
+def canonical_url(name):
+    """The canonical URL of a page file: index.html is the site root, every other page keeps its file name."""
+    return SITE_URL + "/" + ("" if name == "index.html" else name)
+
+def indexable(html):
+    """A page is listed in the sitemap unless it asks not to be indexed (404.html)."""
+    return not re.search(r'<meta\s+name="robots"\s+content="[^"]*noindex', html, re.I)
+
+def sitemap(pages):
+    """sitemap.xml: every indexable page at its canonical URL. No lastmod or priority: nothing here tracks them."""
+    urls = [canonical_url(p.name) for p in pages if indexable(p.read_text(encoding="utf-8"))]
+    urls.sort(key=lambda u: (u != SITE_URL + "/", u))  # the site root first, then by file name
+    body = "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + body + "</urlset>\n"
 
 CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true" class="icon"><path d="M6 9l6 6 6-6"/></svg>'
 
@@ -208,4 +225,9 @@ def sync(path):
 if __name__ == "__main__":
     pages = sorted(ROOT.glob("*.html"))
     changed = [p.name for p in pages if sync(p)]
+    # The sitemap follows the pages: regenerated here, checked by tools/check_site.py.
+    sm, xml = ROOT / "sitemap.xml", sitemap(pages)
+    if not sm.exists() or sm.read_text(encoding="utf-8") != xml:
+        sm.write_text(xml, encoding="utf-8", newline="\n")
+        changed.append("sitemap.xml")
     print("synced:", ", ".join(changed) if changed else "nothing to change")
