@@ -167,8 +167,12 @@ const RECOMMENDS =
   /\b(?:should|must|needs? to|ought to|has to|have to|recommend(?:s|ed|ation|ations)?|advis(?:e|es|ed)|the (?:fix|remediation|mitigation|solution|answer|root cause|correct (?:action|response|step)|right (?:move|call|action|response|step)|first (?:step|action|move)|priority) (?:is|was|here is|would be)|(?:decided|decides|plans?|planned|intends?|agreed) to|would (?:stop|block|prevent|break|close|contain|end|cut) (?:the|this|that|it)|(?:is|are) the (?:way|key) to)\b/i;
 
 const ECHO_N = 5;
-/** A question or a judgement on the past ("which layer should have enforced"), not advice. */
-const INTERROGATIVE = /\?\s*$|\b(?:which|what|where|whether|why|how)\b[^.!?]*\b(?:should|must|needs? to|ought to)\b|\b(?:should|must|ought to) have\b/i;
+/**
+ * A question or a judgement on the past ("which layer should have enforced"), not advice. A wh-word
+ * before a modal is not enough: "spells out what the team should do: <the fix>" and "which is why the
+ * team must <the fix>" are advice in a relative clause.
+ */
+const INTERROGATIVE = /\?\s*$|\b(?:should|must|ought to) have\b/i;
 
 /**
  * The visible text must not point at the best option: by letter, by echoing its wording, by using

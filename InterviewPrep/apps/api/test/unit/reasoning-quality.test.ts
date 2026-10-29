@@ -323,6 +323,24 @@ describe('attack reasoning: content quality — tuned on the stored Haiku 5.5 qu
   it('a question or a judgement on the past is not a recommendation (e82ad7f9)', () => {
     const v = view((o) => (o.situation = `${o.situation} The review asks which team should have disabled what the intruder holds and scoped it tightly.`));
     expect(errors(checkAnswerLeak(v))).toEqual([]);
+    const q = view((o) => (o.situation = `${o.situation} Should the team disable what the intruder holds and scope it tightly?`));
+    expect(errors(checkAnswerLeak(q))).toEqual([]);
+  });
+
+  it('advice in a wh-clause is still a recommendation (review 29 Oct 2026)', () => {
+    for (const advice of [
+      'The incident runbook spells out what the team should do: disable whatever the intruder holds and scope it tightly.',
+      'The key reached production, which is why the team must disable whatever the intruder holds and scope it tightly.',
+      'The runbook explains how responders must disable whatever the intruder holds and scope it tightly.',
+    ]) {
+      const g = libGate((o) => (o.situation = `${o.situation} ${advice}`));
+      expect(g.ok, advice).toBe(false);
+      expect(g.errors.join(' '), advice).toMatch(/situation: a sentence recommends the best option/);
+    }
+    // The legacy item's own rule-5 case, phrased with a wh-clause.
+    const out = fakeItem();
+    out.scenario = `${out.scenario} The incident runbook spells out what the team should do first: revoke the session and scope the policy before anything else.`;
+    expect(errors(checkAnswerLeak(out)).join(' ')).toMatch(/a sentence recommends the best option/);
   });
 
   it('a distractor analysis that says never, neither ... nor, or overstating states a failure (977a2d9e, 3849b7dd, f9b9143e)', () => {
