@@ -12,6 +12,15 @@ export function seatSummary(purchased: number, activeMembers: number, pendingInv
   return { purchased, used: activeMembers, pending: pendingInvites, available: Math.max(0, purchased - activeMembers - pendingInvites) };
 }
 
+/**
+ * Free seats for a decision: not clamped at 0 like `available` (which is for display), so an
+ * organisation already over its seats stays over and "+1" for an invitation's own seat cannot
+ * turn an overbooking into a free seat.
+ */
+export function freeSeats(seats: Pick<OrgSummary["seats"], "purchased" | "used" | "pending">): number {
+  return seats.purchased - seats.used - seats.pending;
+}
+
 /* ---------------- Invitation tokens ---------------- */
 
 /** 32 random bytes, base64url: the only copy is in the email; the database keeps its SHA-256. */
@@ -95,6 +104,8 @@ export interface MemberChangeFacts {
   target: { userId: string; role: OrgRole; status: MemberStatus };
   /** Active org admins in the organisation right now. */
   activeAdmins: number;
+  /** Free seats right now (freeSeats: purchased − active members − pending invitations; negative when over). */
+  seatsFree: number;
 }
 
 export type ChangePlan = { ok: true } | { ok: false; status: 400 | 403 | 409; code: string; message: string };
@@ -136,6 +147,10 @@ export function planStatusChange(f: MemberChangeFacts, requested: MemberStatus):
     const keep = keepsAnAdmin(f);
     if (!keep.ok) return keep;
   }
+  // A suspended member holds no seat; reinstating takes one back.
+  if (requested === "active" && f.seatsFree < 1) {
+    return no(409, "ORG_NO_SEATS", "There's no free seat to reinstate this person. Add seats, or withdraw an invitation or suspend someone first.");
+  }
   return { ok: true };
 }
 
@@ -154,6 +169,15 @@ export function planLeave(self: { role: OrgRole; status: MemberStatus }, activeA
 }
 
 /* ---------------- Inviting ---------------- */
+
+/** Resending: an expired invitation holds no seat, so renewing it needs a free one (a live invitation already holds its seat). */
+export function planResend(f: { state: InvitationState; seatsFree: number }): ChangePlan {
+  if (f.state === "accepted" || f.state === "revoked") return no(409, "INVITE_CLOSED", "This invitation is no longer open.");
+  if (f.state === "expired" && f.seatsFree < 1) {
+    return no(409, "ORG_NO_SEATS", "Every seat is taken or held by a pending invitation. Add seats or withdraw another invitation to renew this one.");
+  }
+  return { ok: true };
+}
 
 export type SkipReason = "already_member" | "already_invited" | "no_seats" | "invalid" | "self";
 

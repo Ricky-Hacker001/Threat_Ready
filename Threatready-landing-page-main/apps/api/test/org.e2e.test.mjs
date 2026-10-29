@@ -283,6 +283,60 @@ describe("business accounts: invitations and seats", () => {
     assert.equal(stale.status, 404, "the previous link is dead after a resend");
   });
 
+  test("seats are never overbooked: reinstating, renewing an expired invitation and accepting all need a free seat", async () => {
+    const admin = await orgWithAdmin();
+    const seats = admin.org.entitlement.seats;
+    assert.ok(seats >= 4, "needs at least 4 trial seats (default 5)");
+    // A member joins, then is suspended: a suspended member holds no seat.
+    const memberEmail = `sm_${uid()}@example.test`;
+    const { token } = await inviteAndToken(admin.c, memberEmail);
+    const member = await registerVerified(new Client(), memberEmail);
+    assert.equal((await member.c.post(`/api/invitations/${token}/accept`)).status, 200);
+    const memberId = (await member.c.get("/api/me")).json.user.id;
+    const statusUrl = `/api/org/members/${encodeURIComponent(memberId)}/status`;
+    assert.equal((await admin.c.post(statusUrl, { status: "suspended" })).status, 200);
+
+    // Every free seat goes to an invitation.
+    const fill = Array.from({ length: seats - 1 }, () => `fill_${uid()}@example.test`);
+    const sent = await admin.c.post("/api/org/invitations", { emails: fill, role: "member" });
+    assert.equal(sent.status, 201, sent.text);
+    assert.equal(sent.json.sent.length, seats - 1);
+    assert.equal(sent.json.seats.available, 0);
+
+    // Reinstating now would make one person too many.
+    const full = await admin.c.post(statusUrl, { status: "active" });
+    assert.equal(full.status, 409, full.text);
+    assert.equal(full.json.code, "ORG_NO_SEATS");
+
+    // An expired invitation frees its seat; another invitation takes it; renewing the expired one is refused.
+    const expired = sent.json.sent[0];
+    await appDb((db) => db.query("update org_invitations set expires_at = now() - interval '1 minute' where id = $1", [expired.id]));
+    const late = await admin.c.post("/api/org/invitations", { emails: [`late_${uid()}@example.test`], role: "member" });
+    assert.equal(late.json.sent.length, 1, late.text);
+    const renew = await admin.c.post(`/api/org/invitations/${expired.id}/resend`);
+    assert.equal(renew.status, 409, renew.text);
+    assert.equal(renew.json.code, "ORG_NO_SEATS");
+
+    // Withdrawing an invitation frees a seat: now the member comes back.
+    const withdrawn = sent.json.sent[1];
+    assert.equal((await admin.c.del(`/api/org/invitations/${withdrawn.id}`)).status, 200);
+    const back = await admin.c.post(statusUrl, { status: "active" });
+    assert.equal(back.status, 200, back.text);
+    const seatsNow = (await admin.c.get("/api/org")).json.org.seats;
+    assert.equal(seatsNow.used + seatsNow.pending, seats, "exactly full");
+
+    // Over its seats (the seat count fell under what is in use), the organisation accepts nobody.
+    await appDb((db) => db.query("update entitlements set seats = $2 where org_id = $1", [admin.org.id, seats - 1]));
+    const pendingEmail = sent.json.sent[2].email;
+    const invitee = await registerVerified(new Client(), pendingEmail);
+    const mail = await mailbox(pendingEmail, "org-invite");
+    const over = await invitee.c.post(`/api/invitations/${inviteTokenOf(mail)}/accept`);
+    assert.equal(over.status, 409, over.text);
+    assert.equal(over.json.code, "ORG_NO_SEATS");
+    const after = (await admin.c.get("/api/org")).json.org.seats;
+    assert.equal(after.used, 2, "still the admin and the reinstated member");
+  });
+
   test("an expired invitation cannot be accepted and is reported as expired", async () => {
     const admin = await orgWithAdmin();
     const invitee = `exp_${uid()}@example.test`;

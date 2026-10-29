@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   INVITE_TOKEN_SHAPE,
+  freeSeats,
   hashInviteToken,
   invitationState,
   maskEmail,
@@ -14,6 +15,7 @@ import {
   planInvites,
   planLeave,
   planRemoval,
+  planResend,
   planRoleChange,
   planStatusChange,
   seatSummary,
@@ -64,6 +66,31 @@ test("accepting: the invited address, verified, not a guest, not already in an o
   assert.equal(planAccept({ ...base, orgStatus: "suspended" }).code, "ORG_SUSPENDED");
   assert.equal(planAccept({ ...base, orgStatus: "pending" }).ok, true, "a pending organisation can still gather its people");
   assert.equal(planAccept({ ...base, seatsAvailable: 0 }).code, "ORG_NO_SEATS");
+});
+
+test("seats are never overbooked: reinstating takes a seat back, renewing an expired invitation needs one, accepting counts unclamped", () => {
+  const admin = { userId: "a", role: "org_admin" };
+  const suspended = { userId: "m", role: "member", status: "suspended" };
+  assert.deepEqual(planStatusChange({ actor: admin, target: suspended, activeAdmins: 1, seatsFree: 1 }, "active"), { ok: true });
+  assert.equal(planStatusChange({ actor: admin, target: suspended, activeAdmins: 1, seatsFree: 0 }, "active").code, "ORG_NO_SEATS");
+  assert.equal(planStatusChange({ actor: admin, target: suspended, activeAdmins: 1, seatsFree: -2 }, "active").status, 409);
+  assert.deepEqual(planStatusChange({ actor: admin, target: { ...suspended, status: "active" }, activeAdmins: 1, seatsFree: -2 }, "suspended"), { ok: true }, "suspending frees a seat, whatever the count");
+
+  assert.deepEqual(planResend({ state: "valid", seatsFree: 0 }), { ok: true }, "a live invitation already holds its seat");
+  assert.equal(planResend({ state: "expired", seatsFree: 0 }).code, "ORG_NO_SEATS", "an expired one holds none: renewing it needs a free seat");
+  assert.deepEqual(planResend({ state: "expired", seatsFree: 1 }), { ok: true });
+  assert.equal(planResend({ state: "revoked", seatsFree: 3 }).code, "INVITE_CLOSED");
+  assert.equal(planResend({ state: "accepted", seatsFree: 3 }).code, "INVITE_CLOSED");
+
+  // 5 seats, 5 active members and this invitation pending: the clamped "available" (0) plus the
+  // invitation's own seat said 1 free; unclamped it is 0, so the organisation does not grow to 6.
+  const accept = { state: "valid", invitedEmail: "a@x.io", accountEmail: "a@x.io", accountVerified: true, accountIsTrial: false, existingOrgId: null, invitationOrgId: "org1", orgStatus: "active" };
+  const full = seatSummary(5, 5, 1);
+  assert.equal(full.available, 0);
+  assert.equal(freeSeats(full), -1);
+  assert.equal(planAccept({ ...accept, seatsAvailable: freeSeats(full) + 1 }).code, "ORG_NO_SEATS");
+  assert.equal(planAccept({ ...accept, seatsAvailable: freeSeats(seatSummary(5, 6, 1)) + 1 }).code, "ORG_NO_SEATS");
+  assert.deepEqual(planAccept({ ...accept, seatsAvailable: freeSeats(seatSummary(5, 4, 1)) + 1 }), { ok: true }, "the last seat, held by this invitation");
 });
 
 test("roles: only org admins change roles, never their own; the last admin stays", () => {

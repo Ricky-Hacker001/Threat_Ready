@@ -32,6 +32,7 @@ import { AppsClient } from "../platform/apps.client.js";
 import { isOrgRole } from "../tenancy/tenancy.js";
 import {
   INVITE_TOKEN_SHAPE,
+  freeSeats,
   hashInviteToken,
   invitationState,
   maskEmail,
@@ -40,6 +41,7 @@ import {
   planInvites,
   planLeave,
   planRemoval,
+  planResend,
   planRoleChange,
   planStatusChange,
   seatSummary,
@@ -430,6 +432,13 @@ export class OrgService {
     const ttl = this.config.ORG_INVITE_TTL_DAYS;
     const expiresAt = new Date(Date.now() + ttl * DAY);
     await this.db.transaction(async (tx) => {
+      // Serialised with invite/accept/reinstate: renewing an expired invitation takes a seat back.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`org-seats:${orgId}`}, 0))`);
+      const [fresh] = await tx.select().from(orgInvitations).where(and(eq(orgInvitations.id, inv.id), eq(orgInvitations.orgId, orgId))).limit(1);
+      if (!fresh) throw notFound();
+      const org = await this.summary(orgId, tx);
+      const plan = planResend({ state: invitationState(fresh), seatsFree: freeSeats(org.seats) });
+      if (!plan.ok) fail(plan);
       await tx.update(orgInvitations).set({ tokenHash: hash, expiresAt }).where(eq(orgInvitations.id, inv.id));
       await this.audit(tx, orgId, "invite.resend", { userId: p.userId, email: p.email }, null, { email: inv.email, invitationId: inv.id }, ip);
     });
@@ -456,9 +465,10 @@ export class OrgService {
       .where(and(eq(memberships.orgId, orgId), eq(memberships.userId, targetId), sql`${memberships.role} in ('org_admin', 'manager', 'member')`))
       .limit(1);
     if (!t || !isOrgRole(t.m.role)) throw notFound();
+    const org = await this.summary(orgId, tx);
     return {
       target: { userId: t.u.id, email: t.u.email, role: t.m.role, status: t.m.status as MemberStatus },
-      facts: { actor: { userId: p.userId, role: p.org!.role }, target: { userId: t.u.id, role: t.m.role, status: t.m.status as MemberStatus }, activeAdmins: await this.activeAdmins(tx, orgId) },
+      facts: { actor: { userId: p.userId, role: p.org!.role }, target: { userId: t.u.id, role: t.m.role, status: t.m.status as MemberStatus }, activeAdmins: await this.activeAdmins(tx, orgId), seatsFree: freeSeats(org.seats) },
     };
   }
 
@@ -610,8 +620,9 @@ export class OrgService {
         existingOrgId: existing?.orgId ?? null,
         invitationOrgId: inv.orgId,
         orgStatus: org.status as "pending" | "active" | "suspended",
-        // The invitation itself holds one of the pending seats: it does not compete with itself.
-        seatsAvailable: seats.available + 1,
+        // The invitation itself holds one of the pending seats: it does not compete with itself. Not
+        // clamped: an organisation already over its seats (used + pending > purchased) stays refused.
+        seatsAvailable: freeSeats(seats) + 1,
       });
       if (!plan.ok) {
         const body = { code: plan.code, message: plan.message };
