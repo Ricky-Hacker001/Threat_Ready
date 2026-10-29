@@ -17,8 +17,8 @@ import { and, desc, eq, gte, inArray, isNull, sql, gt } from "drizzle-orm";
 import { z } from "zod";
 import type { Principal } from "../authz/authz.js";
 import { CONFIG, type Config } from "../config.js";
-import { DB, type Db } from "../db/db.js";
-import { entitlements, featureLaunches, memberships, orgInvitations, organizations, users } from "../db/schema.js";
+import { DB, type Db, type Tx } from "../db/db.js";
+import { adminAuditLog, entitlements, featureLaunches, memberships, orgInvitations, organizations, users } from "../db/schema.js";
 import { EMAIL_PORT, dispatch, type EmailPort } from "../email/email.port.js";
 import { orgStatusEmail } from "../email/templates.js";
 import { OrgService } from "../org/org.service.js";
@@ -54,8 +54,8 @@ function usageByUser(perApp: Partial<Record<AppKey, AppAiUsage>>) {
 /**
  * The platform admin's view of organisations (business accounts): who they are, what plan they are
  * on, what their members use and cost. The plan is set here by hand until billing exists: every
- * change is written to the organisation's own audit log (which its admins can read) and to the
- * platform audit log.
+ * change is written to the organisation's own audit log (which its admins can read, without the
+ * staff member's identity) and to the platform audit log (admin_audit_log: org.plan, org.status).
  */
 @Injectable()
 export class AdminOrgsService {
@@ -222,6 +222,15 @@ export class AdminOrgsService {
     return row;
   }
 
+  /**
+   * The platform's own append-only trail (admin_audit_log), next to role changes: written in the same
+   * transaction as the change and the organisation's log row. Inserted here rather than through
+   * AdminService, which already depends on this service.
+   */
+  private async adminTrail(tx: Tx, action: "org.plan" | "org.status", actor: Principal, org: { id: string; name: string }, detail: Record<string, unknown>, ip: string | null): Promise<void> {
+    await tx.insert(adminAuditLog).values({ action, actorId: actor.userId, actorEmail: actor.email, targetId: null, targetEmail: null, detail: { orgId: org.id, name: org.name, ...detail }, ip });
+  }
+
   private confirm(name: string, typed: string) {
     if (name.trim().toLowerCase() !== typed.trim().toLowerCase()) throw new BadRequestException({ code: "ADMIN_CONFIRM_MISMATCH", message: "The organisation name you typed doesn't match." });
   }
@@ -239,15 +248,9 @@ export class AdminOrgsService {
         .update(entitlements)
         .set({ plan: body.plan, status: body.status, seats: body.seats, periodEnd: body.periodEnd ? new Date(body.periodEnd) : null, aiCapUsd: body.aiCapUsd === null ? null : Math.round(body.aiCapUsd), updatedAt: new Date() })
         .where(eq(entitlements.orgId, id));
-      await this.org.audit(
-        tx,
-        id,
-        "plan.set",
-        { userId: actor.userId, email: actor.email },
-        null,
-        { from: { plan: ent.plan, status: ent.status, seats: ent.seats, periodEnd: ent.periodEnd?.toISOString() ?? null, aiCapUsd: ent.aiCapUsd }, to: { plan: body.plan, status: body.status, seats: body.seats, periodEnd: body.periodEnd, aiCapUsd: body.aiCapUsd }, by: "platform_admin" },
-        ip,
-      );
+      const change = { from: { plan: ent.plan, status: ent.status, seats: ent.seats, periodEnd: ent.periodEnd?.toISOString() ?? null, aiCapUsd: ent.aiCapUsd }, to: { plan: body.plan, status: body.status, seats: body.seats, periodEnd: body.periodEnd, aiCapUsd: body.aiCapUsd } };
+      await this.org.audit(tx, id, "plan.set", { userId: actor.userId, email: actor.email }, null, { ...change, by: "platform_admin" }, ip);
+      await this.adminTrail(tx, "org.plan", actor, org, change, ip);
     });
     this.logger.log(`plan set org=${id} plan=${body.plan} status=${body.status} seats=${body.seats}`);
     return (await this.rows({ from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }, id)).rows[0]!;
@@ -262,6 +265,7 @@ export class AdminOrgsService {
     await this.db.transaction(async (tx) => {
       await tx.update(organizations).set({ status: body.status, approvedAt: body.status === "active" && !org.approvedAt ? new Date() : org.approvedAt, updatedAt: new Date() }).where(eq(organizations.id, id));
       await this.org.audit(tx, id, action, { userId: actor.userId, email: actor.email }, null, { from: org.status, to: body.status, by: "platform_admin" }, ip);
+      await this.adminTrail(tx, "org.status", actor, org, { action, from: org.status, to: body.status }, ip);
     });
     if (body.status === "active" || body.status === "suspended") {
       const admins = await this.db

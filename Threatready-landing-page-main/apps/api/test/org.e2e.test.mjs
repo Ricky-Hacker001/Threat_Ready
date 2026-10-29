@@ -510,6 +510,12 @@ describe("business accounts: platform admin", () => {
     const staffView = await platform.c.get(`/api/admin/orgs/${admin.org.id}`);
     assert.equal(staffView.json.audit.find((r) => r.action === "plan.set").actor.email, platform.email, "the platform admin's own view keeps who did it");
 
+    // The platform's append-only trail has every change too (and the reads), with who did it.
+    const trail = await appDb(async (db) => (await db.query("select action, actor_email, detail from admin_audit_log where detail->>'orgId' = $1 and action <> 'org.view' order by id", [admin.org.id])).rows);
+    assert.deepEqual(trail.map((r) => [r.action, r.detail.to?.status ?? r.detail.to]), [["org.plan", "active"], ["org.status", "suspended"], ["org.status", "active"]]);
+    assert.ok(trail.every((r) => r.actor_email === platform.email && r.detail.name === admin.org.name));
+    assert.deepEqual(trail[0].detail.to, { plan: "business", status: "active", seats: 25, periodEnd: null, aiCapUsd: 50 });
+
     const users = await platform.c.get(`/api/admin/users?q=${encodeURIComponent(admin.email)}`);
     assert.equal(users.status, 200);
     const u = users.json.rows.find((r) => r.email === admin.email);

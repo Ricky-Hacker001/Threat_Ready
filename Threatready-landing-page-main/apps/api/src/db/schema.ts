@@ -416,6 +416,7 @@ export const adminAuditLog = pgTable(
     foreignKey({ name: "admin_audit_log_target_id_fkey", columns: [t.targetId], foreignColumns: [users.id] }).onDelete("set null"),
     index("admin_audit_log_at_idx").on(t.at),
     index("admin_audit_log_target_idx").on(t.targetId),
-    check("admin_audit_log_action_check", sql`"action" IN ('role.promote', 'role.demote', 'users.export', 'user.view', 'org.view')`),
+    // org.plan / org.status: a platform admin's changes to an organisation (migration 0013).
+    check("admin_audit_log_action_check", sql`"action" IN ('role.promote', 'role.demote', 'users.export', 'user.view', 'org.view', 'org.plan', 'org.status')`),
   ],
 );
