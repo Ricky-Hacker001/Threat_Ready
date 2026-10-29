@@ -457,6 +457,39 @@ describe("business accounts: roles, suspension, removal, leaving", () => {
 });
 
 describe("business accounts: platform admin", () => {
+  test("approving a pending organisation starts its trial then: the days it waited are not lost", async () => {
+    const admin = await orgWithAdmin();
+    const trialMs = new Date(admin.org.entitlement.periodEnd).getTime() - new Date(admin.org.createdAt).getTime();
+    const platform = await registerVerified();
+    await appDb((db) => db.query("update users set role = 'admin' where email = $1", [platform.email]));
+    // As with ORG_APPROVAL_REQUIRED=true, approved only after its trial days have run out.
+    await appDb(async (db) => {
+      await db.query("update organizations set status = 'pending', approved_at = null where id = $1", [admin.org.id]);
+      await db.query("update entitlements set period_end = now() - interval '1 hour' where org_id = $1", [admin.org.id]);
+    });
+    assert.equal((await admin.c.get("/api/me")).json.org.effective, false);
+
+    const approve = await platform.c.post(`/api/admin/orgs/${admin.org.id}/status`, { status: "active", confirmName: admin.org.name });
+    assert.equal(approve.status, 200, approve.text);
+    const left = new Date(approve.json.entitlement.periodEnd).getTime() - Date.now();
+    assert.ok(Math.abs(left - trialMs) < 5 * 60_000, `a whole trial from approval (${left} ms left, trial ${trialMs} ms)`);
+    const me = await admin.c.get("/api/me");
+    assert.equal(me.json.org.effective, true, "the approval email's promise holds: the team is on the plan");
+    assert.equal(me.json.plan, "business_trial");
+    const approved = (await admin.c.get("/api/org/audit")).json.find((r) => r.action === "org.approve");
+    assert.ok(approved.detail.trial?.from && approved.detail.trial?.to, "the restart is in the organisation's log");
+
+    // A later period set by hand is never shortened by an approval.
+    const far = new Date(Date.now() + 90 * 86_400_000).toISOString();
+    await appDb(async (db) => {
+      await db.query("update organizations set status = 'pending' where id = $1", [admin.org.id]);
+      await db.query("update entitlements set period_end = $2 where org_id = $1", [admin.org.id, far]);
+    });
+    const again = await platform.c.post(`/api/admin/orgs/${admin.org.id}/status`, { status: "active", confirmName: admin.org.name });
+    assert.equal(again.status, 200, again.text);
+    assert.equal(again.json.entitlement.periodEnd, far);
+  });
+
   test("organisations list and detail, manual plan, approval and suspension; the users list shows the account type", async () => {
     const admin = await orgWithAdmin();
     const platform = await registerVerified();

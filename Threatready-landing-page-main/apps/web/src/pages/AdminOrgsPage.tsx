@@ -392,7 +392,7 @@ function StatusForm({ org, onSaved }: { org: AdminOrgRow; onSaved: (row: AdminOr
         {error ? <Notice tone="error">{error}</Notice> : null}
         <p>
           {org.status === "pending"
-            ? "Waiting for approval: its admin can invite people, but nobody launches on the organisation's plan until it is approved."
+            ? "Waiting for approval: its admin can invite people, but nobody launches on the organisation's plan until it is approved. Approving starts its trial days from then."
             : org.status === "active"
               ? "Active. Suspending closes the console and drops every member to the free plan; nothing is deleted."
               : "Suspended. Members are on the free plan and the console is closed."}

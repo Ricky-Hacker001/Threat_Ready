@@ -35,7 +35,7 @@ An organisation (a company, team or institute) owns seats, a plan and the people
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `ORG_APPROVAL_REQUIRED` | `false` | `true` creates organisations as `pending`: invitations work, launches stay on personal plans until a platform admin approves (admin console → Organisations). |
+| `ORG_APPROVAL_REQUIRED` | `false` | `true` creates organisations as `pending`: invitations work, launches stay on personal plans until a platform admin approves (admin console → Organisations). Approving starts the trial's `ORG_TRIAL_DAYS` from then (a later period end set by hand is kept). |
 | `ORG_TRIAL_SEATS` / `ORG_TRIAL_DAYS` | 5 / 14 | The trial every new organisation starts on. |
 | `ORG_INVITE_TTL_DAYS` | 7 | How long an invitation link works. |
 | `ORG_INVITES_PER_DAY` | 200 | Invitations (new + resent) one organisation may send per rolling day; 0 = no limit. |

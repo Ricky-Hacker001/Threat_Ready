@@ -28,6 +28,7 @@ import { secondsByUser } from "./activity.queries.js";
 import type { Range } from "./admin.service.js";
 
 const MAX_ORGS = 2_000;
+const DAY = 24 * 60 * 60 * 1000;
 
 export const orgListQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
@@ -256,16 +257,31 @@ export class AdminOrgsService {
     return (await this.rows({ from: new Date(Date.now() - 30 * 86_400_000), to: new Date() }, id)).rows[0]!;
   }
 
-  /** Approve a pending organisation, suspend one, or reinstate it. Its admins are told by email. */
+  /**
+   * Approve a pending organisation, suspend one, or reinstate it. Its admins are told by email.
+   * Approving starts the trial then: while pending, nobody launched on the organisation's plan, so
+   * the days it waited are not taken from its trial (a period end set by hand is never shortened).
+   */
   async setStatus(actor: Principal, id: string, body: AdminOrgStatus, ip: string | null): Promise<AdminOrgRow> {
     const { org } = await this.load(id);
     this.confirm(org.name, body.confirmName);
     if (org.status === body.status) throw new BadRequestException({ code: "ORG_STATUS_SAME", message: `The organisation is already ${body.status}.` });
     const action = body.status === "active" ? (org.status === "pending" ? "org.approve" : "org.reinstate") : body.status === "suspended" ? "org.suspend" : "org.update";
     await this.db.transaction(async (tx) => {
-      await tx.update(organizations).set({ status: body.status, approvedAt: body.status === "active" && !org.approvedAt ? new Date() : org.approvedAt, updatedAt: new Date() }).where(eq(organizations.id, id));
-      await this.org.audit(tx, id, action, { userId: actor.userId, email: actor.email }, null, { from: org.status, to: body.status, by: "platform_admin" }, ip);
-      await this.adminTrail(tx, "org.status", actor, org, { action, from: org.status, to: body.status }, ip);
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`org-seats:${id}`}, 0))`);
+      const now = new Date();
+      await tx.update(organizations).set({ status: body.status, approvedAt: body.status === "active" && !org.approvedAt ? now : org.approvedAt, updatedAt: now }).where(eq(organizations.id, id));
+      let trial: { from: string | null; to: string } | undefined;
+      if (action === "org.approve") {
+        const [ent] = await tx.select({ status: entitlements.status, periodEnd: entitlements.periodEnd }).from(entitlements).where(eq(entitlements.orgId, id)).limit(1);
+        const restart = new Date(now.getTime() + this.config.ORG_TRIAL_DAYS * DAY);
+        if (ent?.status === "trialing" && ent.periodEnd && ent.periodEnd.getTime() < restart.getTime()) {
+          await tx.update(entitlements).set({ periodEnd: restart, updatedAt: now }).where(eq(entitlements.orgId, id));
+          trial = { from: ent.periodEnd.toISOString(), to: restart.toISOString() };
+        }
+      }
+      await this.org.audit(tx, id, action, { userId: actor.userId, email: actor.email }, null, { from: org.status, to: body.status, by: "platform_admin", ...(trial ? { trial } : {}) }, ip);
+      await this.adminTrail(tx, "org.status", actor, org, { action, from: org.status, to: body.status, ...(trial ? { trial } : {}) }, ip);
     });
     if (body.status === "active" || body.status === "suspended") {
       const admins = await this.db
