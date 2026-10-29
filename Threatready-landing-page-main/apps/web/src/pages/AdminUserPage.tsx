@@ -286,6 +286,19 @@ export function AdminUserPage() {
             <dt>Sign-in methods</dt>
             <dd>{data.signInMethods.length ? data.signInMethods.join(", ") : <span className="profile-empty">None</span>}</dd>
           </div>
+          <div>
+            <dt>Account</dt>
+            <dd>
+              {u.account.org ? (
+                <>
+                  <Link to={`/app/admin/orgs/${encodeURIComponent(u.account.org.id)}`}>{u.account.org.name}</Link> · {u.account.org.role === "org_admin" ? "organisation admin" : u.account.org.role}
+                  {u.account.org.status === "suspended" ? " · membership suspended" : ""}
+                </>
+              ) : (
+                <>Individual{u.isTrial ? " (guest)" : ", free plan"}</>
+              )}
+            </dd>
+          </div>
         </dl>
       </section>
 

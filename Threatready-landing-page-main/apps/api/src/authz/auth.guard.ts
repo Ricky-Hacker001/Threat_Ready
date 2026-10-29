@@ -15,11 +15,13 @@ import { AUTH, type Auth } from "../auth/auth.js";
 import { CONFIG, type Config } from "../config.js";
 import { DB, type Db } from "../db/db.js";
 import { users } from "../db/schema.js";
-import { ensurePersonalWorkspace, findPersonalMembership } from "../tenancy/tenancy.js";
+import { effectiveTenant, ensurePersonalWorkspace, findOrgMembership, findPersonalMembership, toOrgContext } from "../tenancy/tenancy.js";
 import {
   ADMIN_PERMISSIONS,
   FRESH_SESSION,
   IS_PUBLIC,
+  ORG_PERMISSIONS,
+  ORG_ROLE_PERMISSIONS,
   REQUIRED_PERMISSION,
   ROLE_PERMISSIONS,
   isPlatformAdmin,
@@ -95,14 +97,23 @@ export class AuthGuard implements CanActivate {
     }
     if (!membership) throw new ForbiddenException({ code: "NO_MEMBERSHIP", message: "Forbidden" });
 
-    // 3–4. Role → permission (admin permissions come from the platform role)
+    // The organisation (business account) the user belongs to, if any. Its plan applies only while the
+    // organisation, the member and the plan are all live (tenancy.ts); its console permissions only
+    // while the member is active and the organisation is not suspended.
+    const org = isTrial ? null : await findOrgMembership(this.db, user.id);
+    const orgPermissions: readonly Permission[] = org && org.memberStatus === "active" && org.orgStatus !== "suspended" ? ORG_ROLE_PERMISSIONS[org.role] : [];
+
+    // 3–4. Role → permission (admin permissions come from the platform role, organisation ones from the organisation role)
     const allowed = ADMIN_PERMISSIONS.includes(permission)
       ? isAdmin
-      : ROLE_PERMISSIONS[membership.role].includes(permission);
+      : ORG_PERMISSIONS.includes(permission)
+        ? orgPermissions.includes(permission)
+        : ROLE_PERMISSIONS[membership.role].includes(permission);
     if (!allowed) {
       throw new ForbiddenException({ code: "FORBIDDEN", message: "Forbidden" });
     }
 
+    const tenant = effectiveTenant(membership, org);
     req.principal = {
       userId: user.id,
       sessionId: session.session.id,
@@ -110,9 +121,12 @@ export class AuthGuard implements CanActivate {
       isAdmin,
       username: user.username ?? null,
       email: isTrial ? null : user.email,
-      orgId: membership.orgId,
+      emailVerified: user.emailVerified === true,
+      orgId: tenant.orgId,
       role: membership.role,
-      plan: membership.plan,
+      plan: tenant.plan,
+      personal: { orgId: membership.orgId, plan: membership.plan },
+      org: org ? toOrgContext(org) : null,
     };
     return true;
   }

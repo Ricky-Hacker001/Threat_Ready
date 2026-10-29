@@ -386,9 +386,12 @@ describe("ownership and RLS", () => {
     const db = new pg.Client({ connectionString: APP_DB });
     await db.connect();
     try {
-      const none = await db.query("select user_id from feature_launches");
-      assert.equal(none.rowCount, 0, "missing WHERE and missing setting → no rows");
-      // No request user set: the shared tables answer role-wide (Better Auth, admin console, tenancy).
+      // No request user set: role-wide, like the shared tables since 0011 (the organisation and admin
+      // consoles count launches per organisation this way, migration 0012). Writes still need the owner.
+      const all = await db.query("select user_id from feature_launches where user_id in ($1, $2)", [aId, bId]);
+      assert.equal(all.rowCount, 2, "no request user → the console's role-wide read");
+      await assert.rejects(db.query("insert into feature_launches (user_id, org_id, feature) values ($1, $2, 'interview')", [bId, (await db.query("select org_id from memberships where user_id = $1", [bId])).rows[0].org_id]), /row-level security/);
+      // The shared tables answer role-wide too (Better Auth, admin console, tenancy).
       const bOrg = (await db.query("select org_id from memberships where user_id = $1", [bId])).rows[0]?.org_id;
       assert.ok(bOrg, "memberships readable without a user context");
       assert.equal((await db.query("select 1 from users where id = $1", [bId])).rowCount, 1);

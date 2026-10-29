@@ -90,16 +90,17 @@ export const appHref = (a: Pick<AppInfo, "key" | "url">) => new URL(APP_PATH[a.k
 
 /**
  * Where ?next= may lead after signing in or out: inside an app's home (InterviewPrep's /interview-prep,
- * /labs/, /ar/) or onboard's own /app. On a single origin the origin check alone would also accept
- * /signout or /api/… (TR-41).
+ * /labs/, /ar/), onboard's own /app, or an organisation invitation page (/invite/<token>, which sends
+ * the person to sign in and must get them back). On a single origin the origin check alone would also
+ * accept /signout or /api/… (TR-41).
  */
-export const nextPrefixes = (apps: Pick<AppInfo, "key" | "url">[]) => [...apps.map(appHref), new URL("/app", window.location.origin).toString()];
+export const nextPrefixes = (apps: Pick<AppInfo, "key" | "url">[]) => [...apps.map(appHref), new URL("/app", window.location.origin).toString(), new URL("/invite", window.location.origin).toString()];
 
 /** The app whose home holds `url`, by home rather than base URL (on one origin InterviewPrep's base is "/"); onboard's pages belong to none. */
 export const appAt = <T extends Pick<AppInfo, "key" | "url">>(apps: T[], url: string): T | undefined =>
   appForUrl(apps.map((a) => ({ ...a, url: appHref(a) })), url);
 
-export type ShellLocation = "home" | "profile" | "admin" | AppKey;
+export type ShellLocation = "home" | "profile" | "admin" | "org" | AppKey;
 
 /** Home plus every ThreatReady app, each a link to its own subdomain. Names come from the app registry. */
 export function AppSwitcher({ apps, current }: { apps: AppInfo[]; current: ShellLocation }) {

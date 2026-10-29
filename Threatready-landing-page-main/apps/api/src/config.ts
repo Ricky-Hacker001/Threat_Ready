@@ -103,6 +103,21 @@ const envSchema = z
     INTERNAL_TOKEN_LEGACY_ACCEPT: z.enum(["true", "false"]).optional(),
     /** Comma-separated verified emails that are platform admins (in addition to users.role = 'admin'). */
     ADMIN_EMAILS: optional,
+    /*
+     * Business accounts (organisations). ORG_APPROVAL_REQUIRED=true creates every new organisation as
+     * "pending": members can be invited and the console works, but nobody launches on its plan until a
+     * platform admin approves it (admin console → Organisations). Off: self-serve, active at once.
+     */
+    ORG_APPROVAL_REQUIRED: z.enum(["true", "false"]).default("false"),
+    /** The trial every new organisation starts on: seats and days. The platform admin changes both per organisation. */
+    ORG_TRIAL_SEATS: z.coerce.number().int().min(1).max(500).default(5),
+    ORG_TRIAL_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+    /** An invitation link works this long; after that the admin resends it. */
+    ORG_INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(7),
+    /** Invitations one organisation may send per rolling 24 hours (new and resent). 0 = no limit. */
+    ORG_INVITES_PER_DAY: z.coerce.number().int().min(0).default(200),
+    /** Members' per-app summaries the organisation console fetches at once (reports). */
+    ORG_REPORT_CONCURRENCY: z.coerce.number().int().min(1).max(20).default(4),
     /** Public origins the browser is sent to. */
     INTERVIEW_APP_URL: z.string().url().default("http://localhost:5174"),
     LABS_APP_URL: z.string().url().default("http://localhost:5175"),
@@ -142,6 +157,7 @@ const envSchema = z
 export type RegisteredApp = AppInfo & { internalUrl: string };
 
 export type Config = z.infer<typeof envSchema> & {
+  orgApprovalRequired: boolean;
   apps: Record<AppKey, RegisteredApp>;
   /** Bearer tokens /api/internal/* accepts (per-caller tokens, plus the raw token when legacy acceptance is on). */
   internalTokensAccept: readonly string[];
@@ -201,6 +217,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     apps,
     appOrigins,
     trialEnabled: c.TRIAL_ENABLED === "true",
+    orgApprovalRequired: c.ORG_APPROVAL_REQUIRED === "true",
     internalTokensAccept,
     internalTokenTo: {
       interview: c.INTERNAL_TOKEN_TO_INTERVIEW ?? c.INTERNAL_API_TOKEN,

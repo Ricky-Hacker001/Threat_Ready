@@ -75,7 +75,7 @@ describe('attack reasoning: questions on the architecture library', () => {
         const arch = getArchitecture(r.architecture_id)!;
         expect(bucket).toContain(arch.id);
         // Attack Reasoning's SMALL model (claude-haiku-5-5 by default since H55), not the interviews' LLM_MODEL_SMALL.
-        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.REASONING_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v4', serve_count: 0 });
+        expect(r).toMatchObject({ tier: 'SMALL', model: tp.cfg.REASONING_MODEL_SMALL, generator_version: 'gen.v3.2026-10-26', prompt_version: 'reasoning-generate.v5', serve_count: 0 });
         expect(r.seed.topology).toBe(arch.id);
         expect(r.seed.architecture).toMatchObject({ id: arch.id, version: arch.version, surface: r.seed.entryPoint });
         expect(r.seed.architecture.pathKey.startsWith(`${arch.id}:`)).toBe(true);

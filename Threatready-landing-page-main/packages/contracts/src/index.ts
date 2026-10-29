@@ -65,6 +65,29 @@ export const featureStateSchema = z.object({
 });
 export type FeatureState = z.infer<typeof featureStateSchema>;
 
+/** The organisation (business or institute account) the signed-in user belongs to, if any. */
+export const orgContextSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.enum(["business", "institute"]),
+  /** Who the organisation is for; shown in the console copy. */
+  segment: z.enum(["business", "institute"]),
+  /** pending: created, waiting for platform approval. suspended: no launches on the org's plan. */
+  status: z.enum(["pending", "active", "suspended"]),
+  /** The caller's role in the organisation. Only org_admin and manager open the organisation console. */
+  role: z.enum(["org_admin", "manager", "member"]),
+  /** The caller's membership state: a suspended member keeps the account but falls back to the personal plan. */
+  memberStatus: z.enum(["active", "suspended"]),
+  plan: z.enum(["business_trial", "business"]),
+  planStatus: z.enum(["trialing", "active", "past_due", "suspended", "cancelled"]),
+  seats: z.number().int().nonnegative(),
+  /** Trial end or renewal date, ISO; null when open-ended. */
+  periodEnd: z.string().nullable(),
+  /** True when launches are counted against this organisation's plan right now. */
+  effective: z.boolean(),
+});
+export type OrgContext = z.infer<typeof orgContextSchema>;
+
 export const meSchema = z.object({
   user: z.object({
     id: z.string(),
@@ -73,9 +96,13 @@ export const meSchema = z.object({
     isTrial: z.boolean(),
     isAdmin: z.boolean(),
   }),
+  /** The organisation launches are counted against right now: the business org while its membership and plan are live, else the personal workspace. */
   orgId: z.string(),
   role: z.enum(["learner", "trial"]),
-  plan: z.enum(["free", "trial"]),
+  plan: z.enum(["free", "trial", "business_trial", "business"]),
+  /** Personal workspace, always present. */
+  personal: z.object({ orgId: z.string(), plan: z.enum(["free", "trial"]) }),
+  org: orgContextSchema.nullable(),
   features: z.array(featureStateSchema),
 });
 export type Me = z.infer<typeof meSchema>;
@@ -112,7 +139,9 @@ export const FEATURE_ROUTES: Record<FeatureKey, string> = {
 /* emulators with no per-session usage cost.                           */
 /* ------------------------------------------------------------------ */
 
-export type Plan = "trial" | "free";
+export type Plan = "trial" | "free" | "business_trial" | "business";
+export const PLANS = ["trial", "free", "business_trial", "business"] as const;
+export const planSchema = z.enum(PLANS);
 
 export interface FeatureLimit {
   /** null = unlimited */
@@ -121,6 +150,11 @@ export interface FeatureLimit {
   period: "lifetime" | "month";
 }
 
+/**
+ * Business plans are per seat: every member of the organisation gets these limits each month on the
+ * organisation's plan. Figures are placeholders until pricing is decided (business-accounts plan §3.2);
+ * the platform admin can also set seats, the plan period and an AI cap per organisation.
+ */
 export const PLAN_LIMITS: Record<Plan, Record<FeatureKey, FeatureLimit>> = {
   trial: {
     interview: { limit: 1, period: "lifetime" },
@@ -132,6 +166,27 @@ export const PLAN_LIMITS: Record<Plan, Record<FeatureKey, FeatureLimit>> = {
     simulations: { limit: null, period: "month" },
     reasoning: { limit: 10, period: "month" },
   },
+  business_trial: {
+    interview: { limit: 5, period: "month" },
+    simulations: { limit: null, period: "month" },
+    reasoning: { limit: 20, period: "month" },
+  },
+  business: {
+    interview: { limit: 20, period: "month" },
+    simulations: { limit: null, period: "month" },
+    reasoning: { limit: 100, period: "month" },
+  },
 };
 
+/** How each plan is shown. Prices are not here on purpose: billing is a later phase. */
+export const PLAN_INFO: Record<Plan, { label: string; audience: "individual" | "organisation" }> = {
+  trial: { label: "Guest", audience: "individual" },
+  free: { label: "Free", audience: "individual" },
+  business_trial: { label: "Business trial", audience: "organisation" },
+  business: { label: "Business", audience: "organisation" },
+};
+
+export const isOrganisationPlan = (plan: Plan): boolean => PLAN_INFO[plan].audience === "organisation";
+
+export * from "./org.js";
 export * from "./platform.js";

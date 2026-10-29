@@ -138,7 +138,7 @@ describe('architecture library questions: the request', () => {
     expect(r1.effort).toBeUndefined();
     expect(r3).toMatchObject({ tier: 'LARGE', maxOutputTokens: 12_000, effort: 'medium' });
     expect(GENERATOR_VERSION).toBe('gen.v3.2026-10-26');
-    expect(GENERATION_PROMPT_VERSION).toBe('reasoning-generate.v4');
+    expect(GENERATION_PROMPT_VERSION).toBe('reasoning-generate.v5');
   });
 
   it('lists at most 8 questions to avoid and feeds the gate findings back on a retry, in the user message only', () => {

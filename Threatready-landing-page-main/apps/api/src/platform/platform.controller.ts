@@ -5,6 +5,8 @@ import type { Request, Response } from "express";
 import { AUTH, type Auth } from "../auth/auth.js";
 import { CurrentPrincipal, Public, RequirePermission, isPlatformAdmin, type Principal } from "../authz/authz.js";
 import { CONFIG, type Config } from "../config.js";
+import { DB, type Db } from "../db/db.js";
+import { findOrgMembership, orgPlanApplies } from "../tenancy/tenancy.js";
 import { AppsClient } from "./apps.client.js";
 import { assertInternalCaller } from "./internal-token.js";
 
@@ -28,6 +30,7 @@ export class PlatformController {
   constructor(
     @Inject(AUTH) private readonly auth: Auth,
     @Inject(CONFIG) private readonly config: Config,
+    @Inject(DB) private readonly db: Db,
     private readonly apps: AppsClient,
   ) {}
 
@@ -61,6 +64,8 @@ export class PlatformController {
       role?: string | null;
     };
     const isTrial = user.isAnonymous === true;
+    // The organisation whose plan this session runs on, for the apps to record usage against (business accounts).
+    const org = isTrial ? null : await findOrgMembership(this.db, user.id);
     return {
       user: {
         id: user.id,
@@ -73,6 +78,7 @@ export class PlatformController {
         isAdmin: isPlatformAdmin(user, this.config.adminEmails),
       },
       session: { id: response.session.id, expiresAt: new Date(response.session.expiresAt).toISOString() },
+      ...(org && orgPlanApplies(org) ? { org: { id: org.orgId, name: org.name, kind: org.kind, role: org.role, plan: org.plan } } : {}),
     };
   }
 

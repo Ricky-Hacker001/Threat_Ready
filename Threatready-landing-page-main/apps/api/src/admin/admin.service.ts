@@ -19,6 +19,7 @@ import { DB, type Db } from "../db/db.js";
 import { accounts, adminAuditLog, sessions, users } from "../db/schema.js";
 import { AppsClient } from "../platform/apps.client.js";
 import { lastApps, primaryLocations, secondsByUser, timeOverview, userActivity } from "./activity.queries.js";
+import { AdminOrgsService } from "./admin-orgs.service.js";
 import { planRoleChange } from "./role-change.js";
 
 export interface Range {
@@ -60,6 +61,8 @@ export const listQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   sort: z.enum(["cost", "tokens", "time", "recent", "created"]).default("cost"),
   includeTrial: z.enum(["true", "false"]).default("false"),
+  /** Individuals (free plan) or organisation members only. */
+  account: z.enum(["individual", "organisation"]).optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   size: z.coerce.number().int().min(5).max(100).default(25),
 });
@@ -92,6 +95,7 @@ export class AdminService {
     @Inject(DB) private readonly db: Db,
     @Inject(CONFIG) private readonly config: Config,
     private readonly apps: AppsClient,
+    private readonly orgs: AdminOrgsService,
   ) {}
 
   private isAdmin(u: { role: string; email: string; emailVerified: boolean; isAnonymous: boolean | null }) {
@@ -154,7 +158,7 @@ export class AdminService {
     }
 
     // Time, locations, and AI cost per country (each user counted in their most-used country).
-    const [time, primary] = await Promise.all([timeOverview(this.db, range), primaryLocations(this.db, range)]);
+    const [time, primary, orgCounts] = await Promise.all([timeOverview(this.db, range), primaryLocations(this.db, range), this.orgs.counts(range)]);
     const perUser = usageByUser(ok);
     const known = perUser.size
       ? new Set(
@@ -198,7 +202,10 @@ export class AdminService {
         admins: (counts?.admins ?? 0) + envAdmins,
         activeLast7Days: active?.n ?? 0,
         newInRange: counts?.newInRange ?? 0,
+        organisationMembers: orgCounts.organisationMembers,
+        individuals: Math.max(0, (counts?.total ?? 0) - orgCounts.organisationMembers),
       },
+      organisations: orgCounts.organisations,
       ai: { ...total, byApp, users: aiUsers.size },
       byModel: [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd),
       byFeature: byFeature.sort((a, b) => b.costUsd - a.costUsd),
@@ -257,11 +264,12 @@ export class AdminService {
       .orderBy(desc(users.createdAt))
       .limit(MAX_USERS_SCANNED);
 
-    const [{ ok, unavailable }, secs, primary, recent] = await Promise.all([
+    const [{ ok, unavailable }, secs, primary, recent, accounts] = await Promise.all([
       this.apps.aiUsageAll(range),
       secondsByUser(this.db, range),
       primaryLocations(this.db, range),
       lastApps(this.db),
+      this.orgs.accountsOf(rows.map((r) => r.id)),
     ]);
     const usage = usageByUser(ok);
 
@@ -287,9 +295,11 @@ export class AdminService {
         country: loc?.country ?? null,
         timeZone: loc?.timeZone || null,
         lastApp: recent.get(r.id) ?? null,
+        account: accounts.get(r.id) ?? { type: "individual", org: null },
       };
     });
 
+    const filtered = query.account ? out.filter((u) => u.account.type === query.account) : out;
     const sorters: Record<typeof query.sort, (a: AdminUserRow, b: AdminUserRow) => number> = {
       cost: (a, b) => b.ai.costUsd - a.ai.costUsd || b.createdAt.localeCompare(a.createdAt),
       tokens: (a, b) => totalTokens(b.ai) - totalTokens(a.ai) || b.createdAt.localeCompare(a.createdAt),
@@ -297,8 +307,8 @@ export class AdminService {
       recent: (a, b) => (b.lastSeenAt ?? "").localeCompare(a.lastSeenAt ?? ""),
       created: (a, b) => b.createdAt.localeCompare(a.createdAt),
     };
-    out.sort(sorters[query.sort]);
-    return { rows: out, unavailable };
+    filtered.sort(sorters[query.sort]);
+    return { rows: filtered, unavailable };
   }
 
   /** Platform admins right now: the role column plus verified ADMIN_EMAILS accounts that are not already role admins. */
@@ -320,7 +330,7 @@ export class AdminService {
    * Append an admin_audit_log row for a read of personal data (export, user detail). Same shape as the
    * role-change row; the table is append-only for the API role (migration 0005).
    */
-  async audit(action: "users.export" | "user.view", actor: Principal, target: { id: string; email: string | null } | null, detail: Record<string, unknown>, ip: string | null): Promise<void> {
+  async audit(action: "users.export" | "user.view" | "org.view", actor: Principal, target: { id: string; email: string | null } | null, detail: Record<string, unknown>, ip: string | null): Promise<void> {
     await this.db.insert(adminAuditLog).values({
       action,
       actorId: actor.userId,
@@ -415,7 +425,7 @@ export class AdminService {
       this.apps.overviewApps(id),
       this.apps.aiUsageAll(range, id),
     ]);
-    const [activity, recent] = await Promise.all([userActivity(this.db, range, id), lastApps(this.db, id)]);
+    const [activity, recent, orgAccounts] = await Promise.all([userActivity(this.db, range, id), lastApps(this.db, id), this.orgs.accountsOf([id])]);
     const top = activity.locations[0];
     const [lastSeen] = await this.db
       .select({ at: sql<Date | null>`max(${sessions.updatedAt})` })
@@ -450,6 +460,7 @@ export class AdminService {
         country: top?.country ?? null,
         timeZone: top?.timeZone || null,
         lastApp: recent.get(id) ?? null,
+        account: orgAccounts.get(id) ?? { type: "individual", org: null },
       },
       time: { seconds: activity.seconds, byArea: activity.byArea, daily: activity.daily },
       locations: activity.locations,

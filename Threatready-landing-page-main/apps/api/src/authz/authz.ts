@@ -1,18 +1,41 @@
 import { SetMetadata, createParamDecorator, type ExecutionContext } from "@nestjs/common";
+import type { OrgContext, OrgRole, Plan } from "@threatready/contracts";
 import type { PersonalRole } from "../tenancy/tenancy.js";
 
 /** Static role → permission map (ADD L7 step 4). Code, not data. */
-export const PERMISSIONS = ["me:read", "feature:read", "feature:launch", "launch:read", "overview:read", "admin:read", "admin:write"] as const;
+export const PERMISSIONS = [
+  "me:read",
+  "feature:read",
+  "feature:launch",
+  "launch:read",
+  "overview:read",
+  "admin:read",
+  "admin:write",
+  // Organisations (business accounts, migration 0012)
+  "org:create", // start a business account (personal role, verified email)
+  "invite:accept", // accept an invitation into an organisation
+  "org:read", // organisation console: overview, people, reports, audit
+  "org:write", // invite, remove, suspend members; resend and revoke invitations
+  "org:admin", // roles, settings, leaving rules
+] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 export const ROLE_PERMISSIONS: Record<PersonalRole, readonly Permission[]> = {
-  learner: ["me:read", "feature:read", "feature:launch", "launch:read", "overview:read"],
-  // Trial users hold the same permissions; the entitlement step caps usage.
+  learner: ["me:read", "feature:read", "feature:launch", "launch:read", "overview:read", "org:create", "invite:accept"],
+  // Trial users hold the same product permissions; the entitlement step caps usage. No organisations: a guest has no verified email.
   trial: ["me:read", "feature:read", "feature:launch", "launch:read"],
 };
 
 /** Granted by the platform role, not by the membership role. */
 export const ADMIN_PERMISSIONS: readonly Permission[] = ["admin:read", "admin:write"];
+
+/** Granted by the role in the organisation the user belongs to. A member uses the product; the console is for managers and org admins. */
+export const ORG_PERMISSIONS: readonly Permission[] = ["org:read", "org:write", "org:admin"];
+export const ORG_ROLE_PERMISSIONS: Record<OrgRole, readonly Permission[]> = {
+  org_admin: ["org:read", "org:write", "org:admin"],
+  manager: ["org:read", "org:write"],
+  member: [],
+};
 
 /** Platform admin: users.role = 'admin', or a verified email listed in ADMIN_EMAILS. Never a trial user. */
 export function isPlatformAdmin(
@@ -41,9 +64,15 @@ export interface Principal {
   isAdmin: boolean;
   username: string | null;
   email: string | null;
+  emailVerified: boolean;
+  /** The tenant launches are counted against right now: the organisation while its plan applies, else the personal workspace. */
   orgId: string;
   role: PersonalRole;
-  plan: "trial" | "free";
+  plan: Plan;
+  /** The personal workspace, always present. */
+  personal: { orgId: string; plan: "trial" | "free" };
+  /** The organisation the user belongs to, if any (one per user in phase 1), whether or not its plan applies right now. */
+  org: OrgContext | null;
 }
 
 export const IS_PUBLIC = "authz:public";

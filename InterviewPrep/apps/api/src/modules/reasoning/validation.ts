@@ -3,6 +3,7 @@ import { architectureText, composeDiagram, levelOf, normaliseOverlay, pathKey, p
 import { ATTACK_ENTERPRISE, fingerprintOf, type ReasoningDomain, type VariationSeed, type Weights } from './domain.types.js';
 import type { GeneratedItem, GeneratorOutput, LibraryGeneratorOutput } from './item.types.js';
 import { LIBRARY_LEVEL_LIMITS } from './prompts/generation.prompts.js';
+import { qualityChecks } from './quality.js';
 import { jaccard, shingles } from './similarity.js';
 
 /**
@@ -247,6 +248,11 @@ export function validateGeneratedItem(out: GeneratorOutput, domain: ReasoningDom
   if (!out.techniques.some((t) => t.id === seed.technique)) errors.push(`techniques: the assigned technique ${seed.technique} must be among the techniques in play`);
   if (out.techniques.length > 6) warnings.push('techniques: more than six listed');
   if (out.difficulty !== seed.difficulty) warnings.push(`difficulty: generator wrote ${out.difficulty}, seed asked for ${seed.difficulty}`);
+
+  // Content quality (quality.ts): answer given away in the visible text, a timeline that runs
+  // backwards, misstated regulation figures, distractors not shown to fail. Run after the structural
+  // rules so one regeneration gets every reason at once (the feedback keeps the first twelve).
+  for (const f of qualityChecks(out)) (f.severity === 'error' ? errors : warnings).push(f.message);
 
   return { ok: errors.length === 0, errors, warnings };
 }
