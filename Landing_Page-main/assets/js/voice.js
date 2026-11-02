@@ -1,4 +1,4 @@
-/* ThreatReady — voice dictation for the live demo (Web Speech API).
+/* ThreatReady: voice dictation for the live demo (Web Speech API).
    Ported unchanged from the previous landing page. Expects #dVoiceBtn, #dVoiceLabel, #dVoiceStatus, #dAns. */
 (function setupVoice(){
   const btn = document.getElementById('dVoiceBtn');
@@ -348,13 +348,13 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && isListening){
       stop(false);
-      setStatus('🛑 Voice stopped — you switched tabs or windows.');
+      setStatus('🛑 Voice stopped: you switched tabs or windows.');
     }
   });
   window.addEventListener('blur', () => {
     if (isListening){
       stop(false);
-      setStatus('🛑 Voice stopped — focus left the page.');
+      setStatus('🛑 Voice stopped: focus left the page.');
     }
   });
   window.addEventListener('pagehide', () => { if (isListening) stop(true); });

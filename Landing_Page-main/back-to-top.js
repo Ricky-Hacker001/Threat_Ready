@@ -1,11 +1,11 @@
-/* ThreatReady — back-to-top floating button
+/* ThreatReady: back-to-top floating button
  * Self-contained: injects the button into <body>, watches scroll
  * position, fades/slides it in once the user scrolls past 300px,
  * and smooth-scrolls to top on click.
  *
  * Used by every additional-doc page (privacy, terms, security,
  * dpa, rubric, pilot, sample-report). Index.html does NOT load
- * this — the landing page already has its own nav-based jumps.
+ * this: the landing page already has its own nav-based jumps.
  */
 (function(){
   'use strict';
@@ -26,7 +26,7 @@
       'stroke-linecap="round" stroke-linejoin="round"/></svg>';
     document.body.appendChild(btn);
 
-    // Threshold: 300px feels right — far enough that the button
+    // Threshold: 300px feels right: far enough that the button
     // doesn't appear on the hero fold, close enough that it shows
     // up the moment a user starts reading content.
     var THRESHOLD = 300;
@@ -43,7 +43,7 @@
       }
     }
 
-    // rAF throttling — scroll events fire 60+/sec, we only need
+    // rAF throttling: scroll events fire 60+/sec, we only need
     // to update once per frame.
     function onScroll(){
       if (!ticking){
@@ -62,14 +62,14 @@
           behavior: reduced ? 'auto' : 'smooth'
         });
       } catch(e){
-        // Older browsers — fallback to instant
+        // Older browsers: fallback to instant
         window.scrollTo(0, 0);
       }
     });
 
     window.addEventListener('scroll', onScroll, { passive: true });
 
-    // Run once on load — handles back-button-restored scroll positions
+    // Run once on load: handles back-button-restored scroll positions
     update();
   }
 

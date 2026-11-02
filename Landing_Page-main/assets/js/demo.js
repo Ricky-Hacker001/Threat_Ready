@@ -1,4 +1,4 @@
-/* ThreatReady — live one-question demo.
+/* ThreatReady: live one-question demo.
    Contract (unchanged): POST https://threatready-db.onrender.com/api/demo/evaluate
      body  { question: string, answer: string }
      reply { score, ti, cr, ab, cq, fa, feedback?, model?, level?, error? }
@@ -78,7 +78,7 @@
 
   function renderResult(r) {
     var overall = num(r.score);
-    els.score.textContent = overall == null ? '—' : String(overall);
+    els.score.textContent = overall == null ? 'N/A' : String(overall);
     els.band.textContent = overall == null ? '' : band(overall);
     els.band.hidden = overall == null;
     els.dims.textContent = '';
@@ -88,7 +88,7 @@
       var l = document.createElement('span'); l.className = 'dim-l'; l.textContent = d[1];
       var bar = document.createElement('span'); bar.className = 'dim-bar'; bar.setAttribute('aria-hidden', 'true');
       var fill = document.createElement('i'); bar.appendChild(fill);
-      var val = document.createElement('span'); val.className = 'dim-v'; val.textContent = v == null ? '—' : String(v);
+      var val = document.createElement('span'); val.className = 'dim-v'; val.textContent = v == null ? 'N/A' : String(v);
       row.appendChild(l); row.appendChild(bar); row.appendChild(val);
       els.dims.appendChild(row);
       if (v != null) requestAnimationFrame(function () { requestAnimationFrame(function () { fill.style.width = (v * 10) + '%'; }); });
@@ -118,7 +118,7 @@
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     var answer = els.ans.value.trim();
-    if (answer.length < MIN_CHARS) { setErr('Write at least a sentence or two — the scorer needs something to evaluate.'); els.ans.focus(); return; }
+    if (answer.length < MIN_CHARS) { setErr('Write at least a sentence or two. The scorer needs something to evaluate.'); els.ans.focus(); return; }
     var wait = rateLimited();
     if (wait) { setErr('Too many attempts. Try again in ' + wait + ' seconds.'); return; }
     setErr('');
@@ -150,7 +150,7 @@
       els.result.focus();
     }).catch(function (err) {
       els.failMsg.textContent = err && err.name === 'AbortError'
-        ? 'The scoring service took too long to respond. It may be starting up — please try again in a minute.'
+        ? 'The scoring service took too long to respond. It may be starting up. Please try again in a minute.'
         : 'The scoring service is unavailable right now, so no score was produced. Your answer is still in the box.';
       show('failed');
     }).then(function () {

@@ -1,5 +1,5 @@
 /* ==========================================================================
-   ThreatReady — shared design system
+   ThreatReady: shared design system
    Dark is the default theme. Light applies via <html data-theme="light">.
    Theme key in localStorage: "tr-theme" (unchanged from the previous site).
    ========================================================================== */
@@ -41,7 +41,7 @@
   --warn:#E0A43B; --warn-soft:rgba(224,164,59,.12);
   --bad:#E5665F;  --bad-soft:rgba(229,102,95,.12);
   --info:#4DA3E0; --info-soft:rgba(77,163,224,.12);
-  /* product markers — used only as small dots/rules, never as card themes */
+  /* product markers: used only as small dots/rules, never as card themes */
   --m-lab:#8B80FF; --m-sim:#3FB6A8; --m-int:#E0A43B;
   --shadow:0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
   --nav-bg:rgba(11,16,32,.72);
@@ -137,7 +137,7 @@ code,kbd,.mono{font-family:var(--mono);font-size:.875em}
 .link:hover svg{transform:translateX(2px)}
 .icon{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 
-/* Status labels — keep claims honest */
+/* Status labels: keep claims honest */
 .tag{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:4px;font-size:12px;font-weight:600;line-height:1;white-space:nowrap;border:1px solid var(--border);color:var(--text-2);background:var(--surface)}
 .tag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
 .tag-live{color:var(--ok);background:var(--ok-soft);border-color:transparent}
@@ -263,7 +263,7 @@ code,kbd,.mono{font-family:var(--mono);font-size:.875em}
 .ui-jd dt:first-child{margin-top:0}
 .ui-jd dd{margin:0}
 
-/* Architecture diagram — recolour the legacy SVG fills for both themes */
+/* Architecture diagram: recolour the legacy SVG fills for both themes */
 .diagram{border:1px solid var(--border);border-radius:var(--r2);background:var(--bg);padding:var(--s3)}
 .diagram svg{width:100%;height:auto}
 .diagram svg rect[fill="#f0f1f4"],.diagram svg rect[fill="#f5f3ff"]{fill:var(--surface);stroke:var(--border-strong)}
@@ -456,7 +456,7 @@ code,kbd,.mono{font-family:var(--mono);font-size:.875em}
 @media print{.nav,.drawer,.footer .theme-switch{display:none}}
 
 /* ==========================================================================
-   v2 components — multi-page, enterprise layer
+   v2 components: multi-page, enterprise layer
    ========================================================================== */
 
 /* Header theme toggle */
@@ -501,7 +501,7 @@ code,kbd,.mono{font-family:var(--mono);font-size:.875em}
   .pipeline li:last-child{border-radius:0 0 var(--r2) var(--r2)!important}
   .pipeline li:not(:last-child)::after{right:auto;left:24px;top:auto;bottom:-7px;transform:rotate(135deg)}}
 
-/* Heatmap table — published weighting matrix (sequential: one hue, alpha = weight) */
+/* Heatmap table: published weighting matrix (sequential: one hue, alpha = weight) */
 .heat{width:100%;border-collapse:separate;border-spacing:2px;font-size:13px}
 .heat th{font-weight:600;color:var(--text-3);text-align:left;padding:6px 8px;font-size:12px}
 .heat thead th{text-align:center;font-family:var(--mono)}
@@ -609,7 +609,7 @@ a.pcard-thumb:hover .shot{opacity:.92}
 @media (max-width:640px){.lv-full{display:none}.lv-short{display:inline}.matrix th,.matrix td{padding:6px}}
 
 /* ==========================================================================
-   v4 hero showcase — composed product overview (not an app screenshot)
+   v4 hero showcase: composed product overview (not an app screenshot)
    ========================================================================== */
 .showcase{background:var(--raised);border:1px solid var(--border);border-radius:var(--r3);box-shadow:var(--shadow);overflow:hidden}
 .sc-bar{display:flex;align-items:center;justify-content:space-between;gap:var(--s3);padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface)}

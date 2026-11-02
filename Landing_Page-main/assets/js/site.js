@@ -1,4 +1,4 @@
-/* ThreatReady — shared site behaviour (nav, drawer, theme, tabs). No dependencies. */
+/* ThreatReady: shared site behaviour (nav, drawer, theme, tabs). No dependencies. */
 (function () {
   'use strict';
   var root = document.documentElement;

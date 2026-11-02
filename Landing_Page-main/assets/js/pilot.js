@@ -1,4 +1,4 @@
-/* ThreatReady — pilot request form.
+/* ThreatReady: pilot request form.
    Delivery:
      - If FORMSPREE_ID is set, submits to Formspree (AJAX) and shows inline success/error.
      - Otherwise (current state), opens a pre-filled email to humanresource@aerovanttech.com.
@@ -35,10 +35,10 @@
       'Role: ' + (fd.get('role') || ''),
       'Team / cohort size: ' + (fd.get('team_size') || ''),
       'Hires or learners per year: ' + (fd.get('hires_per_year') || ''),
-      'Role tracks: ' + (roles.length ? roles.join(', ') : '—'),
+      'Role tracks: ' + (roles.length ? roles.join(', ') : 'Not given'),
       '',
       'About our process:',
-      (fd.get('message') || '—')
+      (fd.get('message') || 'Not given')
     ];
     return lines.join('\n');
   }
@@ -56,13 +56,13 @@
       return;
     }
     var fd = new FormData(form);
-    var subject = 'ThreatReady pilot request — ' + (fd.get('company') || '');
+    var subject = 'ThreatReady pilot request: ' + (fd.get('company') || '');
 
     if (!FORMSPREE_ID) {
       var href = 'mailto:' + TO + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(summary(fd));
       window.location.href = href;
       fieldsWrap.hidden = true;
-      okMsg.textContent = 'Your email app should now be open with the request filled in — press send. If nothing opened, email ' + TO + ' with the details below.';
+      okMsg.textContent = 'Your email app should now be open with the request filled in. Press send. If nothing opened, email ' + TO + ' with the details below.';
       document.getElementById('pilotCopy').textContent = summary(fd);
       document.getElementById('pilotCopyWrap').hidden = false;
       ok.hidden = false; ok.focus();
@@ -77,7 +77,7 @@
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); })
       .then(function () {
         fieldsWrap.hidden = true;
-        okMsg.textContent = 'Thanks — we will reply from ' + TO + ' within one business day. Check your spam folder if you do not see it.';
+        okMsg.textContent = 'Thanks. We will reply from ' + TO + ' within one business day. Check your spam folder if you do not see it.';
         ok.hidden = false; ok.focus();
       })
       .catch(function () { showError('Sending failed. Please try again, or email ' + TO + ' directly.'); })

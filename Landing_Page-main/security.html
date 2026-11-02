@@ -4,16 +4,16 @@
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BCzPk6WsSB27Pqdmlaqpzy7EnuieiDKaPdunb0Iif1A='; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta name="description" content="ThreatReady security practices — infrastructure, encryption, access controls, and responsible disclosure program.">
+<meta name="description" content="ThreatReady security practices: infrastructure, encryption, access controls, and responsible disclosure program.">
 <meta name="robots" content="index, follow">
-<title>Security — ThreatReady</title>
+<title>Security · ThreatReady</title>
 <link rel="canonical" href="https://threatready.io/security.html">
 <meta name="theme-color" content="#0B1020">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ThreatReady">
 <meta property="og:url" content="https://threatready.io/security.html">
-<meta property="og:title" content="Security — ThreatReady">
-<meta property="og:description" content="ThreatReady security practices — infrastructure, encryption, access controls, and responsible disclosure program.">
+<meta property="og:title" content="Security · ThreatReady">
+<meta property="og:description" content="ThreatReady security practices: infrastructure, encryption, access controls, and responsible disclosure program.">
 <meta property="og:image" content="https://threatready.io/threatready-logo.png">
 <meta name="twitter:card" content="summary">
 <link rel="icon" type="image/x-icon" href="favicon.ico">
@@ -110,7 +110,7 @@ Trust &amp; security
 </span>
 <h1>Security at <span class="accent">ThreatReady</span></h1>
 <p class="meta">Last updated: 22 April 2026</p>
-<p class="intro">We build a platform that measures how well security engineers think. The least we can do is take our own security seriously. This page is a factual, ongoing account of how we protect your data — not a marketing statement.</p>
+<p class="intro">We build a platform that measures how well security engineers think. The least we can do is take our own security seriously. This page is a factual, ongoing account of how we protect your data, not a marketing statement.</p>
 <div class="lhero-badges">
 <span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><rect x="3" y="11" width="18" height="10" rx="2" stroke="currentColor" stroke-width="2"/><path d="M7 11V7a5 5 0 0110 0v4" stroke="currentColor" stroke-width="2"/></svg>TLS 1.3 encryption</span>
 <span class="lhero-badge"><svg viewBox="0 0 24 24" fill="none"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="10" r="3" stroke="currentColor" stroke-width="2"/></svg>Stored in India (Mumbai)</span>
@@ -185,13 +185,13 @@ Trust &amp; security
 </ul>
 
 <h2 id="integrity">6. Assessment integrity controls</h2>
-<p>These are specific to our product — they protect the scoring signal, which is the thing customers pay us for:</p>
+<p>These are specific to our product. They protect the scoring signal, which is the thing customers pay us for:</p>
 <ul>
 <li>Copy-paste is disabled on all answer inputs</li>
-<li>Forward-only navigation — candidates cannot revise an answer after seeing the next question</li>
+<li>Forward-only navigation: candidates cannot revise an answer after seeing the next question</li>
 <li>Architecture diagrams are drawn from a pool and selected randomly per session</li>
 <li>Adaptive AI follow-ups prevent pre-prepared or generic AI-generated answers from scoring well</li>
-<li>Continuous timer — no pause option — to prevent long external research windows</li>
+<li>Continuous timer with no pause option, to prevent long external research windows</li>
 <li>Session tokens bind a specific assessment to a specific candidate and cannot be shared</li>
 </ul>
 
@@ -220,12 +220,12 @@ We will not claim certifications we do not hold. If this page says something is 
 <p>Even before signup, this marketing site (<code>threatready.io</code>) applies abuse protections so signup forms, the demo, and the auth modal cannot be used to attack our infrastructure or yours.</p>
 <ul>
 <li><strong>Content Security Policy:</strong> The page enforces a CSP that limits where scripts, styles, fonts, and images can come from.</li>
-<li><strong>Form rate limiting (client-side):</strong> Email submissions through the auth modal, newsletter signup, and demo evaluation are rate-limited per browser session — 5 auth attempts per minute, 3 newsletter submissions per 5 minutes, 5 demo evaluations per 5 minutes. The product backend enforces stricter, IP-based limits independently.</li>
+<li><strong>Form rate limiting (client-side):</strong> Email submissions through the auth modal, newsletter signup, and demo evaluation are rate-limited per browser session: 5 auth attempts per minute, 3 newsletter submissions per 5 minutes, 5 demo evaluations per 5 minutes. The product backend enforces stricter, IP-based limits independently.</li>
 <li><strong>Honeypot fields:</strong> Hidden fields invisible to humans but filled in by automated bots cause submissions to be silently dropped.</li>
 <li><strong>Input validation:</strong> Email addresses are validated against RFC-aligned patterns and length caps before being forwarded. Demo answer text is capped at 5,000 characters.</li>
 <li><strong>Parameter sanitisation:</strong> All values forwarded from the landing page to the product (mode, plan, email, provider) are character-class restricted and length-capped before <code>encodeURIComponent</code> to prevent URL-injection.</li>
 <li><strong>External links:</strong> All links opening new tabs include <code>rel="noopener noreferrer"</code> to prevent reverse tabnabbing.</li>
-<li><strong>Permissions Policy:</strong> Geolocation, camera, and payment APIs are disabled at the document level. Microphone is allowed only because the demo offers voice input — and is stopped automatically when you switch tabs.</li>
+<li><strong>Permissions Policy:</strong> Geolocation, camera, and payment APIs are disabled at the document level. Microphone is allowed only because the demo offers voice input, and is stopped automatically when you switch tabs.</li>
 <li><strong>No password capture:</strong> The landing page never accepts passwords. The auth modal forwards an email to the product app, which handles authentication on its own domain.</li>
 </ul>
 <p>Real enforcement of rate limits, abuse detection, and account security happens server-side in the product backend. The protections on this page slow down casual abuse and reduce the load that reaches our APIs.</p>

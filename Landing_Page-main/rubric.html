@@ -6,13 +6,13 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <meta name="description" content="ThreatReady's public scoring rubric: the five anchored dimensions our three-pass AI engine scores on, with written definitions for every score band.">
 <meta name="robots" content="index, follow">
-<title>Scoring Rubric — ThreatReady</title>
+<title>Scoring Rubric · ThreatReady</title>
 <link rel="canonical" href="https://threatready.io/rubric.html">
 <meta name="theme-color" content="#0B1020">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="ThreatReady">
 <meta property="og:url" content="https://threatready.io/rubric.html">
-<meta property="og:title" content="Scoring Rubric — ThreatReady">
+<meta property="og:title" content="Scoring Rubric · ThreatReady">
 <meta property="og:description" content="ThreatReady's public scoring rubric: the five anchored dimensions our three-pass AI engine scores on, with written definitions for every score band.">
 <meta property="og:image" content="https://threatready.io/threatready-logo.png">
 <meta name="twitter:card" content="summary">
@@ -160,16 +160,16 @@ Transparent evaluation
 </div>
 
 <h2 id="how">1. How scoring works</h2>
-<p>A ThreatReady assessment consists of a single scenario — a real architecture with an active attack chain — followed by five adaptive questions. Each answer is evaluated by our <strong>3-Pass AI engine</strong> (Evaluator → Challenger → Reconciler) against five anchored dimensions, each on a 1–10 integer scale. Every score band has a concrete written definition — a 7 in Threat Identification means something specific and verifiable, not arbitrary AI judgment.</p>
+<p>A ThreatReady assessment consists of a single scenario (a real architecture with an active attack chain) followed by five adaptive questions. Each answer is evaluated by our <strong>3-Pass AI engine</strong> (Evaluator → Challenger → Reconciler) against five anchored dimensions, each on a 1–10 integer scale. Every score band has a concrete written definition: a 7 in Threat Identification means something specific and verifiable, not arbitrary AI judgment.</p>
 <p>This page is the canonical reference. We publish it because we want our scores to be auditable. If you ever question a result, every score traces back to one of these bands.</p>
 <div class="callout">
 <strong>The 3-Pass scoring engine</strong>
 <p>Every answer passes through three independent AI evaluations:</p>
-<p><strong>Pass 1 — Evaluator</strong> · Scores generously against the anchored rubric, citing specific evidence from the answer. Tends to over-credit verbose responses (intentional — Pass 2 corrects).</p>
-<p><strong>Pass 2 — Challenger</strong> · Adversarially reviews. Catches technical errors, hallucinated CVEs, non-existent MITRE techniques, fabricated tools, inflated scores, and missing critical elements.</p>
-<p><strong>Pass 3 — Reconciler</strong> · Reviews both passes, resolves disagreements, applies question-specific dimension weighting, generates the model answer, and assigns a confidence level (HIGH / MEDIUM / LOW) based on inter-pass agreement.</p>
+<p><strong>Pass 1: Evaluator</strong> · Scores generously against the anchored rubric, citing specific evidence from the answer. Tends to over-credit verbose responses (intentional; Pass 2 corrects).</p>
+<p><strong>Pass 2: Challenger</strong> · Adversarially reviews. Catches technical errors, hallucinated CVEs, non-existent MITRE techniques, fabricated tools, inflated scores, and missing critical elements.</p>
+<p><strong>Pass 3: Reconciler</strong> · Reviews both passes, resolves disagreements, applies question-specific dimension weighting, generates the model answer, and assigns a confidence level (HIGH / MEDIUM / LOW) based on inter-pass agreement.</p>
 </div>
-<p>A score below 5 means the candidate has gaps that would concern a hiring manager. A score of 5–7 means they are competent but not yet senior. A score of 7–8.5 means strong senior-ready performance. A score above 8.5 indicates expert-level reasoning — rare and worth noting. These are guidelines, not promises; final hiring decisions are always yours.</p>
+<p>A score below 5 means the candidate has gaps that would concern a hiring manager. A score of 5–7 means they are competent but not yet senior. A score of 7–8.5 means strong senior-ready performance. A score above 8.5 indicates expert-level reasoning, rare and worth noting. These are guidelines, not promises; final hiring decisions are always yours.</p>
 
 <h2 id="dim">2. The five anchored dimensions</h2>
 
@@ -224,7 +224,7 @@ Transparent evaluation
 </div>
 
 <h2 id="bands">3. Qualitative bands</h2>
-<p>Every score also maps to a qualitative band that's visible from day one — even before the platform has enough cohort data for percentile rankings. Bands describe what a score means in plain language, so candidates and hiring managers don't need to interpret a 7.2 in isolation.</p>
+<p>Every score also maps to a qualitative band that's visible from day one, even before the platform has enough cohort data for percentile rankings. Bands describe what a score means in plain language, so candidates and hiring managers don't need to interpret a 7.2 in isolation.</p>
 <div class="qband"><span class="qband-l">Developing</span><span class="qband-r">1.0 – 3.9</span><span class="qband-d">Early-stage security reasoning. Foundational gaps to close.</span></div>
 <div class="qband"><span class="qband-l">Foundation</span><span class="qband-r">4.0 – 5.9</span><span class="qband-d">Developing security reasoning. Building toward independent judgment.</span></div>
 <div class="qband"><span class="qband-l">Proficient</span><span class="qband-r">6.0 – 7.4</span><span class="qband-d">Mid-level security reasoning. Capable of handling routine incidents.</span></div>
@@ -232,11 +232,11 @@ Transparent evaluation
 <div class="qband"><span class="qband-l">Expert</span><span class="qband-r">9.0 – 10.0</span><span class="qband-d">Principal-level security reasoning. Leads incident response or architecture.</span></div>
 
 <h2 id="confidence">4. Confidence levels &amp; dual score display</h2>
-<p>Not every score is equally certain. When the Evaluator (Pass 1) and Challenger (Pass 2) disagree significantly, the final score carries that uncertainty forward as a confidence flag. Pretending every AI score is equally reliable destroys trust the moment a buyer catches a bad one — so we publish it.</p>
+<p>Not every score is equally certain. When the Evaluator (Pass 1) and Challenger (Pass 2) disagree significantly, the final score carries that uncertainty forward as a confidence flag. Pretending every AI score is equally reliable destroys trust the moment a buyer catches a bad one, so we publish it.</p>
 <div class="cflag"><span class="cflag-h">High</span><span class="cflag-d">All five dimensions agreed within 1 point between Pass 1 and Pass 2. No critical errors flagged.</span></div>
 <div class="cflag"><span class="cflag-h">Medium</span><span class="cflag-d">1–2 dimensions disagreed by 2 points; remaining dimensions within 1 point. No critical errors.</span></div>
 <div class="cflag"><span class="cflag-h">Low</span><span class="cflag-d">Any dimension disagreed by 3+ points, or Pass 2 flagged critical technical errors that Pass 1 missed. The hiring manager dashboard shows a "Review Recommended" tag and the score is added to the internal QA queue.</span></div>
-<p style="margin-top:14px"><strong>Dual score display.</strong> Every result also shows two scores side by side: <em>Scenario Score</em> (raw, on the question's own scale) and <em>Readiness Score</em> (difficulty-adjusted with caps — Beginner 6.0, Intermediate 8.0, Advanced 9.0, Expert 10.0). Both numbers are honest. The candidate's effort is recognized; the hiring manager's signal is preserved.</p>
+<p style="margin-top:14px"><strong>Dual score display.</strong> Every result also shows two scores side by side: <em>Scenario Score</em> (raw, on the question's own scale) and <em>Readiness Score</em> (difficulty-adjusted with caps: Beginner 6.0, Intermediate 8.0, Advanced 9.0, Expert 10.0). Both numbers are honest. The candidate's effort is recognized; the hiring manager's signal is preserved.</p>
 
 <h2 id="weights">5. Question-specific dimension weighting</h2>
 <p>Not every question tests all five dimensions equally. A "map this attack to MITRE" question should weight Threat Identification at 40%. A "write an executive brief" question should weight Communication at 50%. Without per-question weighting, scoring would feel wrong even when the engine works correctly.</p>
@@ -262,19 +262,19 @@ Transparent evaluation
 <div class="example">
 <div class="example-label">Candidate A<span class="example-score weak">3.8 / 10</span></div>
 <p>"I would look at CloudTrail to see what happened and then maybe change the IAM role."</p>
-<p class="muted"><strong>Why:</strong> Threat Identification 4 — recognises something is wrong but no specific attack path. Containment &amp; Response 3 — investigation-first during active exfiltration. Communication Quality 5 — readable but unstructured. Architecture &amp; Blast Radius 3 — no awareness of dependencies. Framework Application 2 — no MITRE or NIST reference.</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 4 (recognises something is wrong but no specific attack path). Containment &amp; Response 3 (investigation-first during active exfiltration). Communication Quality 5 (readable but unstructured). Architecture &amp; Blast Radius 3 (no awareness of dependencies). Framework Application 2 (no MITRE or NIST reference).</p>
 </div>
 
 <div class="example">
 <div class="example-label">Candidate B<span class="example-score mid">6.5 / 10</span></div>
 <p>"First, I'd scope down the IAM role by removing secrets:* and narrowing s3:* to only the specific bucket. Then I'd check CloudTrail for what was accessed and rotate any credentials the Lambda could have read."</p>
-<p class="muted"><strong>Why:</strong> Threat Identification 7 — names the IAM over-permission path. Containment &amp; Response 6 — specific, correct mitigations but doesn't justify sequence. Architecture &amp; Blast Radius 6 — names what the role can reach. Communication Quality 7 — clear structure. Framework Application 5 — implicit least-privilege but no explicit standard cited.</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 7 (names the IAM over-permission path). Containment &amp; Response 6 (specific, correct mitigations but doesn't justify sequence). Architecture &amp; Blast Radius 6 (names what the role can reach). Communication Quality 7 (clear structure). Framework Application 5 (implicit least-privilege but no explicit standard cited).</p>
 </div>
 
 <div class="example">
 <div class="example-label">Candidate C<span class="example-score strong">8.9 / 10</span></div>
-<p>"Disable the Lambda function first — remove its trigger or set concurrency to zero. That stops active exfiltration without destroying forensic state, which matters because wiping the role before preserving evidence loses the CloudTrail correlation we'll need later. After that: scope the role (remove secrets:*, narrow s3:* to the specific bucket), rotate credentials the role could have accessed, snapshot the Lambda environment for forensics, and review CloudTrail for scope of what was already taken. Sequence matters because investigation before containment lets the attacker keep reading PII the whole time we're triaging."</p>
-<p class="muted"><strong>Why:</strong> Threat Identification 9 — names primary and secondary vectors. Containment &amp; Response 9 — proportional, evidence-preserving, sequenced. Architecture &amp; Blast Radius 9 — full credential reuse map. Communication Quality 9 — explicit sequencing and rationale. Framework Application 8 — implicit MITRE alignment, NIST 800-61 sequencing visible.</p>
+<p>"Disable the Lambda function first: remove its trigger or set concurrency to zero. That stops active exfiltration without destroying forensic state, which matters because wiping the role before preserving evidence loses the CloudTrail correlation we'll need later. After that: scope the role (remove secrets:*, narrow s3:* to the specific bucket), rotate credentials the role could have accessed, snapshot the Lambda environment for forensics, and review CloudTrail for scope of what was already taken. Sequence matters because investigation before containment lets the attacker keep reading PII the whole time we're triaging."</p>
+<p class="muted"><strong>Why:</strong> Threat Identification 9 (names primary and secondary vectors). Containment &amp; Response 9 (proportional, evidence-preserving, sequenced). Architecture &amp; Blast Radius 9 (full credential reuse map). Communication Quality 9 (explicit sequencing and rationale). Framework Application 8 (implicit MITRE alignment, NIST 800-61 sequencing visible).</p>
 </div>
 
 <h2 id="adaptive">7. Adaptive questioning logic</h2>
@@ -283,16 +283,16 @@ Transparent evaluation
 <li><strong>Prevents pre-prepared answers.</strong> Generic responses trigger probing follow-ups that can't be anticipated.</li>
 <li><strong>Explores depth.</strong> Strong answers earn harder follow-ups; shallow answers trigger clarifying ones.</li>
 </ul>
-<p>Adaptive questions are bounded by the scenario's MITRE ATT&amp;CK tactics and the role's competency map — the AI cannot wander off-topic into unrelated domains.</p>
+<p>Adaptive questions are bounded by the scenario's MITRE ATT&amp;CK tactics and the role's competency map. The AI cannot wander off-topic into unrelated domains.</p>
 
 <h2 id="not">8. What we deliberately do not score</h2>
 <ul>
 <li><strong>Grammar or spelling</strong>, beyond the threshold where clarity suffers</li>
 <li><strong>Typing speed</strong> or answer length for its own sake</li>
 <li><strong>Regional English or accent</strong> when voice mode is used</li>
-<li><strong>Specific tool preferences</strong> (AWS vs Azure terminology, Splunk vs Elastic) — we score on the reasoning, not the brand</li>
-<li><strong>"Correct" answers that depend on organizational context we haven't given</strong> — we score the reasoning, not the guess</li>
-<li><strong>Agreeing with our model answer</strong> — a well-reasoned alternative can score as well as the model answer if defensible</li>
+<li><strong>Specific tool preferences</strong> (AWS vs Azure terminology, Splunk vs Elastic): we score on the reasoning, not the brand</li>
+<li><strong>"Correct" answers that depend on organizational context we haven't given</strong>: we score the reasoning, not the guess</li>
+<li><strong>Agreeing with our model answer</strong>: a well-reasoned alternative can score as well as the model answer if defensible</li>
 </ul>
 
 <h2 id="calib">9. Consistency &amp; calibration</h2>
@@ -300,7 +300,7 @@ Transparent evaluation
 <ul>
 <li>All scoring prompts include the full anchored rubric (not a summary)</li>
 <li>Each question includes a role-specific and difficulty-specific rubric anchor</li>
-<li><strong>Nightly regression at 02:00 IST:</strong> 50+ golden answers across 7 categories — Clearly Excellent, Clearly Poor, Fluent But Wrong, Correct But Poorly Communicated, Overconfident Hallucination, Partial But Well-Prioritized, Technically Strong But Business-Blind — run through the live engine. If pass-rate drops below 80%, we freeze prompt changes until investigated.</li>
+<li><strong>Nightly regression at 02:00 IST:</strong> 50+ golden answers across 7 categories (Clearly Excellent, Clearly Poor, Fluent But Wrong, Correct But Poorly Communicated, Overconfident Hallucination, Partial But Well-Prioritized, Technically Strong But Business-Blind) run through the live engine. If pass-rate drops below 80%, we freeze prompt changes until investigated.</li>
 <li>Pass 1, 2, 3 raw outputs are stored for 90 days for auditability. Hiring managers can request explanation of any score; the system regenerates the full Pass 1 / Pass 2 / Pass 3 trace.</li>
 <li>Every month, the founder and 2 core engineers manually review 20–30 flagged evaluations to track AI-vs-human agreement.</li>
 </ul>
@@ -320,7 +320,7 @@ Transparent evaluation
 <thead><tr><th>Version</th><th>Date</th><th>Summary of changes</th></tr></thead>
 <tbody>
 <tr><td>1.0</td><td>22 April 2026</td><td>Initial publication.</td></tr>
-<tr><td>2.0</td><td>May 2026</td><td>Updated to v4 spec — five anchored dimensions, 3-Pass scoring engine, qualitative bands, confidence levels, dual score display, question-specific weighting, golden-answer regression. Replaces the v1 three-dimension model.</td></tr>
+<tr><td>2.0</td><td>May 2026</td><td>Updated to v4 spec: five anchored dimensions, 3-Pass scoring engine, qualitative bands, confidence levels, dual score display, question-specific weighting, golden-answer regression. Replaces the v1 three-dimension model.</td></tr>
 </tbody>
 </table>
 </div>
