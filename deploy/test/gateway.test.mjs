@@ -11,7 +11,7 @@ import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import express from 'express';
-import { CLIENT_IP_HEADER, CONTENT_SECURITY_POLICY, CSP_DIRECTIVES, clientIpOf, createGateway, gatewayConfig, ipLiteral, labUnavailablePage } from '../gateway.mjs';
+import { CLIENT_IP_HEADER, CONTENT_SECURITY_POLICY, CSP_DIRECTIVES, PUBLIC_SITE_CSP, clientIpOf, createGateway, gatewayConfig, ipLiteral, labUnavailablePage } from '../gateway.mjs';
 import { gatewayIpToForwardedFor } from '../launcher-lib.mjs';
 import { extractGatewayHeaders } from '../../tools/gen-headers.mjs';
 
@@ -502,8 +502,50 @@ describe('gateway', () => {
     }
   });
 
+  test('the public site answers at / for visitors, and is indexable', async () => {
+    for (const p of ['/', '/?utm_source=newsletter', '/index.html', '/pricing.html']) {
+      const r = await call(gwPort, 'GET', p);
+      assert.equal(r.status, 200, p);
+      assert.match(r.headers['content-type'], /text\/html/, p);
+      assert.match(r.body, /Content-Security-Policy/, `${p}: the page carries its own hash-based CSP`);
+      assert.equal(r.headers['content-security-policy'], PUBLIC_SITE_CSP, p);
+      assert.equal(r.headers['x-robots-tag'], undefined, `${p}: must be indexable`);
+      assert.ok(r.headers['strict-transport-security'], `${p}: the other security headers stay`);
+    }
+    assert.match((await call(gwPort, 'GET', '/')).body, /Certified is not job/);
+    const css = await call(gwPort, 'GET', '/assets/css/site.css');
+    assert.equal(css.status, 200);
+    assert.match(css.headers['content-type'], /text\/css/);
+    assert.match((await call(gwPort, 'GET', '/sitemap.xml')).headers['content-type'], /xml/);
+  });
+
+  test('sign-in links to / still reach sign-in, on the platform policy', async () => {
+    for (const p of ['/signin', '/?next=https%3A%2F%2Fexample.test%2Flabs%2F', '/?mode=signup', '/?reason=expired', '/?error=access_denied', '/?username=ada']) {
+      const r = await call(gwPort, 'GET', p);
+      assert.doesNotMatch(r.body, /Certified is not job/, p);
+      assert.equal(r.headers['content-security-policy'], CONTENT_SECURITY_POLICY, p);
+      assert.equal(r.headers['x-robots-tag'], 'noindex', p);
+    }
+  });
+
+  test('only what the site publishes is served: never its docs, tools or dotfiles', async () => {
+    const audit = fs.readFileSync(path.join(import.meta.dirname, '../../Landing_Page-main/docs/AUDIT.md'), 'utf8').slice(0, 200);
+    const tool = fs.readFileSync(path.join(import.meta.dirname, '../../Landing_Page-main/tools/check_site.py'), 'utf8').slice(0, 200);
+    for (const p of ['/docs/AUDIT.md', '/tools/check_site.py', '/assets/../docs/AUDIT.md', '/assets/%2e%2e/docs/AUDIT.md', '/%2e%2e/deploy/gateway.mjs', '/assets/..%2fdocs%2fAUDIT.md']) {
+      const r = await call(gwPort, 'GET', p);
+      assert.ok(!r.body.includes(audit) && !r.body.includes(tool) && !r.body.includes('single-origin gateway'), `${p} must not be served`);
+    }
+    assert.doesNotMatch((await call(gwPort, 'GET', '/CNAME')).body, /^threatready\.io\s*$/);
+  });
+
+  test('robots.txt allows the site, keeps the APIs out and names the sitemap', async () => {
+    const { body } = await call(gwPort, 'GET', '/robots.txt');
+    assert.match(body, /Allow: \//);
+    for (const line of ['Disallow: /api/', 'Disallow: /labs/internal/', 'Disallow: /ar/internal/', 'Sitemap: https://threatready.io/sitemap.xml']) assert.ok(body.includes(line), line);
+  });
+
   test('security headers on every kind of response: SPA, proxied, 404, upstream 500, gateway 500', async () => {
-    for (const p of ['/', '/labs/', '/ar/', '/interview-prep/', '/healthz', '/readyz']) assertSecurityHeaders(await call(gwPort, 'GET', p), p);
+    for (const p of ['/signin', '/labs/', '/ar/', '/interview-prep/', '/healthz', '/readyz']) assertSecurityHeaders(await call(gwPort, 'GET', p), p);
     const notFound = await call(gwPort, 'POST', '/no-such-route');
     assert.equal(notFound.status, 404);
     assert.equal(json(notFound).error.code, 'NOT_FOUND');

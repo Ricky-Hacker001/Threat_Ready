@@ -196,7 +196,7 @@ export function AuthPage() {
       </a>
       <main className="auth-main">
         <div className="auth-top">
-          <Brand />
+          <Brand href="/" />
           <ThemeToggle />
         </div>
         <div className="auth-form-wrap" id="auth-form">

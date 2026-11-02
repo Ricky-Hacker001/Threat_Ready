@@ -32,6 +32,15 @@ and Render keeps the old version running. On `SIGTERM` (deploy, restart, sleep) 
 requests and stops the children; the labs child writes its last lab changes on its way out, and once it
 has exited the launcher saves the labs' state, all within Render's 30-second shutdown delay.
 
+### Public site at `/`
+
+The gateway serves `Landing_Page-main` at `/` and `/*.html`, with no build step. Only its pages, images,
+`assets/` and `sitemap.xml` are published: `docs/` and `tools/` in that folder are not. Plain `/` is the
+landing page for everyone. `/?next=`, `?mode=`, `?reason=`, `?error=` and `?username=` still reach sign-in,
+so the apps' "sign in first" redirects did not change; the SPA moves them to `/signin`, its own address.
+These pages drop `X-Robots-Tag: noindex` and use each page's own hash-based CSP (`PUBLIC_SITE_CSP`). The
+site's links into the platform are site-relative (`tools/sync_shell.py`), so they work on any host.
+
 ### Memory budget (512 MB instance)
 
 | Process | `--max-old-space-size` | Why |

@@ -53,7 +53,7 @@ export class AccountController {
 
     const name = user?.username ?? user?.normalized;
     if (user && name && user.verified) {
-      dispatch(this.email, usernameReminderEmail(email, name, `${this.config.WEB_ORIGIN}/?username=${encodeURIComponent(name)}`), this.logger);
+      dispatch(this.email, usernameReminderEmail(email, name, `${this.config.WEB_ORIGIN}/signin?username=${encodeURIComponent(name)}`), this.logger);
     }
     return { accepted: true };
   }

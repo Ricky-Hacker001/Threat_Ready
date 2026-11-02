@@ -12,13 +12,21 @@ export function BrandMark() {
   return <img className="brand-mark" src="/logo-sm.png" width="28" height="27" alt="" />;
 }
 
-export function Brand({ to }: { to?: string }) {
+/** `to` is a route inside this app; `href` leaves it (the public site is not part of the SPA). */
+export function Brand({ to, href }: { to?: string; href?: string }) {
   const inner = (
     <>
       <BrandMark />
       ThreatReady
     </>
   );
+  if (href) {
+    return (
+      <a className="brand" href={href}>
+        {inner}
+      </a>
+    );
+  }
   return to ? (
     <Link className="brand" to={to}>
       {inner}

@@ -1,6 +1,6 @@
 import { lazy, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AppShell } from "./components/AppShell";
 import { captureNext } from "./lib/platform";
 import { AuthPage } from "./pages/AuthPage";
@@ -70,6 +70,12 @@ const OrgMemberPage = lazy(() => import("./pages/OrgPage").then((m) => ({ defaul
 const OrgSettingsPage = lazy(() => import("./pages/OrgPage").then((m) => ({ default: m.OrgSettingsPage })));
 const OrgAuditPage = lazy(() => import("./pages/OrgPage").then((m) => ({ default: m.OrgAuditPage })));
 
+/** `/` is the public site in production; in-app links and apps' ?next= returns that reach the SPA there go to sign-in. */
+function ToSignIn() {
+  const { search, hash } = useLocation();
+  return <Navigate to={`/signin${search}${hash}`} replace />;
+}
+
 // Another ThreatReady app sent the browser here to sign in: remember where to return.
 captureNext();
 
@@ -77,7 +83,8 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<AuthPage />} />
+        <Route path="/" element={<ToSignIn />} />
+        <Route path="/signin" element={<AuthPage />} />
         <Route path="/signout" element={<SignOutPage />} />
         <Route path="/invite/:token" element={<InvitePage />} />
         <Route path="/app" element={<AppShell />}>

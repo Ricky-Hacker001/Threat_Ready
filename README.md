@@ -10,7 +10,8 @@ link to them.
 
 | Live path | Planned host | Project | What it is |
 |---|---|---|---|
-| `/` | `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
+| `/`, `/*.html` | `threatready.io` | `Landing_Page-main/` | Public marketing site, served by the gateway, and the **source of the design system** every app follows |
+| `/signin`, `/app/` | `onboard.threatready.io` | `Threatready-landing-page-main/` | **Identity provider** and home: sign-in/up, OTP, Google/GitHub, the product page, the **unified profile** (`/app/profile`) and the **admin console** (`/app/admin`) |
 | `/interview-prep/` (API `/v1/`) | `interviewprep.threatready.io` | `InterviewPrep/` | AI mock interviews: its own dashboard, history and reports |
 | `/labs/` | `labs.threatready.io` | `threatready-lab-001/` | Lab **catalog** at `/labs/`, grouped into four tracks (Cloud Security, Blue Team, Red Team, Network Security); each track lists its labs at `/labs/tracks/<track>`. `TR-CLOUD-001` runs in this app at `/labs/TR-CLOUD-001`; the labs below are their own apps, served by this one behind the platform sign-in |
 | `/labs/soc/` | `labs.threatready.io/labs/soc/` | `soc/` | On the main Labs page: SOC simulation (live log stream, L1 triage to L3 response), signed in as the ThreatReady user |
@@ -19,7 +20,6 @@ link to them.
 | `/labs/threatwall/` | `labs.threatready.io/labs/threatwall/` | `ThreatWall/` | **Network Security**: ThreatReady Firewall, firewall administration from first cable to incident containment, runs in the browser |
 | `/labs/redteam/` | `labs.threatready.io/labs/redteam/` | `red_team_lab/web/` | **Red Team**: web pentest lab TR-RED-001 (The Breach Files: AeroCart), recon to report with browser, proxy, repeater and terminal, signed in as the ThreatReady user |
 | `/ar/` | `ar.threatready.io` | `attack-reasoning/` | Attack Reasoning Lab, **15 live domains** (Cloud Security, Identity & Access, AppSec, Network, SOC, IR & DFIR, DevSecOps, Kubernetes, Data, Threat Intel, Endpoint, Zero Trust, API, AI & LLM, GRC): **domain landing** at `/`, a domain's entry point at `/domains/<key>`, one AI-generated assessment at `/attempts/<id>` (architecture diagram, MCQ, written justification, tiered evaluation (one grading pass; a second, adversarial review for borderline, disputed and sampled answers), feedback), history and analytics at `/history`; hand-authored scenario briefs stay at `/scenarios/<id>`. The reasoning engine itself is the `reasoning` module of the InterviewPrep API (the ThreatReady monolith); this app proxies `/v1/*` to it. See `docs/ATTACK_REASONING.md` |
-| — (GitHub Pages) | `threatready.io` | `Landing_Page-main/` | Public marketing site and the **source of the design system** every app follows |
 
 ## One design across every app
 

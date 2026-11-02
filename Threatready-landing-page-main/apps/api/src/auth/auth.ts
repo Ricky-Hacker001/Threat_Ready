@@ -90,7 +90,7 @@ export function withoutProviderTokens<T extends Record<string, unknown>>(account
 
 export function createAuth(config: Config, db: Db, email: EmailPort) {
   const logger = new Logger("Auth");
-  const loginUrl = `${config.WEB_ORIGIN}/`;
+  const loginUrl = `${config.WEB_ORIGIN}/signin`;
   const m = config.RATE_LIMIT_MULTIPLIER;
   const rule = (window: number, max: number) => ({ window, max: Math.ceil(max * m) });
   // Per address, so not scaled by RATE_LIMIT_MULTIPLIER: test suites use a fresh address per test.

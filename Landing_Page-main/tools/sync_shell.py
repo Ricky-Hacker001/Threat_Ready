@@ -17,13 +17,13 @@ import os, pathlib, re, sys
 from urllib.parse import urlparse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# The live platform: one Render service, every app under one origin (deploy/README.md). Sign-in is at /,
-# ?mode=signup opens Create account, the labs catalog is /labs/. When the platform moves to a custom
-# domain, set it here (or TR_PLATFORM_URL for a one-off build) and re-run this script; the onboard
-# PUBLIC_URL and OAuth redirect URIs must move with it.
-PLATFORM_URL = os.environ.get("TR_PLATFORM_URL", "https://threatready.onrender.com").rstrip("/")
-APP = PLATFORM_URL + "/"
-SIGNUP = PLATFORM_URL + "/?mode=signup"
+# The platform and this site are one origin: deploy/gateway.mjs serves these pages at / and the apps beside
+# them (deploy/README.md), so app links are site-relative and work on any host. Sign-in is at /signin,
+# ?mode=signup opens Create account, the labs catalog is /labs/. TR_PLATFORM_URL makes them absolute for a
+# one-off build served from another host.
+PLATFORM_URL = os.environ.get("TR_PLATFORM_URL", "").rstrip("/")
+APP = PLATFORM_URL + "/signin"
+SIGNUP = PLATFORM_URL + "/signin?mode=signup"
 LABS = PLATFORM_URL + "/labs/"
 APP_LINKS = {"signin": APP, "signup": SIGNUP, "labs": LABS}
 # Hosts that have meant "the app" on this site; links to them are rewritten to PLATFORM_URL.

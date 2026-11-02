@@ -12,8 +12,8 @@ import sync_shell  # noqa: E402
 
 class GeneratorTest(unittest.TestCase):
     def test_one_platform_url_feeds_every_app_link(self):
-        self.assertEqual(sync_shell.APP_LINKS["signin"], sync_shell.PLATFORM_URL + "/")
-        self.assertEqual(sync_shell.APP_LINKS["signup"], sync_shell.PLATFORM_URL + "/?mode=signup")
+        self.assertEqual(sync_shell.APP_LINKS["signin"], sync_shell.PLATFORM_URL + "/signin")
+        self.assertEqual(sync_shell.APP_LINKS["signup"], sync_shell.PLATFORM_URL + "/signin?mode=signup")
         self.assertEqual(sync_shell.APP_LINKS["labs"], sync_shell.PLATFORM_URL + "/labs/")
         self.assertIn('data-app="signin"', sync_shell.nav(""))
 

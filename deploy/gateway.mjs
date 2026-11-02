@@ -2,7 +2,8 @@
 // in everywhere without a custom domain (onrender.com is a public suffix: its subdomains can't share
 // cookies).
 //
-//   /                 onboard SPA (sign-in, home, profile, admin)        static
+//   /, /*.html        public site (Landing_Page-main)                    static
+//   /signin, /app/*   onboard SPA (sign-in, home, profile, admin)        static
 //   /api/*            onboard API (NestJS, child process)                proxied
 //   /interview-prep/  InterviewPrep SPA                                  static
 //   /v1/*             InterviewPrep API (NestJS, child process)          proxied
@@ -387,6 +388,34 @@ function spa(dir) {
   return router;
 }
 
+/* ---------------- Public site ---------------- */
+
+/**
+ * Query keys that make `/` the sign-in page: ?next= from every app's "sign in first" redirect, ?mode= from
+ * in-app buttons, the rest from the API and its emails. Any other query (a campaign's utm_source) is a
+ * visitor, who gets the landing page.
+ */
+const SIGN_IN_QUERY = ['next', 'mode', 'reason', 'error', 'username'];
+
+/**
+ * The CSP on the public site's responses. Each page sets its own hash-based policy in a meta tag (every page
+ * is checked by tools/check-landing-csp.mjs); the platform's would block their inline script and the
+ * homepage demo's API. A meta tag cannot set frame-ancestors, so that one is sent here.
+ */
+export const PUBLIC_SITE_CSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
+
+function publicSite(dir) {
+  // A list, not the folder: it also holds docs/ and tools/, which are not for visitors.
+  const published = new Set(fs.readdirSync(dir).filter((f) => /\.(html|png|ico|svg)$/.test(f) || f === 'back-to-top.js' || f === 'sitemap.xml'));
+  const asPublic = (res) => { res.setHeader('Content-Security-Policy', PUBLIC_SITE_CSP); res.removeHeader('X-Robots-Tag'); };
+  const send = (res, file) => { asPublic(res); res.sendFile(path.join(dir, file), { headers: { 'Cache-Control': file.endsWith('.html') ? 'no-cache' : 'public, max-age=3600' } }); };
+  const router = express.Router();
+  router.get('/', (req, res, next) => (SIGN_IN_QUERY.some((k) => k in req.query) ? next() : send(res, 'index.html')));
+  router.get('/:file', (req, res, next) => (published.has(req.params.file) ? send(res, req.params.file) : next()));
+  router.use('/assets', express.static(path.join(dir, 'assets'), { index: false, setHeaders: (res) => { asPublic(res); res.setHeader('Cache-Control', 'public, max-age=3600'); } }));
+  return router;
+}
+
 /* ---------------- Security headers ---------------- */
 
 /**
@@ -429,6 +458,7 @@ export function securityHeaders(_req, res, next) {
   res.setHeader('Permissions-Policy', 'camera=(), geolocation=(), payment=(), microphone=(self)');
   // Nothing on the platform (sign-in, dashboards, labs, reports) belongs in search results; robots.txt keeps
   // crawling allowed so this directive is seen. The SPA shells carry the same noindex meta for previews.
+  // The public site is the exception: publicSite() lifts this and sets its own CSP.
   res.setHeader('X-Robots-Tag', 'noindex');
   next();
 }
@@ -511,7 +541,8 @@ export async function createGateway({ onboardPort, interviewPort, labsPort, read
 
   // Crawler and disclosure files are real files, never the SPA shell.
   const webPublic = path.join(ROOT, 'Threatready-landing-page-main/apps/web/public');
-  app.get('/robots.txt', (_req, res) => res.sendFile(path.join(webPublic, 'robots.txt'), { headers: { 'Cache-Control': 'public, max-age=3600' } }));
+  const siteDir = path.join(ROOT, 'Landing_Page-main');
+  app.get('/robots.txt', (_req, res) => res.sendFile(path.join(siteDir, 'robots.txt'), { headers: { 'Cache-Control': 'public, max-age=3600' } }));
   // sendFile ignores dot-segments by default; the directory is .well-known, so allow them here.
   app.get('/.well-known/security.txt', (_req, res) => res.type('text/plain').sendFile(path.join(webPublic, '.well-known/security.txt'), { dotfiles: 'allow', headers: { 'Cache-Control': 'public, max-age=3600' } }));
 
@@ -524,6 +555,7 @@ export async function createGateway({ onboardPort, interviewPort, labsPort, read
   app.use('/labs', labsApp ?? proxyTo(labsPort, () => stateOf('labs'), config));
   app.use('/ar', arApp ?? proxyTo(labsPort, () => stateOf('labs'), config));
   app.use('/interview-prep', spa(path.join(ROOT, 'InterviewPrep/apps/web/dist')));
+  app.use(publicSite(siteDir));
   app.use('/', spa(path.join(ROOT, 'Threatready-landing-page-main/apps/web/dist')));
 
   // Anything else (a non-GET to a static path, for instance) and any error thrown in this process: JSON

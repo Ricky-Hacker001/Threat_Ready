@@ -115,7 +115,7 @@ for p in PAGES:
             fail.append(f"{p.name}: link to unknown app host {host} ({href}); the platform is {PLATFORM_URL}")
         if "mode=signup" in href or text in ("Sign in", "Start free") or text.startswith("Start free"):
             fail.append(f"{p.name}: sign-in/sign-up link without data-app: {href} (run tools/sync_shell.py)")
-if not OFFLINE:
+if PLATFORM_HOST and not OFFLINE:
     try:
         socket.getaddrinfo(PLATFORM_HOST, 443)
     except OSError as e:
